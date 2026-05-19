@@ -1,0 +1,8 @@
+{
+  "id": 6001,
+  "input": "8 8",
+  "expected_output": "8 16",
+  "is_hidden": false,
+  "weight": 0.5
+}
+

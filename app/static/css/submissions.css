@@ -1,0 +1,157 @@
+/* app/static/css/submissions.css */
+
+/* Submission Item Cards */
+.submission-item {
+  background: white;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  transition: all 0.2s ease;
+}
+
+.submission-item:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transform: translateY(-2px);
+}
+
+.submission-item.passed {
+  border-left-width: 4px;
+  border-left-color: #22c55e;
+}
+
+.submission-item.failed {
+  border-left-width: 4px;
+  border-left-color: #ef4444;
+}
+
+.submission-item.pending {
+  border-left-width: 4px;
+  border-left-color: #f59e0b;
+}
+
+.submission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  gap: 1rem;
+}
+
+.submission-title {
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.submission-title a {
+  color: inherit;
+  transition: color 0.2s;
+}
+
+.submission-title a:hover {
+  color: #3b82f6;
+}
+
+.submission-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.813rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.submission-status.passed {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.submission-status.failed {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.submission-status.pending {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.submission-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.submission-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.submission-detail-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.submission-detail-value {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #64748b;
+}
+
+.empty-state i {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .submission-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .submission-details {
+    grid-template-columns: 1fr;
+  }
+
+  .submission-status {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Loading State */
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 3rem;
+  color: #64748b;
+}
+
+.loading-spinner .spinner-border {
+  margin-right: 0.5rem;
+}

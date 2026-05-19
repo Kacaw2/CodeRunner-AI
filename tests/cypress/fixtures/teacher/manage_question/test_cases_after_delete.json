@@ -1,0 +1,19 @@
+{
+  "test_cases": [
+    {
+      "id": 5001,
+      "input": "1 2 3",
+      "expected_output": "1 3 6",
+      "is_hidden": false,
+      "weight": 1
+    },
+    {
+      "id": 6001,
+      "input": "8 8",
+      "expected_output": "8 16",
+      "is_hidden": false,
+      "weight": 0.5
+    }
+  ]
+}
+

@@ -1,0 +1,143 @@
+<!-- app/templates/teacher/classrooms.html -->
+{% extends "base.html" %}
+{% set page = 'classrooms' %}
+{% block title %}Manage Classrooms · Teacher{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/classrooms.css') }}">
+
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="mb-1">Manage Classrooms</h2>
+      <p class="text-muted mb-0">Create and manage your classrooms</p>
+    </div>
+    <div>
+      <button class="btn btn-primary" id="openCreateModalBtn">
+        <i class="bi bi-plus-circle"></i> Create Classroom
+      </button>
+      <a href="{{ url_for('teacher.profile') }}" class="btn btn-outline-secondary ms-2">
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
+    </div>
+  </div>
+
+  <!-- Classrooms List -->
+  <div class="row g-3" id="classroomsList">
+    <div class="col-12 text-center">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Classroom Modal -->
+<div class="modal fade" id="createClassroomModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create New Classroom</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="createClassroomForm">
+          <div class="mb-3">
+            <label class="form-label">Classroom Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="classroomName" required placeholder="e.g., COMP1000 Spring 2024">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" id="classroomDescription" rows="3" placeholder="Optional description"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="createClassroomBtn">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Classroom Detail Modal -->
+<div class="modal fade" id="classroomDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1" id="classroomDetailTitle">Classroom Details</h5>
+          <div>
+            <span class="text-muted small">Invite Code: </span>
+            <span class="classroom-code" id="classroomCode">------</span>
+            <button class="btn btn-sm btn-outline-secondary ms-2" id="copyCodeBtn" title="Copy invite code">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <strong>Description:</strong>
+          <p id="classroomDetailDescription" class="text-muted mb-0"></p>
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="students-tab" data-bs-toggle="tab" data-bs-target="#students" type="button">
+              <i class="bi bi-people"></i> Students (<span id="studentCount">0</span>)
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="add-student-tab" data-bs-toggle="tab" data-bs-target="#add-student" type="button">
+              <i class="bi bi-person-plus"></i> Add Students
+            </button>
+          </li>
+        </ul>
+
+        <div class="tab-content">
+          <!-- Current Students Tab -->
+          <div class="tab-pane fade show active" id="students" role="tabpanel">
+            <div id="currentStudentsList">
+              <div class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm me-2"></div>
+                Loading students...
+              </div>
+            </div>
+          </div>
+
+          <!-- Add Students Tab -->
+          <div class="tab-pane fade" id="add-student" role="tabpanel">
+            <div class="mb-3">
+              <input type="text" class="form-control" id="searchStudents" placeholder="Search students by name or email...">
+            </div>
+            <div id="allStudentsList" style="max-height: 400px; overflow-y: auto;">
+              <div class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm me-2"></div>
+                Loading students...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" id="deleteClassroomBtn">
+          <i class="bi bi-trash"></i> Delete Classroom
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/classrooms.js') }}"></script>
+
+{% endblock %}

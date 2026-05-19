@@ -1,0 +1,159 @@
+<!-- app/templates/_navbar.html -->
+<nav class="site-nav" aria-label="Primary navigation" 
+     data-login-url="{{ url_for('web_auth.login_page') }}"
+     data-teacher-dashboard="{{ url_for('teacher.profile') }}"
+     data-student-dashboard="{{ url_for('student.profile') }}">
+  <div class="site-nav__inner">
+    <!-- Brand + left links -->
+    <div class="site-nav__brand-group">
+      <a class="site-nav__brand" href="{{ url_for('main.home') }}" aria-label="codeRunner home">
+        codeRunner
+      </a>
+
+      <a class="site-nav__link {{ 'site-nav__link--active' if page == 'home' else '' }}"
+        href="{{ url_for('main.home') }}" {% if page=='home' %}aria-current="page" {% endif %}>
+        Home
+      </a>
+
+      <a class="site-nav__link {{ 'site-nav__link--active' if page == 'dashboard' else '' }}"
+        href="{{ url_for('main.dashboard') }}" {% if page=='dashboard' %}aria-current="page" {% endif %}>
+        Dashboard
+      </a>
+      
+      <!-- Student-only: My Submissions link -->
+      <a id="nav-submissions" 
+         class="site-nav__link {{ 'site-nav__link--active' if page == 'submissions' else '' }} is-hidden"
+         href="{{ url_for('submissions_web.list_submissions') }}" 
+         {% if page=='submissions' %}aria-current="page" {% endif %}>
+        My Submissions
+      </a>
+      <a id="nav-myquizzes" 
+         class="site-nav__link {{ 'site-nav__link--active' if page == 'myquizzes' else '' }} is-hidden"
+         href="{{ url_for('student.quizzes') }}" 
+         {% if page=='myquizzes' %}aria-current="page" {% endif %}>
+        My Quizzes
+      </a>
+    </div>
+
+    <!-- Right actions -->
+    <div class="site-nav__actions">
+      <!-- Logged in user -->
+      <div id="nav-auth-user" class="nav-auth-user is-hidden">
+        <a id="nav-dashboard"
+          class="site-nav__link site-nav__link--pill {{ 'site-nav__link--active' if page in ['teacher-profile','student-profile'] else '' }}"
+          href="#" 
+          {% if page in ['teacher-profile','student-profile'] %}aria-current="page" {% endif %}>
+          <i class="bi bi-person-circle"></i> Profile
+        </a>
+
+        <!-- Teacher tools  -->
+        <div id="nav-teacher-tools" class="site-nav__teacher-tools is-hidden">
+          <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.questions_create') }}">
+            <i class="bi bi-plus-circle"></i> Create
+          </a>
+          <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.classrooms') }}">
+            <i class="bi bi-door-open"></i> Classrooms
+          </a>
+          <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.quizzes') }}">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Quizzes
+          </a>
+          <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.grades') }}">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Grades
+          </a>
+        </div>
+
+        <!-- Sign out -->
+        <a id="nav-signout" class="site-nav__link site-nav__link--ghost" href="#">
+          Sign Out
+        </a>
+      </div>
+
+      <!-- Guest -->
+      <div id="nav-auth-guest" class="nav-auth-guest">
+        <a class="site-nav__link {{ 'site-nav__link--active' if page == 'auth-login' else '' }}"
+          href="{{ url_for('web_auth.login_page') }}" {% if page=='auth-login' %}aria-current="page" {% endif %}>
+          Login
+        </a>
+        <a class="site-nav__cta" href="{{ url_for('web_auth.signup_page') }}">
+          Sign Up
+        </a>
+      </div>
+
+
+      <!-- Mobile dropdown menu -->
+      <div class="site-nav__mobile-menu">
+        <button class="site-nav__menu-toggle"
+              type="button"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="site-nav-mobile-dropdown">
+        <i class="bi bi-list"></i>
+        </button>
+
+
+        <div class="site-nav__menu-dropdown is-hidden" id="site-nav-mobile-dropdown">
+          <!-- main nav -->
+          <a class="site-nav__menu-link" href="{{ url_for('main.home') }}">
+            Home
+          </a>
+          <a id="nav-submissions-mobile"
+             class="site-nav__menu-link is-hidden"
+             href="{{ url_for('submissions_web.list_submissions') }}">
+            My Submissions
+          </a>
+          <a id="nav-myquizzes-mobile"
+             class="site-nav__menu-link is-hidden"
+             href="{{ url_for('student.quizzes') }}">
+            My Quizzes
+          </a>
+
+          <hr class="site-nav__menu-divider">
+
+          <!-- login：Dashboard / Profile -->
+          <a id="nav-dashboard-mobile"
+             class="site-nav__menu-link"
+             href="#">
+            Profile / Dashboard
+          </a>
+
+          <!-- teacher tools bar -->
+          <div id="nav-teacher-tools-mobile" class="site-nav__menu-subgroup is-hidden">
+            <a class="site-nav__menu-link" href="{{ url_for('teacher.questions_create') }}">
+              Create Questions
+            </a>
+            <a class="site-nav__menu-link" href="{{ url_for('teacher.classrooms') }}">
+              Classrooms
+            </a>
+            <a class="site-nav__menu-link" href="{{ url_for('teacher.quizzes') }}">
+              Quizzes
+            </a>
+            <a class="site-nav__menu-link" href="{{ url_for('teacher.grades') }}">
+              Grades
+            </a>
+          </div>
+
+          <!-- login register mobile -->
+          <a id="nav-login-mobile"
+             class="site-nav__menu-link"
+             href="{{ url_for('web_auth.login_page') }}">
+            Login
+          </a>
+          <a id="nav-signup-mobile"
+             class="site-nav__menu-link"
+             href="{{ url_for('web_auth.signup_page') }}">
+            Sign Up
+          </a>
+
+          <!-- logout mobile -->
+          <button id="nav-signout-mobile"
+                  type="button"
+                  class="site-nav__menu-link site-nav__menu-link--danger is-hidden">
+            Sign Out
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<script type="module" src="{{ url_for('static', filename='js/_navbar.js') }}"></script>

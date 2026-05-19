@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": 1001,
+      "student_id": 501,
+      "student_name": "student1",
+      "student_email": "student1@bread.dev",
+      "question_id": 870,
+      "question_title": "Array Prefix Sum",
+      "status": "completed",
+      "score": 92,
+      "submitted_at": "2024-03-20T09:30:00"
+    }
+  ],
+  "total": 1
+}
+

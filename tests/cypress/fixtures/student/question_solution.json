@@ -1,0 +1,5 @@
+{
+  "solution_code": "def prefix(nums):\n    return [sum(nums[:i + 1]) for i in range(len(nums))]\n",
+  "programming_language": "python"
+}
+

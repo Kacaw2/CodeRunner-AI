@@ -1,0 +1,319 @@
+/* app/static/css/navbar.css - Base styles */
+
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1020;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.site-nav__inner {
+  max-width: 95%;
+  margin: 0 auto;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+/* Left side: Brand + main navigation */
+.site-nav__brand-group {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex: 0 1 auto;
+}
+
+.site-nav__brand {
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.site-nav__brand:hover {
+  color: #2563eb;
+}
+
+/* Right side: Auth actions (login/profile/teacher tools) */
+.site-nav__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+/* Auth boxes */
+.nav-auth-user,
+.nav-auth-guest {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Common link styles */
+.site-nav__link {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #1f2937;
+  padding: 6px 0;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.site-nav__link:hover {
+  color: #2563eb;
+}
+
+/* Active state for left nav links (underline) */
+.site-nav__link--active {
+  color: #2563eb;
+}
+
+.site-nav__brand-group .site-nav__link--active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -10px;
+  height: 3px;
+  border-radius: 999px;
+  background: #2563eb;
+  opacity: 0.85;
+}
+
+/* Pill style links (Profile and Teacher tools) */
+.site-nav__link--pill {
+  padding: 6px 14px !important;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.site-nav__link--pill:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+/* Remove underline for pill links */
+.site-nav__link--pill::after {
+  display: none !important;
+}
+
+/* Ghost link (Sign Out) */
+.site-nav__link--ghost {
+  color: #6b7280;
+}
+
+.site-nav__link--ghost:hover {
+  color: #0f172a;
+}
+
+/* Sign Up CTA button */
+.site-nav__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(37, 99, 235, 0.6);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.15));
+  color: #2563eb;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.site-nav__cta:hover {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(37, 99, 235, 0.3));
+  border-color: rgba(37, 99, 235, 0.8);
+  color: #1d4ed8;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+}
+
+/* Teacher tools container */
+.site-nav__teacher-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Hide class */
+.is-hidden {
+  display: none !important;
+}
+
+/* Icons in links */
+.site-nav__link i {
+  font-size: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 992px) {
+  .site-nav__inner {
+    gap: 16px;
+  }
+
+  .site-nav__brand-group {
+    gap: 16px;
+  }
+
+  .site-nav__actions {
+    gap: 8px;
+  }
+
+  .site-nav__teacher-tools {
+    gap: 6px;
+  }
+
+  /* Hide text on teacher tools, show only icons */
+  .site-nav__teacher-tools .site-nav__link {
+    padding: 6px 10px !important;
+  }
+}
+
+@media (max-width: 768px) {
+.site-nav__inner {
+    flex-wrap: nowrap;
+    padding: 10px 16px;
+  }
+
+  /* 左侧：只保留 Dashboard（和品牌），隐藏其它 link */
+  .site-nav__brand-group .site-nav__link {
+    display: none;
+  }
+
+  /* 保留 Dashboard 这个 link（左侧） */
+  .site-nav__brand-group .site-nav__link[href*="dashboard"] {
+    display: inline-flex;
+  }
+
+  /* 右侧：隐藏原来的 profile/login 区域，改用移动端 dropdown */
+  .nav-auth-user,
+  .nav-auth-guest,
+  .site-nav__teacher-tools {
+    display: none !important;
+  }
+
+  .site-nav__mobile-menu {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 576px) {
+  .site-nav__inner {
+    padding: 8px 12px;
+  }
+
+  .site-nav__brand {
+    font-size: 1rem;
+  }
+
+  .site-nav__brand-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .site-nav__actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+/* ========== Mobile dropdown ========== */
+
+.site-nav__mobile-menu {
+  display: none;            /* 桌面端默认隐藏 */
+  position: relative;
+}
+
+.site-nav__menu-toggle {
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #f9fafb;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.site-nav__menu-toggle i {
+  font-size: 1.1rem;
+}
+
+.site-nav__menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 220px;
+  padding: 8px 0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  z-index: 2000;
+}
+
+.site-nav__menu-link {
+  display: block;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  color: #111827;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.site-nav__menu-link:hover {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+.site-nav__menu-link--danger {
+  color: #b91c1c;
+}
+
+.site-nav__menu-link--danger:hover {
+  background-color: #fee2e2;
+}
+
+.site-nav__menu-divider {
+  margin: 6px 0;
+  border-color: #e5e7eb;
+}
+
+.site-nav__menu-subgroup {
+  padding-left: 12px;
+  border-left: 2px solid #e5e7eb;
+  margin: 4px 0 8px;
+}
+
+/* open/close helper */
+.site-nav__menu-dropdown.is-open {
+  display: block;
+}
+
+.site-nav__menu-dropdown.is-hidden {
+  display: none;
+}
+@media (max-width: 768px) {
+  .site-nav__mobile-menu {
+    display: inline-flex !important;
+  }
+}

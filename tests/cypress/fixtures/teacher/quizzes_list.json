@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "id": 301,
+      "title": "Week 6 Sorting",
+      "description": "Quick sort & merge sort practice",
+      "question_count": 4,
+      "total_points": 80,
+      "assigned_to_count": 2,
+      "is_published": true
+    },
+    {
+      "id": 302,
+      "title": "Week 7 Graphs",
+      "description": "DFS/BFS drills",
+      "question_count": 3,
+      "total_points": 60,
+      "assigned_to_count": 1,
+      "is_published": false
+    }
+  ]
+}
+

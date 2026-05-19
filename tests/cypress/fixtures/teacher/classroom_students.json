@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "id": 301, "username": "student1", "email": "student1@bread.dev" },
+    { "id": 302, "username": "student2", "email": "student2@bread.dev" }
+  ]
+}
+

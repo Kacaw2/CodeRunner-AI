@@ -1,0 +1,127 @@
+<!-- app/templates/public/home.html -->
+{% extends "base.html" %}
+{% set page_class = 'page-home' %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+
+{% endblock %}
+
+{% block title %}Home · Coding Practice Platform{% endblock %}
+
+{% block content %}
+<div class="home-root">
+  <section class="home-hero" aria-labelledby="home-hero-title">
+    <div class="home-hero__content">
+      <h1 class="home-hero__title" id="home-hero-title">Keep your coding practice simple</h1>
+      <p class="home-hero__lead">
+        We built codeRunner for students who revise by solving real lab questions. No streaks, no hype&mdash;just
+        a weekly routine that makes space for careful thinking.
+      </p>
+      <div class="home-hero__actions">
+        <a class="btn" href="{{ url_for('web_auth.login_page') }}">Create Free Account</a>
+        <a class="btn btn-secondary" href="{{ url_for('main.dashboard') }}">Browse Problems</a>
+      </div>
+      <p class="home-hero__footnote">
+        Already set up by your tutor? Sign in with your UNSW email to see assigned sets.
+      </p>
+    </div>
+    <div class="home-hero__details" aria-label="What's inside codeRunner">
+      <h2 class="home-hero__details-title">What you'll use most</h2>
+      <ul class="home-hero__list">
+        <li>
+          <span class="home-hero__list-title">Course-aligned questions</span>
+          <span class="home-hero__list-text">Weekly lab and past exam prompts arranged by topic.</span>
+        </li>
+        <li>
+          <span class="home-hero__list-title">Practical feedback</span>
+          <span class="home-hero__list-text">Hints focus on how to reason through the problem, not just the final code.</span>
+        </li>
+        <li>
+          <span class="home-hero__list-title">Low-effort tracking</span>
+          <span class="home-hero__list-text">See what's unfinished without adding another tool to your to-do list.</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="home-overview" aria-labelledby="overview-heading">
+    <h2 id="overview-heading">What a study session feels like</h2>
+    <div class="home-overview__grid">
+      <article class="home-overview__item">
+        <h3>Choose a topic</h3>
+        <p>Open the dashboard, pick a lab or exam-style question, and block out 20-30 minutes.</p>
+      </article>
+      <article class="home-overview__item">
+        <h3>Work through the hints</h3>
+        <p>Compare your reasoning with the tutor notes. Adjust your solution until it reads clearly.</p>
+      </article>
+      <article class="home-overview__item">
+        <h3>Note what to revisit</h3>
+        <p>Tag the problem, jot down gaps in understanding, and move on without losing context.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="home-feature-section" aria-labelledby="feature-heading">
+    <h2 id="feature-heading">Why UNSW students stick with codeRunner</h2>
+    <div class="home-feature-grid">
+      <article class="home-feature-card">
+        <h3>Stays close to coursework</h3>
+        <p>The library mirrors lab sheets and revision guides, so practice feels familiar instead of abstract.</p>
+      </article>
+      <article class="home-feature-card">
+        <h3>Built for small windows</h3>
+        <p>Most sets fit between classes or after dinner. Pick up where you left off without resetting your context.</p>
+      </article>
+      <article class="home-feature-card">
+        <h3>Easy to share with friends</h3>
+        <p>Swap attempts, compare notes, and keep each other accountable with minimal admin.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="home-steps" aria-labelledby="how-heading">
+    <h2 id="how-heading">Get started in four small steps</h2>
+    <ol class="home-steps__list">
+      <li class="home-steps__item">
+        <div class="home-steps__marker" aria-hidden="true">1</div>
+        <div class="home-steps__content">
+          <h3>Create your account</h3>
+          <p>Sign up with your zID or UNSW email so we can connect you to the right classes.</p>
+        </div>
+      </li>
+      <li class="home-steps__item">
+        <div class="home-steps__marker" aria-hidden="true">2</div>
+        <div class="home-steps__content">
+          <h3>Find a question set</h3>
+          <p>Filter by topic or course and pin the problems you want to cover this week.</p>
+        </div>
+      </li>
+      <li class="home-steps__item">
+        <div class="home-steps__marker" aria-hidden="true">3</div>
+        <div class="home-steps__content">
+          <h3>Code, compare, refine</h3>
+          <p>Write your solution, read the walkthrough, and update anything that still feels shaky.</p>
+        </div>
+      </li>
+      <li class="home-steps__item">
+        <div class="home-steps__marker" aria-hidden="true">4</div>
+        <div class="home-steps__content">
+          <h3>Track your progress</h3>
+          <p>Mark the problem as complete, note any follow-up tasks, and move on to the next set.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="home-callout" aria-labelledby="callout-heading">
+    <div class="home-callout__content">
+      <h2 id="callout-heading">Ready when you are</h2>
+      <p>Set aside an hour this week, crack open a set, and compare notes with a classmate afterwards.</p>
+    </div>
+    <a class="btn" href="{{ url_for('web_auth.login_page') }}">Start practising today</a>
+  </section>
+</div>
+
+{% endblock %}

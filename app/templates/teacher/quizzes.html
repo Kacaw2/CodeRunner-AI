@@ -1,0 +1,330 @@
+<!-- app/templates/teacher/quizzes.html -->
+{% extends "base.html" %} {% set page = 'quizzes' %} 
+{% block title %}
+Manage Quizzes · Teacher
+{% endblock %} 
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/quizzes.css') }}">
+{% endblock %} 
+
+{% block content %}
+<div class="container-fluid py-3">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="mb-1">Manage Quizzes</h2>
+      <p class="text-muted mb-0">Create and manage quizzes for your students</p>
+    </div>
+    <div>
+      <button class="btn btn-primary" id="createQuizBtn">
+        <i class="bi bi-plus-circle"></i> Create Quiz
+      </button>
+      <a
+        href="{{ url_for('teacher.profile') }}"
+        class="btn btn-outline-secondary ms-2"
+      >
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
+    </div>
+  </div>
+
+  <!-- Quizzes List -->
+  <div class="row g-3" id="quizzesList">
+    <div class="col-12 text-center">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Quiz Modal -->
+<div class="modal fade" id="createQuizModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create New Quiz</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <form id="createQuizForm">
+          <div class="mb-3">
+            <label class="form-label"
+              >Quiz Title <span class="text-danger">*</span></label
+            >
+            <input type="text" class="form-control" id="quizTitle" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea
+              class="form-control"
+              id="quizDescription"
+              rows="3"
+            ></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Duration (minutes)</label>
+            <input
+              type="number"
+              class="form-control"
+              id="quizDuration"
+              min="1"
+            />
+          </div>
+          <div class="mb-3 form-check">
+            <input
+              type="checkbox"
+              class="form-check-input"
+              id="quizPublished"
+            />
+            <label class="form-check-label" for="quizPublished">
+              Publish immediately
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Cancel
+        </button>
+        <button type="button" class="btn btn-primary" id="saveQuizBtn">
+          Create
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Quiz Detail Modal -->
+<div class="modal fade" id="quizDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="quizDetailTitle">Quiz Details</h5>
+          <span class="quiz-badge" id="quizStatusBadge"></span>
+        </div>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <strong>Description:</strong>
+          <p id="quizDetailDescription" class="text-muted mb-0"></p>
+        </div>
+        <div class="mb-3">
+          <span class="badge-info-custom me-2">
+            <i class="bi bi-list-check"></i>
+            <span id="quizQuestionCount">0</span> Questions
+          </span>
+          <span class="badge-primary-custom">
+            <i class="bi bi-star"></i>
+            <span id="quizTotalPoints">0</span> Points
+          </span>
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item">
+            <button
+              class="nav-link active"
+              data-bs-toggle="tab"
+              data-bs-target="#questionsTab"
+            >
+              <i class="bi bi-list-check"></i> Questions
+            </button>
+          </li>
+          <li class="nav-item">
+            <button
+              class="nav-link"
+              data-bs-toggle="tab"
+              data-bs-target="#assignmentsTab"
+            >
+              <i class="bi bi-building"></i> Assignments
+            </button>
+          </li>
+          <li class="nav-item">
+            <button
+              class="nav-link"
+              data-bs-toggle="tab"
+              data-bs-target="#attemptsTab"
+            >
+              <i class="bi bi-clipboard-data"></i> Attempts
+            </button>
+          </li>
+        </ul>
+
+        <div class="tab-content">
+          <!-- Questions Tab -->
+          <div class="tab-pane fade show active" id="questionsTab">
+            <div class="mb-3">
+              <button
+                class="btn btn-sm btn-outline-primary"
+                id="addQuestionBtn"
+              >
+                <i class="bi bi-plus"></i> Add Question
+              </button>
+            </div>
+            <div id="questionsList"></div>
+          </div>
+
+          <!-- Assignments Tab -->
+          <div class="tab-pane fade" id="assignmentsTab">
+            <div class="mb-3">
+              <button
+                class="btn btn-sm btn-outline-primary"
+                id="assignToClassroomBtn"
+              >
+                <i class="bi bi-plus"></i> Assign to Classroom
+              </button>
+            </div>
+            <div id="assignmentsList"></div>
+          </div>
+
+          <!-- Attempts Tab -->
+          <div class="tab-pane fade" id="attemptsTab">
+            <div id="attemptsList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger" id="deleteQuizBtn">
+          <i class="bi bi-trash"></i> Delete
+        </button>
+        <button type="button" class="btn btn-outline-warning" id="togglePublishBtn">
+          <i class="bi bi-eye"></i> <span id="publishBtnText">Publish</span>
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Question Modal -->
+<div class="modal fade" id="addQuestionModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Question to Quiz</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label"
+            >Select Question <span class="text-danger">*</span></label
+          >
+          <select class="form-select" id="selectQuestion" size="8">
+            <option value="">Loading questions...</option>
+          </select>
+          <small class="text-muted"
+            >Select an existing question from your question bank</small
+          >
+        </div>
+        <div class="row">
+          <div class="col-md-6">
+            <label class="form-label">Points</label>
+            <input
+              type="number"
+              class="form-control"
+              id="questionPoints"
+              value="10"
+              min="1"
+            />
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Order</label>
+            <input
+              type="number"
+              class="form-control"
+              id="questionOrder"
+              value="1"
+              min="1"
+            />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          id="confirmAddQuestionBtn"
+        >
+          Add Question
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Assign to Classroom Modal -->
+<div class="modal fade" id="assignClassroomModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Assign Quiz to Classroom</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label"
+            >Select Classroom <span class="text-danger">*</span></label
+          >
+          <select class="form-select" id="selectClassroom">
+            <option value="">Loading classrooms...</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Due Date (Optional)</label>
+          <input
+            type="datetime-local"
+            class="form-control"
+            id="assignmentDueDate"
+          />
+        </div>
+        <div class="mb-3 form-check">
+          <input
+            type="checkbox"
+            class="form-check-input"
+            id="allowLateSubmission"
+          />
+          <label class="form-check-label" for="allowLateSubmission">
+            Allow late submissions
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Cancel
+        </button>
+        <button type="button" class="btn btn-primary" id="confirmAssignBtn">
+          Assign
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %} {% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/quizzes.js') }}"></script>
+{% endblock %}

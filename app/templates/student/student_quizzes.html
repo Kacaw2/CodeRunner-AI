@@ -1,0 +1,82 @@
+<!-- templates/student/student_quizzes.html -->
+{% extends "base.html" %}
+{% block title %}My Quizzes{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/student_quizzes.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <header class="mb-4">
+        <h2>My Quizzes</h2>
+        <p class="text-muted">Complete your assigned quizzes and track your progress</p>
+    </header>
+
+    <!-- Quiz Selection View -->
+    <div id="quiz-list-view">
+        <div class="row" id="quiz-list">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quiz Detail View (hidden by default) -->
+    <div id="quiz-detail-view" style="display: none;">
+        <button class="btn btn-outline-secondary back-button" id="back-to-list">
+            <i class="bi bi-arrow-left"></i> Back to Quiz List
+        </button>
+        
+        <div class="card">
+            <div class="card-header bg-white">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h4 id="detail-title" class="mb-1"></h4>
+                        <small class="text-muted" id="detail-classroom"></small>
+                    </div>
+                    <span id="detail-status-badge"></span>
+                </div>
+            </div>
+            <div class="card-body">
+                <p id="detail-description" class="text-muted"></p>
+                
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="mb-0">Progress</h5>
+                        <span class="text-muted" id="detail-progress-text"></span>
+                    </div>
+                    <div class="quiz-progress">
+                        <div class="quiz-progress-bar" id="detail-progress-bar"></div>
+                    </div>
+                </div>
+
+                <div class="stats-mini" id="detail-stats">
+                    <div class="stat-item">
+                        <i class="bi bi-clock"></i>
+                        <span id="detail-duration"></span>
+                    </div>
+                    <div class="stat-item">
+                        <i class="bi bi-calendar-event"></i>
+                        <span id="detail-due-date"></span>
+                    </div>
+                    <div class="stat-item" id="detail-score-stat" style="display: none;">
+                        <i class="bi bi-trophy"></i>
+                        <span id="detail-score"></span>
+                    </div>
+                </div>
+
+                <h5 class="mt-4 mb-3">Questions</h5>
+                <div class="question-list" id="detail-questions">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/student_quizzes.js') }}"></script>
+{% endblock %}

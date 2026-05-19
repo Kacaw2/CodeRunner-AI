@@ -1,0 +1,34 @@
+{
+  "name": "capstone-project-25t3-9900-w09c-bread",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "cy:open": "cypress open",
+    "cy:run": "cypress run",
+    "cy:smoke": "cypress run --spec cypress/e2e/public_home.cy.ts,cypress/e2e/auth.cy.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unsw-cse-comp99-3900/capstone-project-25t3-9900-w09c-bread.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/unsw-cse-comp99-3900/capstone-project-25t3-9900-w09c-bread/issues"
+  },
+  "homepage": "https://github.com/unsw-cse-comp99-3900/capstone-project-25t3-9900-w09c-bread#readme",
+  "devDependencies": {
+    "@faker-js/faker": "^10.1.0",
+    "@types/node": "^24.10.1",
+    "cypress": "^13.17.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

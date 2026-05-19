@@ -1,0 +1,264 @@
+<!-- app/templates/question_runner.html -->
+{% extends "base.html" %}
+{% block title %}{{ question.title }} · Run Code{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/darcula.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/monokai.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/solarized.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/question_runner.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- LeetCode-style Split Layout -->
+<div class="code-runner-container">
+  
+  <!-- Left Panel: Problem Description and Inputs -->
+  <div class="left-panel">
+    <!-- Navigation Buttons -->
+    <div class="nav-buttons">
+      <a class="btn btn-secondary" href="{{ url_for('main.dashboard') }}">
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
+      <a class="btn btn-info" href="/submissions">
+        <i class="bi bi-list-check"></i> My Submissions
+      </a>
+    </div>
+
+    <!-- Top: Problem Description -->
+    <div class="description-section">
+      <div class="problem-header">
+        <h1 class="problem-title">{{ question.title }}</h1>
+      </div>
+
+      <div class="problem-description">
+        <div class="description-header">
+          <h3><i class="bi bi-file-text"></i> Description</h3>
+          <div class="problem-meta">
+            <span class="meta-badge">
+              <i class="bi bi-code-slash"></i> {{ question.programming_language|upper }}
+            </span>
+            <span class="meta-badge">
+              <i class="bi bi-hash"></i> Question #{{ question.id }}
+            </span>
+          </div>
+        </div>
+        <div class="description-content">
+          {{ question.description|safe }}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Horizontal Divider (can be dragged) -->
+    <div class="horizontal-divider" id="horizontalDivider">
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Bottom: Test Inputs -->
+    <div class="testcase-section">
+      <!-- Testcase Tabs -->
+      <div class="testcase-tabs-header">
+        <button class="testcase-tab active" data-case="testcase">
+          <i class="bi bi-check-circle"></i> Testcase
+        </button>
+      </div>
+
+      <!-- Testcase Tab Content -->
+      <div class="testcase-content" id="testcaseContent">
+        <!-- Case Selector -->
+        <div class="case-selector">
+          <button class="case-btn active" data-case-num="1">Case 1</button>
+          <button class="case-btn" data-case-num="2">Case 2</button>
+          <button class="case-btn" data-case-num="3">Case 3</button>
+          <button class="case-btn-add" id="addCaseBtn">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+
+        <!-- Case Input Fields -->
+        <div class="case-inputs" id="caseInputs">
+          <!-- Dynamic input fields will be added here -->
+        </div>
+
+        <!-- Time Limit -->
+        <div class="time-limit-group">
+          <label class="input-label">
+            <i class="bi bi-stopwatch"></i> Time Limit (seconds)
+          </label>
+          <input 
+            id="tlimit" 
+            type="number" 
+            min="0.1" 
+            step="0.1" 
+            value="2.0" 
+            class="time-limit-input"
+          />
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Vertical Divider (can be dragged) -->
+  <div class="vertical-divider" id="verticalDivider">
+    <div class="divider-handle"></div>
+  </div>
+
+  <!-- Right Panel: Code Editor and Results -->
+  <div class="right-panel">
+    <!-- Top: Code Editor -->
+    <div class="editor-section">
+      <!-- Editor Header: Tabs + Buttons -->
+      <div class="editor-header">
+        <!-- Left: Editor Tabs -->
+        <div class="editor-tabs">
+          <button class="editor-tab active" data-tab="editor">
+            <i class="bi bi-code-square"></i> Code
+          </button>
+          <button class="editor-tab solution-tab locked" data-tab="solution" id="solutionTab">
+            <i class="bi bi-lightbulb"></i> Solution
+          </button>
+        </div>
+        
+        <!-- Right: Action Buttons -->
+        <div class="editor-actions">
+          <button class="btn btn-theme" id="themeBtn" type="button" title="Change Theme">
+            <i class="bi bi-palette"></i>
+          </button>
+          <button class="btn btn-run" id="runBtn" type="button">
+            <i class="bi bi-play-fill"></i> Run
+          </button>
+          <button class="btn btn-submit" id="submitBtn" type="button">
+            <i class="bi bi-send-fill"></i> Submit
+          </button>
+        </div>
+      </div>
+
+      <!-- Code Editor Tab -->
+      <div id="editorTab" class="tab-content">
+        <textarea 
+          id="codeEditor" 
+          data-problem-id="{{ question.id }}" 
+          data-language="{{ question.programming_language or 'c' }}"
+          placeholder="// Write your code here..."
+        >{{ question.starter_code|default('') }}</textarea>
+      </div>
+
+      <!-- Solution Tab -->
+      <div id="solutionTabContent" class="tab-content" style="display:none;">
+        <!-- Locked State -->
+        <div id="solutionLocked" class="solution-locked">
+          <i class="bi bi-lock-fill solution-lock-icon"></i>
+          <h4>Solution Locked</h4>
+          <p>Submit your solution to unlock the reference solution.</p>
+          <p class="solution-hint">
+            <i class="bi bi-info-circle"></i> 
+            This encourages you to try solving it yourself first!
+          </p>
+        </div>
+
+        <!-- Unlocked State -->
+        <div id="solutionUnlocked" class="solution-content" style="display:none;">
+          <div class="solution-header">
+            <div>
+              <h4>
+                <i class="bi bi-check-circle-fill"></i>
+                Reference Solution
+              </h4>
+            </div>
+            <div class="solution-actions">
+              <span class="solution-language" id="solutionLanguage">-</span>
+              <button class="copy-solution-btn" id="copySolutionBtn">
+                <i class="bi bi-clipboard"></i> Copy
+              </button>
+            </div>
+          </div>
+          <div class="solution-code">
+            <pre id="solutionCode">Loading solution...</pre>
+          </div>
+        </div>
+      </div>
+
+      <p id="errorMsg" class="error-message"></p>
+    </div>
+
+    <!-- Horizontal Divider for Right Panel (can be dragged) -->
+    <div class="horizontal-divider-right" id="horizontalDividerRight">
+      <div class="divider-line"></div>
+    </div>
+
+    <!--  Results  -->
+    <div class="results-section" id="resultsSection">
+      
+          <!-- Results Tabs Header -->
+          <div class="results-tabs-header">
+            <button class="results-tab active" data-result-tab="testresult">
+              <i class="bi bi-terminal-fill"></i> Test Result
+            </button>
+            <button class="results-tab" data-result-tab="submission">
+              <i class="bi bi-clipboard-check-fill"></i> Submission Result
+            </button>
+          </div>
+
+          <!-- Test Result Tab Content -->
+          <div class="results-tab-content" id="testResultTabContent">
+            <div id="runResults" class="run-results">
+              <div class="result-placeholder">
+                <i class="bi bi-play-circle" style="font-size: 2.5rem; opacity: 0.3;"></i>
+                <p>Run your code to see test results</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Submission Result Tab Content -->
+          <div class="results-tab-content" id="submissionResultTabContent" style="display:none;">
+      
+            <!-- Processing State -->
+            <div id="processingSection" class="evaluation-state" style="display:none;">
+              <div class="processing-container">
+                <div class="spinner-border text-primary" role="status">
+                  <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="processing-text">
+                  <h4 id="processingText">Evaluating Your Solution</h4>
+                  <p>Running test cases and analyzing your code...</p>
+                </div>
+              </div>
+            </div>
+      
+            <!-- Test Case  ( include score) -->
+            <div id="testResultsSection" class="evaluation-state" style="display:none;">
+              <!-- single Test Case (header) -->
+              <div id="singleTestCase" class="single-test-case">
+              </div>
+            </div>
+
+            <!-- Error Display -->
+            <div id="errorSection" class="evaluation-state error-state" style="display:none;">
+              <div class="error-container">
+                <i class="bi bi-exclamation-triangle-fill error-icon"></i>
+              <div class="error-content">
+                  <h4>Submission Error</h4>
+                  <p id="errorDetail" class="error-message"></p>
+              </div>
+            </div>
+                  
+      </div>
+    </div>
+
+  </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- CodeMirror -->
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/mode/clike/clike.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/addon/edit/matchbrackets.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/addon/edit/closebrackets.js"></script>
+
+<script src="{{ url_for('static', filename='js/question_runner.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,90 @@
+<!-- app/templates/auth/signup.html -->
+{% extends "base.html" %}
+{% block title %}Sign Up{% endblock %}
+
+{% block content %}
+<div class="container py-5" style="max-width: 520px;">
+  <h5 class="mb-2">Create an account</h5>
+  <div class="card p-3">
+    <div class="mb-2">
+      <label class="form-label">Username</label>
+      <input id="reg-username" class="form-control" placeholder="student1">
+    </div>
+    <div class="mb-2">
+      <label class="form-label">Email (optional)</label>
+      <input id="reg-email" type="email" class="form-control" placeholder="you@example.com">
+    </div>
+    <div class="mb-2">
+      <label class="form-label">Password</label>
+      <input id="reg-password" type="password" class="form-control" placeholder="********">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Role</label>
+      <select id="reg-role" class="form-select">
+        <option value="student">student</option>
+        <option value="teacher">teacher</option>
+      </select>
+    </div>
+    <button id="btn-register" class="btn btn-outline-primary w-100">Register</button>
+    <div id="reg-msg" class="mt-2 small"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="next-path-json">{{ next_path|tojson }}</script>
+
+<script type="module">
+  import { saveToken } from "/static/js/auth.js";
+  const API = "/api/v1";
+
+  const nextPath = (() => {
+    try {
+      const el = document.getElementById('next-path-json');
+      return el ? JSON.parse(el.textContent) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const $ = (id) => document.getElementById(id);
+
+  // ❌ 删除：移除 login 函数（不属于注册页面）
+
+  async function registerUser(e) {
+    e?.preventDefault?.();
+    const body = {
+      username: $('reg-username').value.trim(),
+      email: $('reg-email').value.trim() || undefined,
+      password: $('reg-password').value,
+      role: $('reg-role').value
+    };
+    const msg = $('reg-msg');
+    msg.classList.remove('text-danger','text-success');
+    try {
+      const res = await fetch(`${API}/auth/register`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(()=> ({}));
+      if (res.ok) {
+        msg.classList.add('text-success');
+        msg.textContent = 'Registered. You can login now.';
+      } else {
+        msg.classList.add('text-danger');
+        msg.textContent = data.message || 'Register failed';
+      }
+    } catch (err) {
+      msg.classList.add('text-danger');
+      msg.textContent = 'Network error';
+      console.error(err);
+    }
+  }
+
+  $('btn-register')?.addEventListener('click', registerUser);
+  document.addEventListener('keydown', (e) => { 
+    if (e.key === 'Enter') registerUser(e); 
+  });
+</script>
+{% endblock %}

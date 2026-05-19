@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": 101,
+      "title": "Binary Search Warmup",
+      "programming_language": "python",
+      "difficulty": "Easy"
+    },
+    {
+      "id": 202,
+      "title": "Dynamic Programming Path Count",
+      "programming_language": "c",
+      "difficulty": "Medium"
+    }
+  ]
+}
+

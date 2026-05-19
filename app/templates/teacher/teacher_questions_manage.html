@@ -1,0 +1,208 @@
+<!-- app/templates/teacher/question_manage.html -->
+{% extends "base.html" %}
+{% set page = 'questions' %}
+{% block title %}Manage Question · Teacher{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/teacher_questions_manage.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid page-manage-question py-4">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header__content">
+      <h1 class="page-header__title">Manage Question</h1>
+      <p class="page-header__subtitle">
+        View question details and manage test cases.
+      </p>
+    </div>
+    <div class="page-header__actions">
+      <a href="{{ url_for('teacher.questions_create') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+        Back to Questions
+      </a>
+    </div>
+  </div>
+
+  <!-- Two Column Layout -->
+  <div class="row g-4">
+    <!-- Left Column: Question Details -->
+    <div class="col-lg-5">
+      <!-- Question Info Card -->
+      <div class="card detail-card">
+        <div class="card-body">
+          <div class="detail-header">
+            <div>
+              <h3 class="detail-title">
+                <i class="bi bi-file-code"></i>
+                Question Details
+              </h3>
+              <span class="question-badge" id="questionId">#...</span>
+            </div>
+            <div class="edit-mode-toggle">
+              <button class="btn btn-sm btn-outline-primary" id="editQuestionBtn">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
+              <button class="btn btn-sm btn-success d-none" id="saveQuestionBtn">
+                <i class="bi bi-check-lg"></i> Save
+              </button>
+              <button class="btn btn-sm btn-outline-secondary d-none" id="cancelEditBtn">
+                <i class="bi bi-x-lg"></i> Cancel
+              </button>
+            </div>
+          </div>
+
+          <!-- Question Information -->
+          <div class="detail-section">
+            <label class="detail-label">Title</label>
+            <div class="detail-value" id="questionTitle">Loading...</div>
+            <div class="detail-input">
+              <input type="text" class="form-control" id="questionTitleInput" placeholder="Question title">
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-6">
+              <div class="detail-section">
+                <label class="detail-label">Language</label>
+                <div class="detail-value">
+                  <span class="badge bg-info" id="questionLang">-</span>
+                </div>
+                <div class="detail-input">
+                  <select class="form-select" id="questionLangInput">
+                    <option value="python">Python</option>
+                    <option value="c">C</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="detail-section">
+                <label class="detail-label">Order</label>
+                <div class="detail-value" id="questionOrder">-</div>
+                <div class="detail-input">
+                  <input type="number" class="form-control" id="questionOrderInput" min="1" step="1">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <label class="detail-label">Quiz</label>
+            <div class="detail-value" id="questionQuiz">Not assigned</div>
+          </div>
+
+          <div class="detail-section">
+            <label class="detail-label">Description</label>
+            <div class="detail-value detail-description" id="questionDesc">Loading...</div>
+            <div class="detail-input">
+              <textarea class="form-control" id="questionDescInput" rows="6" placeholder="Question description"></textarea>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <label class="detail-label">Starter Code</label>
+            <pre class="detail-code" id="questionStarter">No starter code</pre>
+            <div class="detail-input">
+              <textarea class="form-control code-textarea" id="questionStarterInput" rows="8" placeholder="Starter code template"></textarea>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="detail-actions">
+            <a href="/question/{{ question_id }}" target="_blank" class="btn btn-outline-primary w-100 mb-2">
+              <i class="bi bi-eye"></i> Preview Question
+            </a>
+            <button class="btn btn-outline-danger w-100" id="deleteQuestionBtn">
+              <i class="bi bi-trash"></i> Delete Question
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Test Cases Management -->
+    <div class="col-lg-7">
+      <!-- Add Test Case Card -->
+      <div class="card testcase-card">
+        <div class="card-body">
+          <div class="testcase-header">
+            <h3 class="testcase-title">
+              <i class="bi bi-plus-circle"></i>
+              Add New Test Case
+            </h3>
+          </div>
+
+          <form id="testCaseForm">
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label">Visibility</label>
+                <select id="tcHidden" class="form-select">
+                  <option value="false">Public (students can see)</option>
+                  <option value="true">Hidden (for grading only)</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Weight</label>
+                <input id="tcWeight" class="form-control" type="number" value="1" min="0" step="0.1">
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Input (stdin)</label>
+              <textarea id="tcInput" class="form-control code-textarea" rows="3" placeholder="Test input data..."></textarea>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Expected Output</label>
+              <textarea id="tcExpected" class="form-control code-textarea" rows="3" placeholder="Expected output..."></textarea>
+              <small class="help-text">A trailing newline will be added automatically if missing.</small>
+            </div>
+
+            <div class="d-flex gap-2">
+              <button type="submit" id="addTcBtn" class="btn btn-success flex-grow-1">
+                <i class="bi bi-plus-circle"></i> Add Test Case
+              </button>
+              <button type="button" id="clearTcBtn" class="btn btn-outline-secondary">
+                <i class="bi bi-x-circle"></i> Clear
+              </button>
+            </div>
+            <div id="tcMsg" class="mt-2"></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Test Cases List -->
+      <div class="card testcase-card mt-4">
+        <div class="card-body">
+          <div class="testcase-header">
+            <div>
+              <h3 class="testcase-title mb-1">
+                <i class="bi bi-list-check"></i>
+                Test Cases
+              </h3>
+              <span id="testCaseCount" class="badge bg-primary rounded-pill">0 test cases</span>
+            </div>
+            <button id="refreshTestCases" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+          </div>
+
+          <!-- Test Cases Container -->
+          <div id="testCasesContainer" class="testcases-list">
+            <div class="empty-state">
+              <i class="bi bi-inbox"></i>
+              <div class="mt-2 text-muted">No test cases yet. Add your first test case!</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/teacher_questions_manage.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,26 @@
+{
+  "id": 870,
+  "title": "Array Prefix Sum",
+  "programming_language": "python",
+  "order": 1,
+  "description": "Given numbers return prefix sums",
+  "starter_code": "def prefix(nums):\n    pass",
+  "quiz": { "title": "Week 5 Arrays" },
+  "test_cases": [
+    {
+      "id": 5001,
+      "input": "1 2 3",
+      "expected_output": "1 3 6",
+      "is_hidden": false,
+      "weight": 1
+    },
+    {
+      "id": 5002,
+      "input": "5 5",
+      "expected_output": "5 10",
+      "is_hidden": true,
+      "weight": 1.5
+    }
+  ]
+}
+

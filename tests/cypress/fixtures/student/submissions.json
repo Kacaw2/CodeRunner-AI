@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "id": 501,
+      "question_id": 870,
+      "question_title": "Array Prefix Sum",
+      "status": "completed",
+      "score": 92,
+      "submitted_at": "2025-02-10T11:30:00",
+      "language": "python"
+    },
+    {
+      "id": 502,
+      "question_id": 905,
+      "question_title": "Stack Balancer",
+      "status": "pending",
+      "score": null,
+      "submitted_at": "2025-02-11T08:10:00",
+      "language": "c"
+    },
+    {
+      "id": 503,
+      "question_id": 910,
+      "question_title": "Graph Paths",
+      "status": "completed",
+      "score": 55,
+      "submitted_at": "2025-02-12T18:45:00",
+      "language": "python"
+    }
+  ]
+}
+

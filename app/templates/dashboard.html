@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Dashboard Container -->
+<div class="dashboard-container">
+
+    <!-- Header -->
+    <header class="page-header">
+        <h3 class="mb-1">Dashboard</h3>
+        <p class="page-subtitle">Your coding practice overview</p>
+    </header>
+
+    <!-- Stats Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card stat-card challenges shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-value text-primary" id="stat-challenges">
+                                <span class="spinner-border spinner-border-sm"></span>
+                            </div>
+                            <div class="stat-label">Coding Questions</div>
+                        </div>
+                        <div class="stat-icon text-primary">
+                            <i class="bi bi-code-slash"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card stat-card quizzes shadow-sm" onclick="window.location.href='/student/quizzes'">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-value text-success" id="stat-quizzes">
+                                <span class="spinner-border spinner-border-sm"></span>
+                            </div>
+                            <div class="stat-label">Quizzes</div>
+                        </div>
+                        <div class="stat-icon text-success">
+                            <i class="bi bi-journal-text"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card stat-card users shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-value text-warning" id="stat-questions">
+                                <span class="spinner-border spinner-border-sm"></span>
+                            </div>
+                            <div class="stat-label">Active Coders</div>
+                        </div>
+                        <div class="stat-icon text-warning">
+                            <i class="bi bi-people"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card stat-card submissions shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-value text-danger" id="stat-submissions24h">
+                                <span class="spinner-border spinner-border-sm"></span>
+                            </div>
+                            <div class="stat-label">Submissions (24h)</div>
+                        </div>
+                        <div class="stat-icon text-danger">
+                            <i class="bi bi-graph-up"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Problem List -->
+    <section class="page-section">
+        <div class="page-header">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h3 class="mb-1">Problem List</h3>
+                    <p class="page-subtitle">Select a problem to start coding practice</p>
+                </div>
+
+            </div>
+
+            <!-- Filters Row -->
+            <div class="filters-container">
+                <div class="filter-group">
+                    <label for="languageFilter" class="filter-label">
+                        <i class="bi bi-code-square"></i> Language:
+                    </label>
+                    <select id="languageFilter" class="form-select form-select-sm filter-select">
+                        <option value="">All Languages</option>
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="quizFilter" class="filter-label">
+                        <i class="bi bi-journal-text"></i> Quiz:
+                    </label>
+                    <select id="quizFilter" class="form-select form-select-sm filter-select">
+                        <option value="">All Quizzes</option>
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                                <!-- Items per page selector -->
+                <div class="items-per-page">
+                    <label for="itemsPerPage" style="margin: 0;">Show:</label>
+                    <select id="itemsPerPage" class="form-select form-select-sm">
+                        <option value="12">12</option>
+                        <option value="24">24</option>
+                        <option value="48">48</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+
+                <button id="clearFilters" class="btn btn-sm btn-outline-secondary clear-filters-btn">
+                    <i class="bi bi-x-circle"></i> Clear Filters
+                </button>
+            </div>
+        </div>
+
+        <!-- Questions Grid -->
+        <div class="row row-cols-1 row-cols-md-2 g-4 problem-grid" id="q-public-list">
+            <div class="col-12">
+                <div class="card p-4 text-center text-muted" id="q-public-loading">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    Loading...
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="pagination-container" id="pagination-container" style="display: none;">
+            <nav aria-label="Question list pagination">
+                <ul class="pagination" id="pagination">
+                    <!-- Pagination buttons will be inserted here -->
+                </ul>
+            </nav>
+            <div class="pagination-info" id="pagination-info">
+                <!-- Pagination info will be inserted here -->
+            </div>
+        </div>
+    </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script type="module" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

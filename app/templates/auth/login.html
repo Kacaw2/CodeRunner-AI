@@ -1,0 +1,72 @@
+<!-- app/templates/auth/login.html -->
+{% extends "base.html" %}
+{% block title %}Sign In{% endblock %}
+
+{% block content %}
+<div class="container py-5" style="max-width: 520px;">
+  <h3 class="mb-3">Sign in</h3>
+  <div class="card p-3">
+    <div class="mb-3">
+      <label class="form-label">Username or Email</label>
+      <input id="login-username" class="form-control" placeholder="teacher1 or email@example.com">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Password</label>
+      <input id="login-password" type="password" class="form-control" placeholder="********">
+    </div>
+    <button id="btn-login" class="btn btn-primary w-100">Sign in</button>
+    <div id="login-msg" class="mt-2 text-danger small"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="next-path-json">{{ next_path|tojson }}</script>
+
+<script type="module">
+  import { saveToken } from "/static/js/auth.js";
+  const API = "/api/v1";
+
+  const nextPath = (() => {
+    try {
+      const el = document.getElementById('next-path-json');
+      return el ? JSON.parse(el.textContent) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const $ = (id) => document.getElementById(id);
+
+  async function login(e) {
+    e?.preventDefault?.();
+    const body = {
+      username: $('login-username').value.trim(),
+      password: $('login-password').value
+    };
+    const msg = $('login-msg');
+    msg.textContent = '';
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(()=> ({}));
+      if (res.ok && data.token) {
+        saveToken(data.token);
+        window.location.assign(nextPath || '/');
+      } else {
+        msg.textContent = data.message || 'Login failed';
+      }
+    } catch (err) {
+      msg.textContent = 'Network error';
+      console.error(err);
+    }
+  }
+
+  $('btn-login')?.addEventListener('click', login);
+  
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(e); });
+</script>
+{% endblock %}

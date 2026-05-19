@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "id": 201,
+      "title": "Week 3 Arrays",
+      "classroom": { "name": "COMP1511 Lab A" },
+      "progress_percentage": 50,
+      "completed_questions": 1,
+      "question_count": 2,
+      "duration_minutes": 30,
+      "attempt": { "status": "in_progress" },
+      "is_overdue": false
+    },
+    {
+      "id": 202,
+      "title": "Week 4 Pointers",
+      "classroom": { "name": "COMP1511 Lab B" },
+      "progress_percentage": 0,
+      "completed_questions": 0,
+      "question_count": 3,
+      "duration_minutes": null,
+      "attempt": { "status": "pending" },
+      "is_overdue": true
+    },
+    {
+      "id": 203,
+      "title": "Week 5 Recursion",
+      "classroom": { "name": "COMP1511 Lab C" },
+      "progress_percentage": 100,
+      "completed_questions": 4,
+      "question_count": 4,
+      "duration_minutes": 45,
+      "attempt": { "status": "completed" },
+      "is_overdue": false
+    }
+  ]
+}
+

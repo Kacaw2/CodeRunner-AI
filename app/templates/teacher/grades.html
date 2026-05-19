@@ -1,0 +1,171 @@
+<!-- app/templates/teacher/grades.html -->
+{% extends "base.html" %}
+{% set page = 'grades' %}
+{% block title %}Grade Reports · Teacher{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/grades.css') }}">
+<style>
+  
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="mb-1">Student Grade Reports</h2>
+      <p class="text-muted mb-0">View and export student submission records</p>
+    </div>
+    <div>
+      <button id="exportCsvBtn" class="btn btn-success me-2">
+        <i class="bi bi-download"></i> Export CSV
+      </button>
+      <a href="{{ url_for('teacher.profile') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
+    </div>
+  </div>
+
+  <!-- Summary Statistics -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="h3 mb-1 text-primary" id="totalStudents">—</div>
+          <div class="text-muted small">Total Students</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="h3 mb-1 text-success" id="totalSubmissions">—</div>
+          <div class="text-muted small">Total Submissions</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="h3 mb-1 text-info" id="averageScore">—</div>
+          <div class="text-muted small">Class Average</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="h3 mb-1 text-warning" id="completionRate">—</div>
+          <div class="text-muted small">Completion Rate</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="gradeTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button">
+        <i class="bi bi-pie-chart"></i> Student Summary
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="details-tab" data-bs-toggle="tab" data-bs-target="#details" type="button">
+        <i class="bi bi-list-ul"></i> All Submissions
+      </button>
+    </li>
+  </ul>
+
+  <!-- Tab Content -->
+  <div class="tab-content" id="gradeTabContent">
+    <!-- Student Summary Tab -->
+    <div class="tab-pane fade show active" id="summary" role="tabpanel">
+      <div class="card">
+        <div class="card-header bg-white">
+          <h5 class="mb-0">Student Performance Summary</h5>
+        </div>
+        <div class="card-body">
+          <div id="studentSummaryContainer">
+            <div class="text-center text-muted py-4">
+              <div class="spinner-border spinner-border-sm me-2"></div>
+              Loading student summary...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- All Submissions Tab -->
+    <div class="tab-pane fade" id="details" role="tabpanel">
+      <!-- Filters -->
+      <div class="filter-card">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label small">Filter by Student</label>
+            <select id="filterStudent" class="form-select form-select-sm">
+              <option value="">All Students</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">Filter by Question</label>
+            <select id="filterQuestion" class="form-select form-select-sm">
+              <option value="">All Questions</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">Filter by Status</label>
+            <select id="filterStatus" class="form-select form-select-sm">
+              <option value="">All Status</option>
+              <option value="completed">Completed</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <button id="applyFilters" class="btn btn-primary btn-sm w-100">
+              <i class="bi bi-funnel"></i> Apply
+            </button>
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <button id="clearFilters" class="btn btn-outline-secondary btn-sm w-100">
+              <i class="bi bi-x-circle"></i> Clear
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Submissions Cards Container -->
+      <div class="card">
+        <div class="card-body">
+          <div id="submissionsCardsContainer">
+            <div class="text-center text-muted py-4">
+              <div class="spinner-border spinner-border-sm me-2"></div>
+              Loading submissions...
+            </div>
+          </div>
+          
+          <!-- Pagination -->
+          <div class="d-flex justify-content-between align-items-center mt-3">
+            <div class="text-muted small" id="paginationInfo">
+              Showing 0 - 0 of 0 submissions
+            </div>
+            <div>
+              <button id="prevPage" class="btn btn-sm btn-outline-secondary me-2" disabled>
+                <i class="bi bi-chevron-left"></i> Previous
+              </button>
+              <button id="nextPage" class="btn btn-sm btn-outline-secondary" disabled>
+                Next <i class="bi bi-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/grades.js') }}"></script>
+{% endblock %}

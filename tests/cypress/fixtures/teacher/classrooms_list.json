@@ -1,0 +1,21 @@
+{
+  "items": [
+    {
+      "id": 201,
+      "name": "COMP1511 · Lab A",
+      "description": "Intro programming lab",
+      "code": "LABA-2024",
+      "student_count": 18,
+      "created_at": "2024-03-01T09:00:00"
+    },
+    {
+      "id": 202,
+      "name": "COMP1531 · Project Group",
+      "description": "Project tutorials",
+      "code": "PRJ-TEAM",
+      "student_count": 24,
+      "created_at": "2024-03-05T09:00:00"
+    }
+  ]
+}
+

@@ -1,0 +1,326 @@
+<!-- app/templates/teacher/teacher_profile.html -->
+{% extends "base.html" %}
+{% set page = 'teacher-profile' %}
+{% block title %}Teacher · Profile{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/teacher_profile.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-xl py-4 teacher-profile">
+  <!-- Welcome Banner -->
+  <div class="welcome-banner">
+    <h2>Welcome back, <span id="t-name">Teacher</span>!</h2>
+    <div class="text-muted">Here's your teaching overview and quick actions</div>
+  </div>
+
+  <!-- Profile + Stats -->
+  <div class="row g-4 align-items-stretch mb-4">
+    <div class="col-12 col-xl-4">
+      <!-- My Info Card -->
+      <div class="card h-100">
+        <div class="card-header card-header--action">
+          <strong>
+            <i class="bi bi-person-circle"></i>
+            My Information
+          </strong>
+          <button class="btn btn-sm btn-outline-primary card-action ms-auto" data-bs-toggle="modal" data-bs-target="#editProfileModal">
+            <i class="bi bi-pencil"></i> Edit Profile
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="info-row">
+            <span class="text-muted">Username</span>
+            <strong id="t-username">--</strong>
+          </div>
+          <div class="info-row">
+            <span class="text-muted">Email</span>
+            <span id="t-email">--</span>
+          </div>
+          <div class="info-row">
+            <span class="text-muted">Role</span>
+            <span class="badge bg-success" id="t-role">TEACHER</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-8 d-flex">
+      <div class="stat-card-grid">
+        <div class="stat-card-grid__cell">
+          <div class="card stat-card questions h-100 shadow-sm" data-href="{{ url_for('teacher.questions_create') }}">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="stat-value text-primary" id="stat-questions">
+                    <span class="spinner-border spinner-border-sm"></span>
+                  </div>
+                  <div class="stat-label">Questions Published</div>
+                </div>
+                <div class="stat-icon text-primary">
+                  <i class="bi bi-question-circle"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-card-grid__cell">
+          <div class="card stat-card classrooms h-100 shadow-sm" data-href="{{ url_for('teacher.classrooms') }}">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="stat-value text-success" id="stat-classrooms">
+                    <span class="spinner-border spinner-border-sm"></span>
+                  </div>
+                  <div class="stat-label">Active Classrooms</div>
+                </div>
+                <div class="stat-icon text-success">
+                  <i class="bi bi-door-open"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-card-grid__cell">
+          <div class="card stat-card students h-100 shadow-sm" data-href="{{ url_for('teacher.students') }}">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="stat-value text-warning" id="stat-students">
+                    <span class="spinner-border spinner-border-sm"></span>
+                  </div>
+                  <div class="stat-label">Total Students</div>
+                </div>
+                <div class="stat-icon text-warning">
+                  <i class="bi bi-people"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-card-grid__cell">
+          <div class="card stat-card submissions h-100 shadow-sm">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="stat-value text-danger" id="stat-submissions">
+                    <span class="spinner-border spinner-border-sm"></span>
+                  </div>
+                  <div class="stat-label">Total Submissions</div>
+                </div>
+                <div class="stat-icon text-danger">
+                  <i class="bi bi-file-earmark-code"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions & Recent Questions -->
+  <div class="row g-4 align-items-stretch mb-4">
+    <div class="col-12 col-xl-4">
+      <div class="card h-100 shadow-sm">
+        <div class="card-header bg-white border-0 pb-0">
+          <h5 class="mb-1">Quick Actions</h5>
+          <p class="text-muted small mb-0">Jump straight into common tasks.</p>
+        </div>
+        <div class="quick-actions list-group list-group-flush">
+          <a href="{{ url_for('teacher.questions_create') }}" class="list-group-item quick-actions__item">
+            <span class="quick-actions__icon quick-actions__icon--primary">
+              <i class="bi bi-plus-circle"></i>
+            </span>
+            <div class="flex-grow-1">
+              <div class="quick-actions__title">Create Question</div>
+              <small class="text-muted">Add new coding challenge</small>
+            </div>
+          </a>
+
+          <a href="{{ url_for('teacher.classrooms') }}" class="list-group-item quick-actions__item">
+            <span class="quick-actions__icon quick-actions__icon--success">
+              <i class="bi bi-door-open"></i>
+            </span>
+            <div class="flex-grow-1">
+              <div class="quick-actions__title">Manage Classrooms</div>
+              <small class="text-muted">View and organize your classes</small>
+            </div>
+          </a>
+
+          <a href="{{ url_for('teacher.students') }}" class="list-group-item quick-actions__item">
+            <span class="quick-actions__icon quick-actions__icon--warning">
+              <i class="bi bi-people"></i>
+            </span>
+            <div class="flex-grow-1">
+              <div class="quick-actions__title">View Students</div>
+              <small class="text-muted">Check student progress</small>
+            </div>
+          </a>
+
+          <a href="{{ url_for('teacher.grades') }}" class="list-group-item quick-actions__item">
+            <span class="quick-actions__icon quick-actions__icon--info">
+              <i class="bi bi-clipboard-data"></i>
+            </span>
+            <div class="flex-grow-1">
+              <div class="quick-actions__title">Grade Reports</div>
+              <small class="text-muted">Export and analyze grades</small>
+            </div>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-8">
+
+      <div class="card h-100 questions-card shadow-sm">
+
+        <div class="card-header bg-white">
+
+          <strong>
+            <i class="bi bi-list-check"></i>
+            Recent Published Questions
+          </strong>
+        
+        </div>
+
+        <div class="card-body flex-grow-1 d-flex flex-column">
+          <div class="table-responsive flex-grow-1">
+            <table class="table table-sm table-hover align-middle">
+
+              <thead class="table-light">
+                <tr>
+                  <th width="60">ID</th>
+                  <th>Title</th>
+                  <th width="100" class="text-center">Language</th>
+                  <th width="100" class="text-center">Difficulty</th>
+                  <th width="120" class="text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="recent-questions-tbody">
+                <tr>
+                  <td colspan="5" class="text-center text-muted py-4">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    Loading questions...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Edit Profile Modal -->
+<div class="modal fade" id="editProfileModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-pencil-square"></i> Edit Profile
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Navigation Tabs -->
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item">
+            <button class="nav-link active" id="email-tab-btn" data-bs-toggle="tab" data-bs-target="#email-tab">
+              <i class="bi bi-envelope"></i> Email
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" id="username-tab-btn" data-bs-toggle="tab" data-bs-target="#username-tab">
+              <i class="bi bi-person"></i> Username
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" id="password-tab-btn" data-bs-toggle="tab" data-bs-target="#password-tab">
+              <i class="bi bi-lock"></i> Password
+            </button>
+          </li>
+        </ul>
+
+        <div class="tab-content">
+          <!-- Email Tab -->
+          <div class="tab-pane fade show active" id="email-tab">
+            <form id="email-form">
+              <div class="mb-3">
+                <label class="form-label">New Email Address</label>
+                <input type="email" class="form-control" id="new-email" required
+                       placeholder="Enter your new email address">
+                <small class="form-text text-muted">Current: <span id="current-email">--</span></small>
+              </div>
+              <div class="alert alert-danger d-none" id="email-error"></div>
+              <div class="alert alert-success d-none" id="email-success"></div>
+              <button type="submit" class="btn btn-primary w-100" id="email-submit-btn">
+                <i class="bi bi-check-circle"></i> Update Email
+              </button>
+            </form>
+          </div>
+
+          <!-- Username Tab -->
+          <div class="tab-pane fade" id="username-tab">
+            <form id="username-form">
+              <div class="mb-3">
+                <label class="form-label">New Username</label>
+                <input type="text" class="form-control" id="new-username" required minlength="3"
+                       placeholder="Enter your new username">
+                <small class="form-text text-muted">Current: <span id="current-username">--</span></small>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Current Password <span class="text-danger">*</span></label>
+                <input type="password" class="form-control" id="username-password" required
+                       placeholder="Enter your current password to verify">
+                <small class="form-text text-muted">Password required for security</small>
+              </div>
+              <div class="alert alert-danger d-none" id="username-error"></div>
+              <div class="alert alert-success d-none" id="username-success"></div>
+              <button type="submit" class="btn btn-primary w-100" id="username-submit-btn">
+                <i class="bi bi-check-circle"></i> Update Username
+              </button>
+            </form>
+          </div>
+
+          <!-- Password Tab -->
+          <div class="tab-pane fade" id="password-tab">
+            <form id="password-form">
+              <div class="mb-3">
+                <label class="form-label">Current Password</label>
+                <input type="password" class="form-control" id="current-password" required
+                       placeholder="Enter your current password">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">New Password</label>
+                <input type="password" class="form-control" id="new-password" required minlength="6"
+                       placeholder="Enter new password (min 6 characters)">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Confirm New Password</label>
+                <input type="password" class="form-control" id="confirm-password" required minlength="6"
+                       placeholder="Confirm your new password">
+              </div>
+              <div class="alert alert-danger d-none" id="password-error"></div>
+              <div class="alert alert-success d-none" id="password-success"></div>
+              <button type="submit" class="btn btn-primary w-100" id="password-submit-btn">
+                <i class="bi bi-check-circle"></i> Update Password
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/teacher_profile.js') }}"></script>
+{% endblock %}

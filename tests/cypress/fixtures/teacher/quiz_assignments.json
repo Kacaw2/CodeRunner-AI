@@ -1,0 +1,13 @@
+{
+  "items": [
+    {
+      "classroom_id": 201,
+      "classroom_name": "COMP1511 · Lab A",
+      "classroom_code": "LABA-2024",
+      "due_date": "2024-04-01T12:00:00",
+      "allow_late_submission": true,
+      "is_overdue": false
+    }
+  ]
+}
+

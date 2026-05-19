@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "id": 401, "username": "student1", "email": "student1@bread.dev" },
+    { "id": 402, "username": "student2", "email": "student2@bread.dev" },
+    { "id": 403, "username": "student3", "email": "student3@bread.dev" }
+  ]
+}
+

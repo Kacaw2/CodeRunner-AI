@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "student_id": 501,
+      "student_name": "student1",
+      "student_email": "student1@bread.dev",
+      "total_submissions": 5,
+      "completed_count": 4,
+      "average_score": 85,
+      "highest_score": 98
+    },
+    {
+      "student_id": 502,
+      "student_name": "student2",
+      "student_email": "student2@bread.dev",
+      "total_submissions": 3,
+      "completed_count": 2,
+      "average_score": 72,
+      "highest_score": 88
+    }
+  ]
+}
+
