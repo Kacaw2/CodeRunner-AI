@@ -87,6 +87,12 @@ def register_blueprints(app):
     from app.web.submissions import submissions_web_bp
     app.register_blueprint(submissions_web_bp)
 
+    from app.api.v1.ai import bp as ai_bp
+    app.register_blueprint(ai_bp)
+
+    from app.web.ai_chat import ai_chat_bp
+    app.register_blueprint(ai_chat_bp)
+
 
 # for gunicorn
 app = create_app()

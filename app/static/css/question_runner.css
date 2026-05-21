@@ -981,6 +981,26 @@ body.dragging-horizontal * {
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
+.btn-ai-tutor {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.btn-ai-tutor:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  color: white;
+}
+
 /* ============================================================
    Evaluation Results
    ============================================================ */

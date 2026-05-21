@@ -47,6 +47,14 @@ class Config:
     MAX_EXECUTION_TIME = 5  # Maximum execution time in seconds
     MAX_MEMORY_USAGE = 128 * 1024  # Maximum memory usage in KB
 
+    # AI Agent configuration
+    DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
+    AI_MODEL = os.environ.get('AI_MODEL', 'deepseek-chat')
+    AI_MAX_TOKENS = int(os.environ.get('AI_MAX_TOKENS', '2048'))
+    AI_TEMPERATURE = float(os.environ.get('AI_TEMPERATURE', '0.7'))
+    AI_RATE_LIMIT = int(os.environ.get('AI_RATE_LIMIT', '20'))
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+
 
 class DevelopmentConfig(Config):
     """Development environment configuration"""
@@ -63,7 +71,8 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     """Testing environment configuration"""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'  # Use in-memory database for testing
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_ENGINE_OPTIONS = {}  # SQLite doesn't support pool_size
 
 
 # Configuration dictionary

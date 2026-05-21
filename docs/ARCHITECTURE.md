@@ -22,6 +22,8 @@ CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系
 
 后端零业务依赖第三方库（沙箱使用 `subprocess` + Python 标准库 `resource` 模块自实现）。
 
+> **AI Agent 模块**（规划中）将引入 `anthropic` + `langgraph` + `redis` 实现多 Agent 编排，详见 [AI_AGENTS.md](AI_AGENTS.md)。
+
 ---
 
 ## 二、分层结构
@@ -43,6 +45,11 @@ CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系
 │  app/schemas/  (Marshmallow 校验)                   │
 │  app/core/executor.py      (本地沙箱)               │
 │  app/core/executor_client.py(远程沙箱)              │
+├────────────────────────────────────────────────────┤
+│              AI Agent Layer（规划中）                │
+│  app/agents/orchestrator.py (LangGraph 编排)        │
+│  app/agents/agents/         (Tutor/Review/Gen/Ana) │
+│  app/agents/tools/          (Service 层 Tool 封装)  │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -295,6 +302,8 @@ CodeRunner/
 
 ## 八、相关文档
 
+- AI Agent 模块设计：[AI_AGENTS.md](AI_AGENTS.md)
+- AI API 端点参考：[AI_API.md](AI_API.md)
 - 认证机制详细设计：[AUTH.md](AUTH.md)
 - 代码沙箱实现：[EXECUTOR.md](EXECUTOR.md)
 - REST API 参考：[API.md](API.md)

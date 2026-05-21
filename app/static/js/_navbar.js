@@ -11,7 +11,8 @@
     const signout = document.getElementById('nav-signout');
     const teacherTools = document.getElementById('nav-teacher-tools');
     const submissionsLink = document.getElementById('nav-submissions');
-    const myQuizzesLink = document.getElementById('nav-myquizzes'); 
+    const myQuizzesLink = document.getElementById('nav-myquizzes');
+    const aiTutorLink = document.getElementById('nav-ai-tutor');
 
     const mobileMenuToggle = document.querySelector('.site-nav__menu-toggle');
     const mobileMenuDropdown = document.getElementById('site-nav-mobile-dropdown');
@@ -102,6 +103,9 @@
                     : URLS.studentDashboard;
             }
 
+            // AI Tutor: visible for all logged-in users
+            aiTutorLink && aiTutorLink.classList.remove('is-hidden');
+
             // Show/hide role-specific elements
             if (role === 'teacher') {
                 // Teacher: show teacher tools, hide submissions
@@ -134,6 +138,7 @@
             teacherTools && teacherTools.classList.add('is-hidden');
             submissionsLink && submissionsLink.classList.add('is-hidden');
             myQuizzesLink && myQuizzesLink.classList.add('is-hidden');
+            aiTutorLink && aiTutorLink.classList.add('is-hidden');
 
             teacherToolsMobile && teacherToolsMobile.classList.add('is-hidden');
             submissionsLinkMobile && submissionsLinkMobile.classList.add('is-hidden');

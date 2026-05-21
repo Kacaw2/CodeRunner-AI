@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% set page = 'ai-chat' %}
+{% block title %}AI Assistant{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai_chat.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+  <!-- Sidebar: conversation history -->
+  <aside class="chat-sidebar" id="chatSidebar">
+    <div class="sidebar-header">
+      <h5><i class="bi bi-chat-dots"></i> Conversations</h5>
+      <button class="btn btn-sm btn-outline-primary" id="newChatBtn" title="New Chat">
+        <i class="bi bi-plus-lg"></i>
+      </button>
+    </div>
+    <!-- Agent type filter -->
+    <div class="sidebar-filter">
+      <select class="form-select form-select-sm" id="convFilter">
+        <option value="">All Types</option>
+        <option value="tutor">Tutor</option>
+        <option value="reviewer">Review</option>
+        <option value="generator">Generator</option>
+        <option value="analytics">Analytics</option>
+      </select>
+    </div>
+    <div class="conversation-list" id="conversationList">
+      <p class="text-muted small px-3">Loading...</p>
+    </div>
+  </aside>
+
+  <!-- Main chat area -->
+  <section class="chat-main">
+    <div class="chat-header">
+      <button class="btn btn-sm btn-outline-secondary d-md-none" id="toggleSidebar">
+        <i class="bi bi-list"></i>
+      </button>
+      <div class="chat-header-title">
+        <i class="bi bi-robot"></i>
+        <span id="chatTitle">AI Assistant</span>
+      </div>
+      <!-- Agent type selector -->
+      <div class="agent-selector ms-auto">
+        <select class="form-select form-select-sm" id="agentType">
+          <option value="tutor">Tutor</option>
+          <option value="reviewer">Code Review</option>
+          <option value="analytics">Analytics</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <!-- Tutor welcome -->
+      <div class="welcome-message" id="welcomeTutor">
+        <div class="welcome-icon"><i class="bi bi-lightbulb"></i></div>
+        <h4>Hi! I'm your AI Tutor</h4>
+        <p>I can help you understand your code errors, guide you through problem solving, and give you hints without spoiling the answer.</p>
+        <div class="quick-prompts">
+          <button class="quick-prompt" data-prompt="Why is my code getting Wrong Answer?">Why is my code getting WA?</button>
+          <button class="quick-prompt" data-prompt="How can I optimize my solution?">How to optimize?</button>
+          <button class="quick-prompt" data-prompt="Explain the approach for this problem">Explain approach</button>
+        </div>
+      </div>
+      <!-- Reviewer welcome -->
+      <div class="welcome-message" id="welcomeReviewer" style="display:none">
+        <div class="welcome-icon"><i class="bi bi-code-slash"></i></div>
+        <h4>Code Review Assistant</h4>
+        <p>Paste your code and I'll review it for correctness, readability, efficiency, and best practices.</p>
+        <div class="quick-prompts">
+          <button class="quick-prompt" data-prompt="Review my code for bugs and improvements">Review my code</button>
+          <button class="quick-prompt" data-prompt="Check the time complexity of my solution">Check complexity</button>
+        </div>
+      </div>
+      <!-- Analytics welcome -->
+      <div class="welcome-message" id="welcomeAnalytics" style="display:none">
+        <div class="welcome-icon"><i class="bi bi-graph-up"></i></div>
+        <h4>Learning Analytics</h4>
+        <p>I can analyze your submission history to identify patterns, track progress, and recommend practice areas.</p>
+        <div class="quick-prompts">
+          <button class="quick-prompt" data-prompt="Analyze my overall learning progress">My progress</button>
+          <button class="quick-prompt" data-prompt="What are my weak areas? Where should I focus?">Weak areas</button>
+          <button class="quick-prompt" data-prompt="Show my error patterns and how to improve">Error patterns</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="input-wrapper">
+        <textarea
+          id="chatInput"
+          placeholder="Ask me about your code..."
+          rows="1"
+          maxlength="4000"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" title="Send">
+          <i class="bi bi-send-fill"></i>
+        </button>
+      </div>
+      <div class="input-footer">
+        <span class="text-muted small">AI may make mistakes. Verify important information.</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  window.__AI_CONTEXT = {
+    questionId: {{ question_id | default('null') }},
+    submissionId: {{ submission_id | default('null') }},
+    conversationId: {{ conversation_id | default('null') }},
+    agentType: "{{ agent_type | default('tutor') }}",
+  };
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+<script src="{{ url_for('static', filename='js/ai_chat.js') }}"></script>
+{% endblock %}

@@ -8,6 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_smorest import Api
 from flask_login import LoginManager
 from flask_migrate import Migrate
+import redis as _redis
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -20,6 +21,9 @@ api = Api()
 
 # Initialize Flask-Migrate
 migrate = Migrate()
+
+# Redis client (initialized lazily in init_extensions)
+redis_client: _redis.Redis = None
 
 def init_extensions(app):
     """
@@ -55,6 +59,15 @@ def init_extensions(app):
             Question, TestCase,
             Submission, TestResult
         )
-    
+        from app.models.ai_conversation import AIConversation, AIMessage  # noqa: F401
+
+    # Initialize Redis
+    global redis_client
+    redis_url = app.config.get("REDIS_URL", "redis://localhost:6379/0")
+    try:
+        redis_client = _redis.from_url(redis_url, decode_responses=True)
+    except Exception:
+        redis_client = None
+
     # Initialize Flask-Migrate for database migrations
     migrate.init_app(app, db)

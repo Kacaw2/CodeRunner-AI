@@ -27,11 +27,17 @@
          {% if page=='submissions' %}aria-current="page" {% endif %}>
         My Submissions
       </a>
-      <a id="nav-myquizzes" 
+      <a id="nav-myquizzes"
          class="site-nav__link {{ 'site-nav__link--active' if page == 'myquizzes' else '' }} is-hidden"
-         href="{{ url_for('student.quizzes') }}" 
+         href="{{ url_for('student.quizzes') }}"
          {% if page=='myquizzes' %}aria-current="page" {% endif %}>
         My Quizzes
+      </a>
+      <a id="nav-ai-tutor"
+         class="site-nav__link {{ 'site-nav__link--active' if page == 'ai-chat' else '' }} is-hidden"
+         href="{{ url_for('ai_chat.chat_page') }}"
+         {% if page=='ai-chat' %}aria-current="page" {% endif %}>
+        <i class="bi bi-robot"></i> AI Tutor
       </a>
     </div>
 
