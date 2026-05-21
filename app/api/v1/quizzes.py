@@ -405,7 +405,7 @@ def delete_quiz(quiz_id):
 @blp.post("/<int:quiz_id>/questions")
 @blp.arguments(AddQuestionToQuizSchema)
 @blp.response(201, QuizQuestionSchema)
-@require_auth
+@require_teacher
 def add_question_to_quiz(payload, quiz_id):
     """Add an existing question to a quiz"""
     current_user = g.current_user
@@ -477,7 +477,7 @@ def update_quiz_question(quiz_id, question_id):
 
 @blp.delete("<int:quiz_id>/questions/<int:question_id>")
 @blp.response(200)
-@require_auth
+@require_teacher
 def remove_question_from_quiz(quiz_id, question_id):
     """Remove a question from a quiz"""
     current_user = g.current_user
@@ -728,7 +728,7 @@ def get_quiz_attempts(quiz_id):
 
 
 @blp.get("/<int:quiz_id>/questions")
-@require_auth
+@require_teacher
 def get_quiz_questions(quiz_id):
     """
     Get all questions in the specified quiz (including test case count)

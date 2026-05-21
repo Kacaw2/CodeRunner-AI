@@ -14,6 +14,7 @@ from app.core.extensions import db
 from app.models.submission import Submission
 from app.models.question import Question
 from app.models.user import User, UserRole
+from app.models.classroom import Classroom, Enrollment
 
 blp = Blueprint(
     "grades",
@@ -21,6 +22,15 @@ blp = Blueprint(
     description="Grade Report APIs",
     url_prefix="/api/v1/grades"
 )
+
+
+def _get_teacher_student_ids(teacher_id):
+    """Get IDs of students enrolled in this teacher's classrooms"""
+    classroom_ids = db.session.query(Classroom.id).filter_by(teacher_id=teacher_id).subquery()
+    student_ids = db.session.query(Enrollment.student_id).filter(
+        Enrollment.classroom_id.in_(db.session.query(classroom_ids))
+    ).distinct().subquery()
+    return student_ids
 
 
 @blp.get("/submissions")
@@ -38,15 +48,18 @@ def get_all_submissions():
         - limit: Return limit (default 100)
         - offset: Offset (default 0)
     """
+    current_user = g.current_user
+
     # Get query parameters
     student_id = request.args.get('student_id', type=int)
     question_id = request.args.get('question_id', type=int)
     status = request.args.get('status')
     limit = request.args.get('limit', 100, type=int)
     offset = request.args.get('offset', 0, type=int)
-    
-    # Use window function to mark the latest submission for each student-question combination
-    
+
+    # Tenant isolation: only students in this teacher's classrooms
+    teacher_student_ids = _get_teacher_student_ids(current_user.id)
+
     # Create subquery with window function
     ranked_submissions = (
         db.session.query(
@@ -63,6 +76,7 @@ def get_all_submissions():
         )
         .join(User, Submission.student_id == User.id)
         .filter(User.role == UserRole.STUDENT)
+        .filter(Submission.student_id.in_(db.session.query(teacher_student_ids)))
         .subquery()
     )
     
@@ -130,7 +144,9 @@ def get_students_summary():
     Group by student, calculate total submissions, average score, etc. for each student
     For each student-question combination, only count the last submission
     """
-    
+    current_user = g.current_user
+    teacher_student_ids = _get_teacher_student_ids(current_user.id)
+
     # Create subquery with window function to mark latest submissions, only select rn=1 records
     latest_submissions_only = (
         db.session.query(
@@ -146,6 +162,7 @@ def get_students_summary():
         )
         .join(User, Submission.student_id == User.id)
         .filter(User.role == UserRole.STUDENT)
+        .filter(Submission.student_id.in_(db.session.query(teacher_student_ids)))
     ).subquery()
     
     # Create another subquery that only includes rn=1 records
@@ -208,7 +225,9 @@ def export_csv():
     Export grade report as CSV file
     For each student-question combination, only export the last submission
     """
-    
+    current_user = g.current_user
+    teacher_student_ids = _get_teacher_student_ids(current_user.id)
+
     # Create subquery with window function
     ranked_submissions = (
         db.session.query(
@@ -225,6 +244,7 @@ def export_csv():
         )
         .join(User, Submission.student_id == User.id)
         .filter(User.role == UserRole.STUDENT)
+        .filter(Submission.student_id.in_(db.session.query(teacher_student_ids)))
         .subquery()
     )
     

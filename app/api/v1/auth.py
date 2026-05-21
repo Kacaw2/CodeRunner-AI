@@ -1,7 +1,7 @@
 # app/api/v1/auth.py
 """Authentication API Routes"""
 from flask_smorest import Blueprint
-from flask import g, make_response, jsonify
+from flask import g, make_response, jsonify, current_app, session
 from app.schemas.user_schema import (
     RegisterIn,
     UserOut,
@@ -72,13 +72,13 @@ def login(payload):
     
     # Set HttpOnly Cookie (browser will automatically include it in all requests)
     response.set_cookie(
-        'auth_token',           # Cookie name
-        token,                  # Token value
-        httponly=True,          # Prevent XSS attacks (JS cannot read it)
-        secure=False,           # Set to True in production (requires HTTPS)
-        samesite='Lax',         # Prevent CSRF attacks
-        max_age=7*24*60*60,     # Expires in 7 days
-        path='/'                # Send this Cookie for all paths
+        'auth_token',
+        token,
+        httponly=True,
+        secure=current_app.config.get('AUTH_COOKIE_SECURE', False),
+        samesite='Lax',
+        max_age=7*24*60*60,
+        path='/'
     )
     
     return response
@@ -131,7 +131,7 @@ def refresh():
         'auth_token',
         token,
         httponly=True,
-        secure=False,
+        secure=current_app.config.get('AUTH_COOKIE_SECURE', False),
         samesite='Lax',
         max_age=7*24*60*60,
         path='/'
@@ -144,23 +144,26 @@ def refresh():
 def logout():
     """
     User logout
-    
+
     Returns:
-        - 200: Logout successful, clears Cookie
+        - 200: Logout successful, clears Cookie and session
     """
+    # Clear server-side session
+    session.clear()
+
     response = make_response(jsonify({
         "message": "Logged out successfully"
     }), 200)
-    
+
     # Clear Cookie
     response.set_cookie(
         'auth_token',
-        '',                     # Empty value
+        '',
         httponly=True,
-        secure=False,
+        secure=current_app.config.get('AUTH_COOKIE_SECURE', False),
         samesite='Lax',
-        expires=0,              # Expire immediately
+        expires=0,
         path='/'
     )
-    
+
     return response

@@ -55,6 +55,10 @@ class Config:
     AI_RATE_LIMIT = int(os.environ.get('AI_RATE_LIMIT', '20'))
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 
+    # Cookie security
+    SESSION_COOKIE_SECURE = False
+    AUTH_COOKIE_SECURE = False
+
 
 class DevelopmentConfig(Config):
     """Development environment configuration"""
@@ -66,6 +70,8 @@ class ProductionConfig(Config):
     """Production environment configuration"""
     DEBUG = False
     SQLALCHEMY_ECHO = False
+    SESSION_COOKIE_SECURE = True
+    AUTH_COOKIE_SECURE = True
 
 
 class TestingConfig(Config):

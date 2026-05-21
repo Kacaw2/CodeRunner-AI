@@ -106,18 +106,35 @@ def create_classroom():
 def get_classroom(classroom_id):
     """
     Get classroom details
+    Only the owning teacher or enrolled students can view.
     """
+    current_user = g.current_user
     classroom = Classroom.query.get(classroom_id)
     if not classroom:
         abort(404, message="Classroom not found")
-    
+
+    # Ownership / enrollment check
+    user_role = current_user.role.value if hasattr(current_user.role, 'value') else current_user.role
+    if user_role in ('teacher', 'admin'):
+        if user_role == 'teacher' and classroom.teacher_id != current_user.id:
+            abort(403, message="You can only view your own classrooms")
+    else:
+        enrolled = Enrollment.query.filter_by(
+            student_id=current_user.id, classroom_id=classroom.id
+        ).first()
+        if not enrolled:
+            abort(403, message="You are not enrolled in this classroom")
+
     # Count number of students
     student_count = Enrollment.query.filter_by(classroom_id=classroom.id).count()
-    
+
+    # Only show invitation code to the owning teacher
+    code = classroom.code if classroom.teacher_id == current_user.id else None
+
     return {
         'id': classroom.id,
         'name': classroom.name,
-        'code': classroom.code,
+        'code': code,
         'description': classroom.description,
         'teacher_id': classroom.teacher_id,
         'created_at': classroom.created_at.isoformat() if classroom.created_at else None,
@@ -189,15 +206,19 @@ def delete_classroom(classroom_id):
 
 
 @blp.get("/<int:classroom_id>/students")
-@require_auth
+@require_teacher
 def get_classroom_students(classroom_id):
     """
-    Get the list of students in a classroom
+    Get the list of students in a classroom (teacher only, must own the classroom)
     """
+    current_user = g.current_user
     classroom = Classroom.query.get(classroom_id)
     if not classroom:
         abort(404, message="Classroom not found")
-    
+
+    if classroom.teacher_id != current_user.id:
+        abort(403, message="You can only view students in your own classrooms")
+
     # Get students through Enrollment
     enrollments = Enrollment.query.filter_by(classroom_id=classroom_id).all()
     
@@ -297,19 +318,44 @@ def remove_student_from_classroom(classroom_id, student_id):
 @require_teacher
 def get_all_students():
     """
-    Get all students list (for adding students to classroom)
-    Includes information about which classrooms students are currently in
+    Get students in this teacher's classrooms (for adding students to classroom)
+    Includes information about which of this teacher's classrooms students are in
     """
     from app.models.user import UserRole
-    
-    students = User.query.filter_by(role=UserRole.STUDENT).all()
-    
+
+    current_user = g.current_user
+
+    # Get this teacher's classroom IDs
+    my_classroom_ids = [
+        c.id for c in Classroom.query.filter_by(teacher_id=current_user.id).all()
+    ]
+
+    if not my_classroom_ids:
+        return {'items': [], 'total': 0}
+
+    # Get students enrolled in this teacher's classrooms
+    enrolled_student_ids = db.session.query(Enrollment.student_id).filter(
+        Enrollment.classroom_id.in_(my_classroom_ids)
+    ).distinct().all()
+    enrolled_student_ids = [sid for (sid,) in enrolled_student_ids]
+
+    if not enrolled_student_ids:
+        return {'items': [], 'total': 0}
+
+    students = User.query.filter(
+        User.id.in_(enrolled_student_ids),
+        User.role == UserRole.STUDENT
+    ).all()
+
     items = []
     for student in students:
-        # Get all classrooms for this student
-        enrollments = Enrollment.query.filter_by(student_id=student.id).all()
+        # Only show enrollments in this teacher's classrooms
+        enrollments = Enrollment.query.filter(
+            Enrollment.student_id == student.id,
+            Enrollment.classroom_id.in_(my_classroom_ids)
+        ).all()
         classrooms = []
-        
+
         for enrollment in enrollments:
             classroom = Classroom.query.get(enrollment.classroom_id)
             if classroom:
@@ -317,7 +363,7 @@ def get_all_students():
                     'id': classroom.id,
                     'name': classroom.name
                 })
-        
+
         items.append({
             'id': student.id,
             'username': student.username,
@@ -326,7 +372,7 @@ def get_all_students():
             'classroom_count': len(classrooms),
             'created_at': student.created_at.isoformat() if student.created_at else None
         })
-    
+
     return {'items': items, 'total': len(items)}
 
 

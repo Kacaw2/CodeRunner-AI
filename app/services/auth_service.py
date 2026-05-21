@@ -37,12 +37,15 @@ class AuthService:
         if email and User.query.filter_by(email=email).first():
             abort(400, message="Email already registered")
         
-        # Parse role
-        role_str = role.upper()
+        # Parse role — only student and teacher are allowed via registration
+        ALLOWED_REGISTRATION_ROLES = {'student', 'teacher'}
+        role_str = role.lower()
+        if role_str not in ALLOWED_REGISTRATION_ROLES:
+            abort(400, message="Invalid role. Must be student or teacher")
         try:
-            user_role = UserRole[role_str]
+            user_role = UserRole[role_str.upper()]
         except KeyError:
-            abort(400, message=f"Invalid role: {role_str}. Must be student or teacher")
+            abort(400, message="Invalid role. Must be student or teacher")
         
         # Create user (hash the password)
         user = User(

@@ -4,7 +4,7 @@ from flask_smorest import Blueprint, abort
 
 from sqlalchemy import select, func
 
-from app.auth import require_auth, optional_auth
+from app.auth import require_auth, require_teacher, optional_auth
 from app.core.extensions import db
 
 from app.schemas.questions_schema import (
@@ -213,7 +213,7 @@ def my_quizzes():
 
 @blp.get("/teacher/questions")
 @blp.response(200, QuestionListResponse)
-@require_auth
+@require_teacher
 def get_teacher_questions():
     """
     Get questions for teacher workspace
@@ -284,8 +284,8 @@ def get_teacher_questions():
         query = select(Question).where(Question.created_by == current_user.id)
     
     else:
-        # Mode 3: Show ALL questions (no filter)
-        query = select(Question)
+        # Mode 3: Default to showing only this teacher's own questions
+        query = select(Question).where(Question.created_by == current_user.id)
     
     # Execute query
     questions = db.session.execute(
@@ -323,7 +323,7 @@ def get_teacher_questions():
 @blp.post("/questions")
 @blp.arguments(QuestionIn)
 @blp.response(201, QuestionOut)
-@require_auth
+@require_teacher
 def create_question(payload):
     """
     Create a new question
@@ -343,7 +343,7 @@ def create_question(payload):
 
 @blp.delete("/questions/<int:question_id>")
 @blp.response(200, IdOut)
-@require_auth
+@require_teacher
 def delete_question(question_id):
     """
     Delete the specified question
@@ -356,7 +356,7 @@ def delete_question(question_id):
 @blp.post("/questions/<int:question_id>/test-cases")
 @blp.arguments(TestCaseIn)
 @blp.response(201, TestCaseOut)
-@require_auth
+@require_teacher
 def add_test_case(payload, question_id):
     """
     Add a test case to a question
@@ -381,7 +381,7 @@ def add_test_case(payload, question_id):
 @blp.patch("/questions/<int:question_id>")
 @blp.arguments(QuestionUpdateIn)
 @blp.response(200, QuestionOut)
-@require_auth
+@require_teacher
 def update_question(payload, question_id):
     """
     Update the specified question
@@ -402,7 +402,7 @@ def update_question(payload, question_id):
 
 @blp.delete("/test-cases/<int:tc_id>")
 @blp.response(200, IdOut)
-@require_auth
+@require_teacher
 def delete_test_case(tc_id):
     """
     Delete the specified test case
@@ -414,7 +414,7 @@ def delete_test_case(tc_id):
 
 @blp.get("/questions/mine")
 @blp.response(200, QuestionListResponse)
-@require_auth
+@require_teacher
 def get_my_questions():
     """
     Get all questions created by the current teacher
@@ -470,7 +470,7 @@ def get_my_questions():
 
 @blp.get("/questions/<int:question_id>/detail")
 @blp.response(200, QuestionDetailOut)
-@require_auth
+@require_teacher
 def get_question_for_teacher(question_id):
     """
     Get question details for teacher management
