@@ -1,26 +1,58 @@
-<!-- app/templates/auth/login.html -->
-{% extends "base.html" %}
-{% block title %}Sign In{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign In — CodeRunner</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+</head>
+<body>
 
-{% block content %}
-<div class="container py-5" style="max-width: 520px;">
-  <h3 class="mb-3">Sign in</h3>
-  <div class="card p-3">
-    <div class="mb-3">
-      <label class="form-label">Username or Email</label>
-      <input id="login-username" class="form-control" placeholder="teacher1 or email@example.com">
+<div class="auth-wrapper">
+  <!-- Left: Brand Panel -->
+  <div class="auth-brand">
+    <div class="auth-brand-content">
+      <div class="auth-brand-logo">
+        <i class="bi bi-code-slash"></i>
+      </div>
+      <h1>CodeRunner</h1>
+      <p>Practice coding, take quizzes, and sharpen your programming skills in a collaborative classroom environment.</p>
+      <div class="auth-brand-code">
+        <span class="code-comment">// Ready to code?</span><br>
+        <span class="code-keyword">def</span> <span class="code-func">solve</span>(problem):<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-string">"Accepted"</span>
+      </div>
     </div>
-    <div class="mb-3">
-      <label class="form-label">Password</label>
-      <input id="login-password" type="password" class="form-control" placeholder="********">
+  </div>
+
+  <!-- Right: Form Panel -->
+  <div class="auth-form-panel">
+    <div class="auth-form-container">
+      <h2>Welcome back</h2>
+      <p class="auth-subtitle">Sign in to continue your coding journey</p>
+
+      <div class="auth-input-group">
+        <input id="login-username" class="auth-input" type="text" placeholder="Username or email" autocomplete="username">
+        <i class="bi bi-person input-icon"></i>
+      </div>
+
+      <div class="auth-input-group">
+        <input id="login-password" class="auth-input" type="password" placeholder="Password" autocomplete="current-password">
+        <i class="bi bi-lock input-icon"></i>
+      </div>
+
+      <button id="btn-login" class="auth-btn">Sign in</button>
+
+      <div id="login-msg" class="auth-msg text-danger"></div>
+
+      <div class="auth-switch">
+        Don't have an account? <a href="{{ url_for('web_auth.signup_page') }}">Sign up</a>
+      </div>
     </div>
-    <button id="btn-login" class="btn btn-primary w-100">Sign in</button>
-    <div id="login-msg" class="mt-2 text-danger small"></div>
   </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script type="application/json" id="next-path-json">{{ next_path|tojson }}</script>
 
 <script type="module">
@@ -31,9 +63,7 @@
     try {
       const el = document.getElementById('next-path-json');
       return el ? JSON.parse(el.textContent) : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   })();
 
   const $ = (id) => document.getElementById(id);
@@ -52,7 +82,7 @@
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(body)
       });
-      const data = await res.json().catch(()=> ({}));
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.token) {
         saveToken(data.token);
         window.location.assign(nextPath || '/');
@@ -66,7 +96,8 @@
   }
 
   $('btn-login')?.addEventListener('click', login);
-  
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(e); });
 </script>
-{% endblock %}
+
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flask",
+      "runtimeExecutable": "C:\\Users\\libie\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "runtimeArgs": ["run.py"],
+      "port": 9900,
+      "autoPort": false
+    }
+  ]
+}

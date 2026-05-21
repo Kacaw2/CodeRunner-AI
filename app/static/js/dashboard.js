@@ -1,23 +1,15 @@
 // static/js/dashboard.js
-import { getToken, authenticatedFetch } from '/static/js/auth.js';
+import { getToken } from '/static/js/auth.js';
 
 const API_PUBLIC = "/api/v1";
-const API_AUTH = "/api/v1";
 const API_PUBLIC_QUIZ = "/api/public";
-// Pagination state
+
 let currentPage = 1;
-let itemsPerPage = 12;
+let itemsPerPage = 20;
 let totalQuestions = 0;
 
-// Filter state
-let currentFilters = {
-    language: '',
-    quiz: ''
-};
+let currentFilters = { quiz: '', difficulty: '' };
 
-/**
- * HTML escape function to prevent XSS
- */
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -25,56 +17,14 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-/**
- * Load available languages for filter
- */
-async function loadLanguages() {
-    try {
-        const response = await fetch(`${API_PUBLIC}/questions?limit=1000`);
-        if (!response.ok) return;
-        
-        const data = await response.json();
-        const items = data.items || [];
-        
-        // Extract unique languages
-        const languages = [...new Set(items.map(q => q.programming_language).filter(Boolean))];
-        languages.sort();
-        
-        const select = document.getElementById('languageFilter');
-        const currentValue = select.value;
-        
-        // Keep "All Languages" option and add languages
-        select.innerHTML = '<option value="">All Languages</option>';
-        languages.forEach(lang => {
-            const option = document.createElement('option');
-            option.value = lang;
-            option.textContent = lang;
-            select.appendChild(option);
-        });
-        
-        // Restore previous selection if exists
-        if (currentValue && languages.includes(currentValue)) {
-            select.value = currentValue;
-        }
-    } catch (error) {
-    }
-}
-
-/**
- * Load available quizzes for filter
- */
 async function loadQuizzes() {
     try {
         const response = await fetch(`${API_PUBLIC_QUIZ}/quizzes`);
         if (!response.ok) return;
-        
         const data = await response.json();
         const quizzes = data.items || [];
-        
         const select = document.getElementById('quizFilter');
         const currentValue = select.value;
-        
-        // Keep "All Quizzes" option and add quizzes
         select.innerHTML = '<option value="">All Quizzes</option>';
         quizzes.forEach(quiz => {
             const option = document.createElement('option');
@@ -82,52 +32,23 @@ async function loadQuizzes() {
             option.textContent = escapeHtml(quiz.title || `Quiz #${quiz.id}`);
             select.appendChild(option);
         });
-        
-        // Restore previous selection if exists
-        if (currentValue) {
-            select.value = currentValue;
-        }
-    } catch (error) {
-    }
+        if (currentValue) select.value = currentValue;
+    } catch (_) {}
 }
 
-/**
- * Load overview statistics data
- */
 async function loadOverview() {
     try {
         const response = await fetch(`${API_PUBLIC}/metrics/overview`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        
-        // Update global statistics
         if (data.global) {
             document.getElementById("stat-challenges").textContent = data.global.questions || 0;
             document.getElementById("stat-quizzes").textContent = data.global.quizzes || 0;
             document.getElementById("stat-questions").textContent = data.global.active_users || 0;
             document.getElementById("stat-submissions24h").textContent = data.global.submissions_24h || 0;
-            
-            // Save total questions count for pagination
             totalQuestions = data.global.questions || 0;
         }
-
-        // If user is logged in, try to load authenticated statistics
-        const token = getToken();
-        if (token) {
-            try {
-                const authResponse = await fetch(`${API_AUTH}/metrics/overview`, { 
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (authResponse.ok) {
-                    const authData = await authResponse.json();
-                }
-            } catch (error) {
-            }
-        }
-    } catch (error) {
+    } catch (_) {
         document.getElementById("stat-challenges").textContent = '-';
         document.getElementById("stat-quizzes").textContent = '-';
         document.getElementById("stat-questions").textContent = '-';
@@ -135,111 +56,93 @@ async function loadOverview() {
     }
 }
 
-/**
- * Load public question list (with pagination and filters)
- */
+function langIcon(lang) {
+    const l = (lang || '').toLowerCase();
+    if (l === 'python' || l === 'python3') return '<i class="bi bi-filetype-py"></i>';
+    if (l === 'c')      return '<i class="bi bi-filetype-cs"></i>';
+    if (l === 'java')   return '<i class="bi bi-filetype-java"></i>';
+    if (l === 'js' || l === 'javascript') return '<i class="bi bi-filetype-js"></i>';
+    return '<i class="bi bi-code-slash"></i>';
+}
+
 async function loadQuestionList(page = 1) {
-    const container = document.getElementById('q-public-list');
+    const tbody = document.getElementById('q-public-tbody');
     currentPage = page;
 
-    try {
-        // Show loading state
-        container.innerHTML = `
-            <div class="col-12">
-                <div class="card p-4 text-center text-muted">
-                    <div class="spinner-border spinner-border-sm me-2"></div>
-                    Loading questions...
-                </div>
-            </div>
-        `;
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">
+        <div class="spinner-border spinner-border-sm me-2"></div> Loading...
+    </td></tr>`;
 
-        // IMPORTANT: Always fetch all questions (or a large number) first
-        // Then apply filters, then paginate
-        // This ensures filtered results are correct regardless of their position
-        
-        // Build API URL with quiz_id parameter if quiz filter is active
+    try {
         let apiUrl = `${API_PUBLIC}/questions?limit=1000&offset=0`;
-        if (currentFilters.quiz) {
-            apiUrl += `&quiz_id=${currentFilters.quiz}`;
-        }
-        
+        if (currentFilters.quiz) apiUrl += `&quiz_id=${currentFilters.quiz}`;
+
         const response = await fetch(apiUrl);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
         let allItems = data.items || [];
-        
-        // Apply client-side filters FIRST
-        let filteredItems = applyFilters(allItems);
-        
-        // Update total count with filtered results
-        totalQuestions = filteredItems.length;
 
-        // Clear entire container
-        container.innerHTML = '';
+        // Apply difficulty filter
+        if (currentFilters.difficulty) {
+            allItems = allItems.filter(q =>
+                (q.difficulty || '').toLowerCase() === currentFilters.difficulty
+            );
+        }
 
-        // If no questions after filtering, show empty state
-        if (filteredItems.length === 0) {
-            const hasActiveFilters = currentFilters.language || currentFilters.quiz;
-            container.innerHTML = `
-                <div class="col-12">
-                    <div class="card p-4 text-center text-muted">
-                        <i class="bi bi-inbox" style="font-size: 3rem; opacity: 0.3;"></i>
-                        <p class="mb-2 mt-3">${hasActiveFilters ? 'No questions match your filters' : 'No questions available yet'}</p>
-                        ${hasActiveFilters ? '<small>Try adjusting your filters</small>' : ''}
-                    </div>
+        totalQuestions = allItems.length;
+        tbody.innerHTML = '';
+
+        if (allItems.length === 0) {
+            const hasFilters = currentFilters.quiz || currentFilters.difficulty;
+            tbody.innerHTML = `<tr><td colspan="5">
+                <div class="table-empty-state">
+                    <i class="bi bi-inbox"></i>
+                    <p>${hasFilters ? 'No questions match your filters' : 'No questions available yet'}</p>
                 </div>
-            `;
+            </td></tr>`;
             document.getElementById('pagination-container').style.display = 'none';
             return;
         }
 
-        // Apply pagination AFTER filtering
-        let paginatedItems;
+        // Paginate
+        let pageItems;
         if (itemsPerPage === 'all') {
-            paginatedItems = filteredItems;
+            pageItems = allItems;
         } else {
-            const startIndex = (currentPage - 1) * itemsPerPage;
-            const endIndex = startIndex + parseInt(itemsPerPage);
-            paginatedItems = filteredItems.slice(startIndex, endIndex);
+            const start = (currentPage - 1) * itemsPerPage;
+            pageItems = allItems.slice(start, start + parseInt(itemsPerPage));
         }
 
-        // Render each question card
-        paginatedItems.forEach(question => {
-            const col = document.createElement('div');
-            col.className = 'col';
+        // Render rows
+        pageItems.forEach((q, idx) => {
+            const globalIdx = (itemsPerPage === 'all') ? idx + 1 : (currentPage - 1) * itemsPerPage + idx + 1;
+            const tr = document.createElement('tr');
+            tr.onclick = () => window.location.href = `/question/${q.id}`;
 
-            const title = escapeHtml(question.title || 'Untitled');
-            const lang = escapeHtml(question.programming_language || 'unknown');
-            const desc = escapeHtml((question.description || '').trim() || 'No description available.');
+            const diff = (q.difficulty || '').toLowerCase();
+            const diffHtml = diff
+                ? `<span class="diff-badge ${escapeHtml(diff)}">${escapeHtml(diff)}</span>`
+                : '<span class="diff-badge" style="background:#f3f4f6;color:#9ca3af;">—</span>';
 
-            col.innerHTML = `
-                <article class="card problem-card h-100">
-                    <div class="problem-card__header">
-                        <h3 class="problem-card__title">${title}</h3>
-                        <div class="problem-card__badges">
-                            <span class="badge badge--language">${lang}</span>
-                            <span class="badge badge--status-not-started">Public</span>
-                        </div>
-                    </div>
+            const lang = escapeHtml(q.programming_language || '—');
 
-                    <p class="problem-card__description">${desc}</p>
-
-                    <div class="problem-card__footer">
-                        <span class="problem-card__prompt">
-                            <span aria-hidden="true">🎯</span> Start Challenge
-                        </span>
-                        <a class="btn btn-ghost" href="/question/${question.id}">Start</a>
-                    </div>
-                </article>
+            tr.innerHTML = `
+                <td class="col-status">
+                    <span class="status-icon" title="Not attempted">
+                        <i class="bi bi-circle"></i>
+                    </span>
+                </td>
+                <td class="col-id"><span class="problem-id">${globalIdx}</span></td>
+                <td class="col-title">
+                    <a class="problem-title-link" href="/question/${q.id}">${escapeHtml(q.title || 'Untitled')}</a>
+                </td>
+                <td class="col-difficulty">${diffHtml}</td>
+                <td class="col-lang"><span class="lang-tag">${langIcon(q.programming_language)} ${lang}</span></td>
             `;
-            
-            container.appendChild(col);
+            tbody.appendChild(tr);
         });
 
-        // Update pagination (only if not showing all)
         if (itemsPerPage !== 'all' && totalQuestions > itemsPerPage) {
             updatePagination();
         } else {
@@ -247,190 +150,115 @@ async function loadQuestionList(page = 1) {
         }
 
     } catch (error) {
-        
-        container.innerHTML = `
-            <div class="col-12">
-                <div class="card p-4 text-center text-danger">
-                    <p class="mb-2">Failed to load questions</p>
-                    <small>${escapeHtml(error.message)}</small>
-                </div>
-            </div>
-        `;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">
+            <p class="mb-1">Failed to load questions</p>
+            <small>${escapeHtml(error.message)}</small>
+        </td></tr>`;
         document.getElementById('pagination-container').style.display = 'none';
     }
 }
 
-/**
- * Apply filters to question list
- */
-function applyFilters(questions) {
-    let filtered = [...questions];
-    
-    // Filter by language
-    if (currentFilters.language) {
-        filtered = filtered.filter(q => 
-            q.programming_language === currentFilters.language
-        );
-    }
-    
-    // Note: Quiz filtering is handled by the backend API
-    // using the quiz_id parameter in loadQuestionList()
-    
-    return filtered;
-}
-
-/**
- * Update pagination controls
- */
 function updatePagination() {
     const totalPages = Math.ceil(totalQuestions / itemsPerPage);
-    const paginationContainer = document.getElementById('pagination-container');
+    const container = document.getElementById('pagination-container');
     const pagination = document.getElementById('pagination');
-    const paginationInfo = document.getElementById('pagination-info');
+    const info = document.getElementById('pagination-info');
 
-    if (totalPages <= 1) {
-        paginationContainer.style.display = 'none';
-        return;
-    }
+    if (totalPages <= 1) { container.style.display = 'none'; return; }
 
-    paginationContainer.style.display = 'flex';
+    container.style.display = 'flex';
     pagination.innerHTML = '';
 
-    // Previous button
+    // Prev
     const prevLi = document.createElement('li');
     prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
-    prevLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage - 1}">
-        <i class="bi bi-chevron-left"></i>
-    </a>`;
+    prevLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage - 1}"><i class="bi bi-chevron-left"></i></a>`;
     pagination.appendChild(prevLi);
 
-    // Page numbers
-    const maxVisiblePages = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    const maxVisible = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+    if (endPage - startPage < maxVisible - 1) startPage = Math.max(1, endPage - maxVisible + 1);
 
-    if (endPage - startPage < maxVisiblePages - 1) {
-        startPage = Math.max(1, endPage - maxVisiblePages + 1);
-    }
-
-    // First page
     if (startPage > 1) {
-        const firstLi = document.createElement('li');
-        firstLi.className = 'page-item';
-        firstLi.innerHTML = `<a class="page-link" href="#" data-page="1">1</a>`;
-        pagination.appendChild(firstLi);
-
-        if (startPage > 2) {
-            const ellipsisLi = document.createElement('li');
-            ellipsisLi.className = 'page-item disabled';
-            ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
-            pagination.appendChild(ellipsisLi);
-        }
+        addPageItem(pagination, 1);
+        if (startPage > 2) addEllipsis(pagination);
     }
-
-    // Page numbers
-    for (let i = startPage; i <= endPage; i++) {
-        const li = document.createElement('li');
-        li.className = `page-item ${i === currentPage ? 'active' : ''}`;
-        li.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
-        pagination.appendChild(li);
-    }
-
-    // Last page
+    for (let i = startPage; i <= endPage; i++) addPageItem(pagination, i);
     if (endPage < totalPages) {
-        if (endPage < totalPages - 1) {
-            const ellipsisLi = document.createElement('li');
-            ellipsisLi.className = 'page-item disabled';
-            ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
-            pagination.appendChild(ellipsisLi);
-        }
-
-        const lastLi = document.createElement('li');
-        lastLi.className = 'page-item';
-        lastLi.innerHTML = `<a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a>`;
-        pagination.appendChild(lastLi);
+        if (endPage < totalPages - 1) addEllipsis(pagination);
+        addPageItem(pagination, totalPages);
     }
 
-    // Next button
+    // Next
     const nextLi = document.createElement('li');
     nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
-    nextLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage + 1}">
-        <i class="bi bi-chevron-right"></i>
-    </a>`;
+    nextLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage + 1}"><i class="bi bi-chevron-right"></i></a>`;
     pagination.appendChild(nextLi);
 
-    // Pagination info
     const start = (currentPage - 1) * itemsPerPage + 1;
     const end = Math.min(currentPage * itemsPerPage, totalQuestions);
-    paginationInfo.textContent = `Showing ${start}-${end} of ${totalQuestions} questions`;
+    info.textContent = `Showing ${start}–${end} of ${totalQuestions}`;
 
-    // Add click handlers
     pagination.querySelectorAll('a.page-link').forEach(link => {
-        link.addEventListener('click', (e) => {
+        link.addEventListener('click', e => {
             e.preventDefault();
-            const page = parseInt(link.dataset.page);
-            if (page && page !== currentPage && page >= 1 && page <= totalPages) {
-                loadQuestionList(page);
-                // Scroll to top of question list
+            const p = parseInt(link.dataset.page);
+            if (p && p !== currentPage && p >= 1 && p <= totalPages) {
+                loadQuestionList(p);
                 document.querySelector('.page-section').scrollIntoView({ behavior: 'smooth' });
             }
         });
     });
 }
 
-/**
- * Items per page change handler
- */
-document.getElementById('itemsPerPage').addEventListener('change', (e) => {
+function addPageItem(pagination, pageNum) {
+    const li = document.createElement('li');
+    li.className = `page-item ${pageNum === currentPage ? 'active' : ''}`;
+    li.innerHTML = `<a class="page-link" href="#" data-page="${pageNum}">${pageNum}</a>`;
+    pagination.appendChild(li);
+}
+
+function addEllipsis(pagination) {
+    const li = document.createElement('li');
+    li.className = 'page-item disabled';
+    li.innerHTML = '<span class="page-link">…</span>';
+    pagination.appendChild(li);
+}
+
+// Event listeners
+document.getElementById('itemsPerPage').addEventListener('change', e => {
     itemsPerPage = e.target.value === 'all' ? 'all' : parseInt(e.target.value);
     currentPage = 1;
     loadQuestionList(1);
 });
 
-/**
- * Language filter change handler
- */
-document.getElementById('languageFilter').addEventListener('change', (e) => {
-    currentFilters.language = e.target.value;
-    currentPage = 1;
-    loadQuestionList(1);
-});
-
-/**
- * Quiz filter change handler
- */
-document.getElementById('quizFilter').addEventListener('change', (e) => {
+document.getElementById('quizFilter').addEventListener('change', e => {
     currentFilters.quiz = e.target.value;
     currentPage = 1;
     loadQuestionList(1);
 });
 
-/**
- * Clear filters button handler
- */
-document.getElementById('clearFilters').addEventListener('click', () => {
-    currentFilters.language = '';
-    currentFilters.quiz = '';
-    document.getElementById('languageFilter').value = '';
-    document.getElementById('quizFilter').value = '';
+document.getElementById('difficultyFilter').addEventListener('change', e => {
+    currentFilters.difficulty = e.target.value;
     currentPage = 1;
     loadQuestionList(1);
 });
 
-/**
- * Initialize dashboard - load all data
- */
+document.getElementById('clearFilters').addEventListener('click', () => {
+    currentFilters = { quiz: '', difficulty: '' };
+    document.getElementById('quizFilter').value = '';
+    document.getElementById('difficultyFilter').value = '';
+    currentPage = 1;
+    loadQuestionList(1);
+});
+
 async function initDashboard() {
-    
-    // Load all data in parallel
     await Promise.allSettled([
         loadOverview(),
-        loadLanguages(),
         loadQuizzes(),
         loadQuestionList(1)
     ]);
-    
 }
 
-// Initialize after page load
 initDashboard();

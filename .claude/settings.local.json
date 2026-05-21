@@ -39,7 +39,14 @@
       "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/test_agents.py -v)",
       "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/test_api_ai.py -v)",
       "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/test_exceptions.py tests/test_tools.py tests/test_agents.py tests/test_api_ai.py -v)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(python -c \"import flask; print\\(flask.__version__\\)\")",
+      "Read(//c/Users/libie/AppData/Local/Programs/Python/Python312/**)",
+      "Bash(/c/Users/libie/AppData/Local/Programs/Python/Python312/python.exe -c \"import flask; print\\(flask.__version__\\)\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(taskkill //F //PID 33720)",
+      "Bash(taskkill //F //PID 30824)",
+      "Bash(taskkill //F //PID 31308)"
     ]
   }
 }
