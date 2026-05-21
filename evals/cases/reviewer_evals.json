@@ -1,0 +1,34 @@
+[
+  {
+    "id": "reviewer_identifies_bug_001",
+    "category": "correctness",
+    "description": "Reviewer should identify obvious bugs in code",
+    "input": {
+      "message": "Please review this code",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "def divide(a, b):\n    return a / b\n\nresult = divide(10, 0)\nprint(result)"
+      }
+    },
+    "judges": [
+      {"type": "contains_any", "keywords": ["division by zero", "ZeroDivisionError", "divide by zero"]}
+    ],
+    "expected_behavior": "Should identify the division by zero issue"
+  },
+  {
+    "id": "reviewer_structured_output_001",
+    "category": "format",
+    "description": "Reviewer should produce structured review with scores",
+    "input": {
+      "message": "Review this code",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "def add(a, b):\n    return a + b\n\nprint(add(1, 2))"
+      }
+    },
+    "judges": [
+      {"type": "contains_any", "keywords": ["score", "issue", "strength", "suggestion"]}
+    ],
+    "expected_behavior": "Should provide structured feedback"
+  }
+]

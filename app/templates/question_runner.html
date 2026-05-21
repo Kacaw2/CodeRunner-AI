@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/monokai.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/solarized.css">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/question_runner.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/embedded_tutor.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -264,6 +265,49 @@
   </div>
   </div>
 </div>
+
+<!-- Embedded AI Tutor Panel -->
+<div id="aiTutorPanel" class="ai-tutor-panel collapsed">
+  <div class="ai-tutor-tab" id="aiTutorTab" title="AI Tutor">
+    <i class="bi bi-robot"></i>
+  </div>
+  <div class="ai-tutor-content">
+    <div class="ai-tutor-header">
+      <div class="ai-tutor-title">
+        <i class="bi bi-robot"></i>
+        <span>AI Tutor</span>
+        <span class="ai-tutor-status" id="aiTutorStatus">Ready</span>
+      </div>
+      <button class="ai-tutor-close" id="aiTutorClose" title="Close">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="ai-tutor-messages" id="aiTutorMessages">
+      <div class="ai-tutor-welcome">
+        <div class="welcome-icon"><i class="bi bi-lightbulb"></i></div>
+        <h4>Hi! I'm your AI Tutor</h4>
+        <p>I can help you understand errors, give hints, and review your code — without spoiling the answer.</p>
+      </div>
+    </div>
+    <div class="ai-tutor-quick-actions">
+      <button class="quick-action-btn" data-action="hint">
+        <i class="bi bi-lightbulb"></i> Get a Hint
+      </button>
+      <button class="quick-action-btn" data-action="explain_error">
+        <i class="bi bi-bug"></i> Explain Error
+      </button>
+      <button class="quick-action-btn" data-action="review">
+        <i class="bi bi-code-slash"></i> Review Code
+      </button>
+    </div>
+    <div class="ai-tutor-input-area">
+      <textarea id="aiTutorInput" placeholder="Ask about this problem..." rows="2"></textarea>
+      <button class="ai-tutor-send" id="aiTutorSend" title="Send">
+        <i class="bi bi-send-fill"></i>
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -274,4 +318,11 @@
 <script src="https://cdn.jsdelivr.net/npm/codemirror@5/addon/edit/closebrackets.js"></script>
 
 <script src="{{ url_for('static', filename='js/question_runner.js') }}"></script>
+<script>
+  window.TUTOR_CONFIG = {
+    questionId: {{ question.id }},
+    language: "{{ question.programming_language or 'python' }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='js/embedded_tutor.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,47 @@
+[
+  {
+    "id": "gen_valid_json_001",
+    "category": "correctness",
+    "description": "Generated output must be valid JSON with required fields",
+    "input": {
+      "message": "Create an easy Python problem about string reversal",
+      "agent_type": "generator",
+      "context": {"language": "python", "difficulty": "easy"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "test_case_count", "min_count": 3}
+    ],
+    "expected_behavior": "Should produce valid question JSON with at least 3 test cases"
+  },
+  {
+    "id": "gen_has_solution_001",
+    "category": "correctness",
+    "description": "Generated question must include a non-trivial solution",
+    "input": {
+      "message": "Create a medium difficulty Python problem about sorting",
+      "agent_type": "generator",
+      "context": {"language": "python", "difficulty": "medium"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "solution_length", "min_lines": 3}
+    ],
+    "expected_behavior": "Should include a solution with at least 3 lines of code"
+  },
+  {
+    "id": "gen_description_quality_001",
+    "category": "quality",
+    "description": "Generated description should be clear and include examples",
+    "input": {
+      "message": "Create a Python problem about finding duplicates in a list",
+      "agent_type": "generator",
+      "context": {"language": "python", "difficulty": "easy"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "description_quality", "min_length": 50}
+    ],
+    "expected_behavior": "Description should be at least 50 chars with clear problem statement"
+  }
+]

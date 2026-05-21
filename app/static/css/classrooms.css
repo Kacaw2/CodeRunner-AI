@@ -1,40 +1,59 @@
 /* ============================================================
-   Classrooms Page — Glassmorphism Modal Upgrade
+   Classrooms Page — Unified Card & Glassmorphism Styles
    ============================================================ */
 
-/* Classroom Card */
+/* ========================= CLASSROOM CARD LIST ========================= */
 .classroom-card {
-  padding: 1.5rem;
-  background: white;
+  padding: 1.25rem 1.5rem;
+  background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  height: 200px;
+  border-radius: 16px;
+  height: 100%;
+  min-height: 170px;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
   cursor: pointer;
+  position: relative;
   overflow: hidden;
 }
+.classroom-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
 .classroom-card:hover {
-  border-color: #a5b4fc;
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+  border-color: #c7d2fe;
+  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.12);
   transform: translateY(-3px);
 }
+.classroom-card:hover::before { opacity: 1; }
+
 .classroom-card .card-title {
-  font-size: 1.25rem; font-weight: 700; color: #1e293b;
+  font-size: 1.05rem; font-weight: 700; color: #1e293b;
   margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .classroom-card .card-text {
-  font-size: 0.875rem; line-height: 1.5; color: #64748b;
-  height: 4rem; overflow: hidden; text-overflow: ellipsis;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  font-size: 0.85rem; color: #64748b; line-height: 1.5;
+  flex: 1; min-height: 0;
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.classroom-card .card-footer-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: auto; padding-top: 0.75rem;
+  border-top: 1px solid #f1f5f9;
 }
 
 /* Classroom Code Badge */
 .classroom-code {
   display: inline-flex; align-items: center;
-  padding: 0.375rem 0.75rem; border-radius: 8px;
-  font-size: 0.875rem; font-weight: 700;
+  padding: 0.3rem 0.65rem; border-radius: 8px;
+  font-size: 0.8rem; font-weight: 700;
   background: #eef2ff; color: #4338ca;
   border: 1px solid #c7d2fe;
   letter-spacing: 0.1em;
@@ -42,9 +61,10 @@
 }
 
 .badge-success-custom {
+  display: inline-flex; align-items: center;
   background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0;
-  padding: 0.35rem 0.65rem; border-radius: 8px;
-  font-size: 0.875rem; font-weight: 500; white-space: nowrap;
+  padding: 0.3rem 0.65rem; border-radius: 20px;
+  font-size: 0.75rem; font-weight: 600; white-space: nowrap;
 }
 
 /* ========================= MODAL GLASSMORPHISM ========================= */
@@ -160,23 +180,23 @@
 
 /* ========================= STUDENT ITEMS ========================= */
 .student-item {
-  padding: 1rem; margin-bottom: 0.5rem;
+  padding: 0.875rem 1rem; margin-bottom: 0.5rem;
   background: #fff; border: 1px solid #e9ecef;
-  border-left: 4px solid #6366f1;
+  border-left: 3px solid #6366f1;
   border-radius: 12px; transition: all 0.2s ease;
 }
 .student-item:hover {
   border-color: #c7d2fe;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.08);
 }
-.student-item .student-info { display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1; }
-.student-item .student-name { font-weight: 700; color: #1e293b; font-size: 0.95rem; }
-.student-item .student-email { color: #64748b; font-size: 0.85rem; }
+.student-item .student-info { display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 1; }
+.student-item .student-name { font-weight: 700; color: #1e293b; font-size: 0.9rem; }
+.student-item .student-email { color: #64748b; font-size: 0.8rem; }
 
 /* Classroom Badges */
-.student-classrooms { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; max-width: 100%; }
+.student-classrooms { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.35rem; max-width: 100%; }
 .badge-classroom {
-  font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 6px;
+  font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 6px;
   font-weight: 600; white-space: nowrap;
   background: #eef2ff !important; color: #4338ca !important;
   border: 1px solid #c7d2fe; display: inline-block;
@@ -184,30 +204,10 @@
 .badge.bg-success {
   background: #dcfce7 !important; color: #16a34a !important;
   border: 1px solid #bbf7d0; font-weight: 700;
-  padding: 0.35rem 0.65rem; white-space: nowrap;
+  padding: 0.3rem 0.65rem; white-space: nowrap;
 }
 
-/* Empty State */
-.empty-state {
-  text-align: center; padding: 4rem 2rem;
-  background: white; border: 2px dashed #e2e8f0; border-radius: 14px;
-}
-.empty-state i { color: #cbd5e1; }
-
-/* Badge overrides */
-.badge-info-custom {
-  background: #eef2ff; color: #4338ca;
-  border: 1px solid #c7d2fe;
-  padding: 0.25rem 0.75rem; border-radius: 20px;
-  font-size: 0.8rem; font-weight: 600;
-}
-.badge.bg-info {
-  background: #eef2ff !important; color: #4338ca !important;
-  border: 1px solid #c7d2fe; font-weight: 700;
-  padding: 0.35rem 0.65rem; letter-spacing: 0.05em;
-}
-
-/* Page-level buttons */
+/* ========================= PAGE-LEVEL ========================= */
 .btn-primary {
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
   border: none; font-weight: 600;
@@ -223,6 +223,26 @@
 .form-select:focus {
   border-color: #818cf8;
   box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.15);
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center; padding: 4rem 2rem;
+  background: white; border: 2px dashed #e2e8f0; border-radius: 16px;
+}
+.empty-state i { color: #cbd5e1; }
+
+/* Badge overrides */
+.badge-info-custom {
+  background: #eef2ff; color: #4338ca;
+  border: 1px solid #c7d2fe;
+  padding: 0.2rem 0.6rem; border-radius: 20px;
+  font-size: 0.75rem; font-weight: 600;
+}
+.badge.bg-info {
+  background: #eef2ff !important; color: #4338ca !important;
+  border: 1px solid #c7d2fe; font-weight: 700;
+  padding: 0.3rem 0.65rem; letter-spacing: 0.05em;
 }
 
 /* Search Input */
@@ -249,12 +269,11 @@
 .view-classroom-btn { transition: all 0.2s ease; }
 .view-classroom-btn:hover { background: #6366f1; color: white; border-color: #6366f1; }
 
-/* Modal backdrop */
 .modal-backdrop.show { opacity: 0.4; }
 
-/* Responsive */
+/* ========================= RESPONSIVE ========================= */
 @media (max-width: 768px) {
-  .classroom-card { padding: 1rem; height: auto; min-height: 200px; }
+  .classroom-card { padding: 1rem 1.25rem; min-height: 150px; }
   .student-item { padding: 0.75rem; }
   .empty-state { padding: 3rem 1rem; }
 }

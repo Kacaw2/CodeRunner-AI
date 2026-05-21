@@ -1,4 +1,5 @@
 from app.agents.agents.base import BaseAgent
+from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.analytics import ANALYTICS_SYSTEM_PROMPT
 from app.agents.tools.question_query import get_question_detail
@@ -13,8 +14,17 @@ class AnalyticsAgent(BaseAgent):
     description = "Learning analytics agent"
 
     def _build_system_context(self, state: dict) -> str:
+        from app.agents.memory import MemoryService
+
         context = state.get("context", {})
-        parts = [ANALYTICS_SYSTEM_PROMPT]
+        parts = [ANALYTICS_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM]
+
+        memory_ctx = MemoryService.get_memory_context(
+            state.get("user_id", 0), state.get("user_role", "student")
+        )
+        if memory_ctx:
+            parts.append(f"\n## User Profile Context\n{memory_ctx}")
+
         if state.get("user_id"):
             parts.append(f"\nCurrent user ID: {state['user_id']}")
         if state.get("user_role"):

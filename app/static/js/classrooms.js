@@ -73,7 +73,7 @@ async function loadClassrooms() {
         (classroom) => `
       <div class="col-md-6 col-lg-4">
         <div class="classroom-card" onclick="viewClassroom(${classroom.id})">
-          <div class="d-flex justify-content-between align-items-start mb-1">
+          <div class="d-flex justify-content-between align-items-start mb-2">
             <h5 class="card-title">${classroom.name}</h5>
             <span class="badge-success-custom">
               ${classroom.student_count} students
@@ -82,17 +82,17 @@ async function loadClassrooms() {
           <p class="card-text">
             ${classroom.description || "No description"}
           </p>
-          <div class="mb-1 d-flex align-items-center">
+          <div class="card-footer-row">
             <span class="classroom-code">
               ${classroom.code}
             </span>
-              <small class="text-muted ms-auto">
-                <i class="bi bi-calendar"></i>
-                ${
-                  classroom.created_at
-                    ? new Date(classroom.created_at).toLocaleDateString()
-                    : "N/A"
-                }
+            <small class="text-muted ms-auto">
+              <i class="bi bi-calendar me-1"></i>
+              ${
+                classroom.created_at
+                  ? new Date(classroom.created_at).toLocaleDateString()
+                  : "N/A"
+              }
             </small>
           </div>
         </div>

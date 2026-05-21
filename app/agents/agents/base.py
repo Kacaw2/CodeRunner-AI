@@ -30,12 +30,18 @@ class BaseAgent(ABC):
     def _inject_security(tool_name: str, args: dict, state: dict) -> dict:
         """Override security-critical tool arguments from verified agent state."""
         args = dict(args)
+        user_role = state.get("user_role", "student")
+        user_id = state["user_id"]
+
         if tool_name == "get_submission_detail":
-            args["user_id"] = state["user_id"]
-            args["user_role"] = state.get("user_role", "student")
+            args["user_id"] = user_id
+            args["user_role"] = user_role
         if tool_name == "get_student_submissions":
-            if state.get("user_role") == "student":
-                args["student_id"] = state["user_id"]
+            if user_role == "student":
+                args["student_id"] = user_id
+        if tool_name == "get_student_stats":
+            if user_role == "teacher":
+                args["teacher_id"] = user_id
         return args
 
     @staticmethod
@@ -49,11 +55,27 @@ class BaseAgent(ABC):
         return llm.stream(messages)
 
     def _run_tools(self, tool_calls: list, tools: list, state: dict) -> list[ToolMessage]:
-        """Execute tool calls with error handling. Returns ToolMessage list."""
+        """Execute tool calls with permission check, error handling, and retry."""
+        from app.agents.tools.permissions import check_tool_permission
+
         tool_map = {t.name: t for t in tools}
         results = []
         for tc in tool_calls:
             name = tc["name"]
+
+            if not check_tool_permission(
+                state.get("agent_type", ""),
+                name,
+                state.get("user_role", "student"),
+            ):
+                logger.warning("Permission denied: agent=%s tool=%s role=%s",
+                               state.get("agent_type"), name, state.get("user_role"))
+                results.append(ToolMessage(
+                    content=f"Permission denied: {name} is not available for this agent/role.",
+                    tool_call_id=tc["id"],
+                ))
+                continue
+
             tool = tool_map.get(name)
             if not tool:
                 results.append(ToolMessage(
@@ -61,43 +83,78 @@ class BaseAgent(ABC):
                     tool_call_id=tc["id"],
                 ))
                 continue
+
             args = self._inject_security(name, tc["args"], state)
-            try:
-                result = tool.invoke(args)
-                results.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
-            except Exception as e:
-                logger.warning("Tool %s failed: %s", name, e)
-                error_msg = f"Tool '{name}' encountered an error: {type(e).__name__}: {e}"
+            last_error = None
+            for attempt in range(2):
+                try:
+                    result = tool.invoke(args)
+                    results.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+                    last_error = None
+                    break
+                except Exception as e:
+                    last_error = e
+                    if attempt == 0:
+                        logger.warning("Tool %s failed (attempt 1), retrying: %s", name, e)
+                        import time
+                        time.sleep(1)
+
+            if last_error:
+                logger.warning("Tool %s failed after retries: %s", name, last_error)
+                error_msg = f"Tool '{name}' failed after 2 attempts: {type(last_error).__name__}: {last_error}"
                 results.append(ToolMessage(content=error_msg, tool_call_id=tc["id"]))
+
         return results
 
     def _invoke_with_tools(self, state: AgentState, tools: list, system_ctx: str) -> AgentState:
-        """Shared invoke loop: LLM + tool calls with retries."""
+        """Shared invoke loop: LLM + tool calls with retries and tracing."""
         from langchain_core.messages import SystemMessage
+        from app.agents.tracing import TraceCollector
+
+        trace = TraceCollector(
+            agent_type=state.get("agent_type", self.name),
+            user_id=state["user_id"],
+            conversation_id=state.get("context", {}).get("conversation_id"),
+        )
+        if state.get("messages"):
+            last_msg = state["messages"][-1]
+            trace.input_message = getattr(last_msg, "content", "")
+        trace.input_context = state.get("context")
+
         llm = AIConfig.get_llm()
         llm_with_tools = llm.bind_tools(tools)
 
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
         response = None
 
-        for iteration in range(MAX_TOOL_ITERATIONS):
-            try:
-                response = self._llm_invoke(llm_with_tools, messages)
-            except LLMError:
-                if iteration == 0:
-                    raise
-                break
+        try:
+            for iteration in range(MAX_TOOL_ITERATIONS):
+                with trace.trace_llm_call() as llm_step:
+                    try:
+                        response = self._llm_invoke(llm_with_tools, messages)
+                    except LLMError:
+                        if iteration == 0:
+                            raise
+                        break
 
-            messages.append(response)
+                messages.append(response)
 
-            if not response.tool_calls:
-                break
+                if not response.tool_calls:
+                    break
 
-            tool_msgs = self._run_tools(response.tool_calls, tools, state)
-            messages.extend(tool_msgs)
+                for tc in response.tool_calls:
+                    with trace.trace_tool_call(tc["name"], tc["args"]):
+                        tool_msgs = self._run_tools([tc], tools, state)
+                        messages.extend(tool_msgs)
 
-        state["messages"] = messages
-        state["final_response"] = (response.content if response and response.content else "")
+            state["messages"] = messages
+            state["final_response"] = (response.content if response and response.content else "")
+            state["trace_id"] = trace.run_id
+            trace.save(status="completed", response=state["final_response"])
+        except Exception as e:
+            trace.save(status="failed", error=e)
+            raise
+
         return state
 
     def _stream_with_tools(self, state: AgentState, tools: list, system_ctx: str):

@@ -60,6 +60,11 @@ def init_extensions(app):
             Submission, TestResult
         )
         from app.models.ai_conversation import AIConversation, AIMessage  # noqa: F401
+        from app.models.agent_task import AgentTask  # noqa: F401
+        from app.models.agent_trace import AgentRun, AgentRunStep  # noqa: F401
+        from app.models.ai_audit_log import AIAuditLog  # noqa: F401
+        from app.models.student_profile import StudentProfile, TeacherPreference  # noqa: F401
+        from app.models.eval_run import EvalRun  # noqa: F401
 
     # Initialize Redis
     global redis_client

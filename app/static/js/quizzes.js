@@ -40,30 +40,25 @@ async function loadQuizzes() {
       <div class="col-md-6 col-lg-4">
         <div class="quiz-card ${
           !quiz.is_published ? "unpublished" : ""
-        }" 
-              onclick="viewQuiz(${quiz.id})">
-          <div class="d-flex justify-content-between align-items-start mb-3">
-            <h5 class="mb-0">${quiz.title}</h5>
+        }" onclick="viewQuiz(${quiz.id})">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <h5 class="card-title">${quiz.title}</h5>
             <span class="quiz-badge ${
               quiz.is_published ? "badge-published" : "badge-draft"
             }">
               ${quiz.is_published ? "Published" : "Draft"}
             </span>
           </div>
-          <p class="text-muted small mb-3" style="min-height: 3rem;">
+          <p class="card-desc">
             ${quiz.description || "No description"}
           </p>
-
-          <div class="d-flex align-items-center">
-            <div class="d-flex gap-2 align-items-center">
-              <span class="badge-info-custom">
-                ${quiz.question_count || 0} questions
-              </span>
-              <span class="badge-primary-custom">
-                ${quiz.total_points || 0} points
-              </span>
-            </div>
-
+          <div class="card-footer-row">
+            <span class="badge-info-custom">
+              ${quiz.question_count || 0} questions
+            </span>
+            <span class="badge-primary-custom">
+              ${quiz.total_points || 0} points
+            </span>
             <small class="text-muted d-inline-flex align-items-center ms-auto text-nowrap">
               <i class="bi bi-building me-1"></i>
               ${quiz.assigned_to_count || 0} classrooms

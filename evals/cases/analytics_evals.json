@@ -1,0 +1,30 @@
+[
+  {
+    "id": "analytics_summary_001",
+    "category": "correctness",
+    "description": "Analytics should provide a learning summary",
+    "input": {
+      "message": "Analyze my learning performance",
+      "agent_type": "analytics",
+      "context": {"target_student_id": 1, "period": "30d"}
+    },
+    "judges": [
+      {"type": "min_length", "min_length": 50}
+    ],
+    "expected_behavior": "Should produce a meaningful analysis summary"
+  },
+  {
+    "id": "analytics_recommendations_001",
+    "category": "quality",
+    "description": "Analytics should include actionable recommendations",
+    "input": {
+      "message": "Give me study recommendations based on my performance",
+      "agent_type": "analytics",
+      "context": {"target_student_id": 1, "period": "30d"}
+    },
+    "judges": [
+      {"type": "contains_any", "keywords": ["recommend", "suggest", "practice", "focus", "improve"]}
+    ],
+    "expected_behavior": "Should include recommendations"
+  }
+]

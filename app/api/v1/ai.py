@@ -6,6 +6,7 @@ from app.core.extensions import db, redis_client
 from app.models.ai_conversation import AIConversation, AIMessage
 from app.agents.config import AGENT_RATE_LIMITS
 from app.agents.exceptions import AIError, RateLimitError, ConfigError
+from app.agents.security import detect_injection, sanitize_user_input, filter_output
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,27 @@ def _error_response(error_code: str, message: str, status: int, headers: dict | 
         for k, v in headers.items():
             resp.headers[k] = v
     return resp
+
+
+# ── Audit Logging ────────────────────────────────────────────
+
+def _log_audit(user_id: int, agent_type: str, action: str, message: str,
+               injection: bool = False, pattern: str = ""):
+    try:
+        from app.models.ai_audit_log import AIAuditLog
+        log = AIAuditLog(
+            user_id=user_id,
+            agent_type=agent_type,
+            action=action,
+            input_preview=message[:200],
+            injection_detected=injection,
+            injection_pattern=pattern[:100] if pattern else None,
+            ip_address=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        logger.warning("Failed to write audit log: %s", e)
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -137,6 +159,13 @@ def chat():
 
     agent_type = data.get("agent_type", "tutor")
 
+    is_suspicious, pattern = detect_injection(message)
+    if is_suspicious:
+        logger.warning("Potential injection from user %d: pattern=%s", user.id, pattern)
+        _log_audit(user.id, agent_type, "chat", message, True, pattern)
+
+    message = sanitize_user_input(message)
+
     try:
         rl_info = _rate_limit_or_abort(user.id, agent_type)
     except RateLimitError as e:
@@ -145,6 +174,7 @@ def chat():
 
     context = _build_context(data)
     rl_headers = _rate_limit_headers(rl_info)
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
 
     try:
         conv = _get_or_create_conversation(user.id, agent_type, data.get("conversation_id"), context)
@@ -162,13 +192,13 @@ def chat():
             "messages": history + [HumanMessage(content=message)],
             "agent_type": agent_type,
             "user_id": user.id,
-            "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "user_role": user_role,
             "context": context,
             "tool_results": [],
             "final_response": "",
         })
 
-        response_text = state.get("final_response", "")
+        response_text = filter_output(state.get("final_response", ""), agent_type, user_role)
 
         assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
         db.session.add(assistant_msg)
@@ -212,6 +242,13 @@ def chat_stream():
         return _error_response("invalid_request", "message is required", 400)
 
     agent_type = data.get("agent_type", "tutor")
+
+    is_suspicious, pattern = detect_injection(message)
+    if is_suspicious:
+        logger.warning("Potential injection from user %d (stream): pattern=%s", user.id, pattern)
+        _log_audit(user.id, agent_type, "chat_stream", message, True, pattern)
+
+    message = sanitize_user_input(message)
 
     try:
         rl_info = _rate_limit_or_abort(user.id, agent_type)
@@ -502,8 +539,26 @@ def generate_question():
         db.session.commit()
 
         question_data = state.get("context", {}).get("generated_question")
+        draft_info = None
         if question_data:
-            resp = jsonify({"conversation_id": conv.id, "question": question_data})
+            from app.models.generated_question_draft import GeneratedQuestionDraft
+            draft = GeneratedQuestionDraft(
+                teacher_id=user.id,
+                conversation_id=conv.id,
+                question_data=question_data,
+                validation_status="passed" if question_data.get("verified") else "unverified",
+                status="pending_review",
+            )
+            db.session.add(draft)
+            db.session.commit()
+            draft_info = draft.to_dict()
+
+        if question_data:
+            resp = jsonify({
+                "conversation_id": conv.id,
+                "question": question_data,
+                "draft": draft_info,
+            })
         else:
             resp = jsonify({"conversation_id": conv.id, "question": None, "raw_response": response_text})
         for k, v in rl_headers.items():
@@ -605,6 +660,362 @@ def save_generated_question():
         return _error_response("ai_service_error", "Failed to save question. Please try again.", 500)
 
 
+# ── POST /api/v1/ai/generate/batch ──────────────────────────
+
+@bp.route("/generate/batch", methods=["POST"])
+@require_teacher
+def generate_batch():
+    """Batch question generation. Creates an AgentTask and runs sub-tasks."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+
+    topic = (data.get("topic") or "").strip()
+    if not topic:
+        return _error_response("invalid_request", "topic is required", 400)
+
+    count = min(int(data.get("count", 1)), 10)
+    if count < 1:
+        return _error_response("invalid_request", "count must be 1-10", 400)
+
+    try:
+        rl_info = _rate_limit_or_abort(user.id, "generator")
+    except RateLimitError as e:
+        return _error_response("ai_rate_limit", e.user_message, 429,
+                               {"Retry-After": str(e.retry_after)})
+
+    from app.models.agent_task import AgentTask
+    from app.agents.batch_runner import decompose_batch_params, BatchTaskRunner
+
+    params = {
+        "topic": topic,
+        "language": data.get("language", "python"),
+        "difficulty": data.get("difficulty", "medium"),
+        "count": count,
+        "test_case_count": int(data.get("test_case_count", 5)),
+    }
+    steps = decompose_batch_params(params)
+
+    task = AgentTask(
+        user_id=user.id,
+        task_type="generate_batch",
+        agent_type="generator",
+        status="pending",
+        input_params=params,
+        plan_steps=steps,
+        current_step=0,
+        result=[],
+    )
+    db.session.add(task)
+    db.session.commit()
+
+    try:
+        runner = BatchTaskRunner(task)
+        runner.run()
+    except Exception as e:
+        logger.exception("Batch generation failed for task %s", task.id)
+        task.status = "failed"
+        task.error_detail = str(e)[:500]
+        db.session.commit()
+
+    db.session.refresh(task)
+    rl_headers = _rate_limit_headers(rl_info)
+    resp = jsonify({"task_id": task.id, "task": task.to_dict()})
+    for k, v in rl_headers.items():
+        resp.headers[k] = v
+    return resp, 201
+
+
+# ── GET /api/v1/ai/tasks/<task_id> ─────────────────────────
+
+@bp.route("/tasks/<task_id>", methods=["GET"])
+@require_auth
+def get_task(task_id):
+    """Get status and results of an agent task."""
+    user = get_current_user_or_401()
+    from app.models.agent_task import AgentTask
+    task = AgentTask.query.filter_by(id=task_id, user_id=user.id).first()
+    if not task:
+        return _error_response("not_found", "Task not found", 404)
+    return jsonify({"task": task.to_dict()})
+
+
+# ── POST /api/v1/ai/tasks/<task_id>/retry ──────────────────
+
+@bp.route("/tasks/<task_id>/retry", methods=["POST"])
+@require_teacher
+def retry_task(task_id):
+    """Retry a failed task or a specific step within a batch."""
+    user = get_current_user_or_401()
+    from app.models.agent_task import AgentTask
+    from app.agents.batch_runner import BatchTaskRunner
+
+    task = AgentTask.query.filter_by(id=task_id, user_id=user.id).first()
+    if not task:
+        return _error_response("not_found", "Task not found", 404)
+    if task.status != "failed":
+        return _error_response("invalid_state", "Can only retry failed tasks", 400)
+
+    data = request.get_json(silent=True) or {}
+    step_index = data.get("step_index")
+
+    task.attempt += 1
+    task.status = "pending"
+    task.error_detail = None
+    if step_index is not None:
+        task.current_step = step_index
+    db.session.commit()
+
+    try:
+        runner = BatchTaskRunner(task)
+        runner.run()
+    except Exception as e:
+        logger.exception("Retry failed for task %s", task.id)
+        task.status = "failed"
+        task.error_detail = str(e)[:500]
+        db.session.commit()
+
+    db.session.refresh(task)
+    return jsonify({"task": task.to_dict()})
+
+
+# ── GET /api/v1/ai/generate/drafts ─────────────────────────
+
+@bp.route("/generate/drafts", methods=["GET"])
+@require_teacher
+def list_drafts():
+    """List pending question drafts for review."""
+    user = get_current_user_or_401()
+    from app.models.generated_question_draft import GeneratedQuestionDraft
+
+    status = request.args.get("status", "pending_review")
+    limit = min(int(request.args.get("limit", 20)), 100)
+    offset = int(request.args.get("offset", 0))
+
+    query = GeneratedQuestionDraft.query.filter_by(teacher_id=user.id)
+    if status != "all":
+        query = query.filter_by(status=status)
+
+    total = query.count()
+    drafts = query.order_by(GeneratedQuestionDraft.created_at.desc()).offset(offset).limit(limit).all()
+    return jsonify({
+        "drafts": [d.to_dict() for d in drafts],
+        "total": total,
+    })
+
+
+# ── GET /api/v1/ai/generate/drafts/<id> ────────────────────
+
+@bp.route("/generate/drafts/<int:draft_id>", methods=["GET"])
+@require_teacher
+def get_draft(draft_id):
+    """Get a single draft detail."""
+    user = get_current_user_or_401()
+    from app.models.generated_question_draft import GeneratedQuestionDraft
+    draft = GeneratedQuestionDraft.query.filter_by(id=draft_id, teacher_id=user.id).first()
+    if not draft:
+        return _error_response("not_found", "Draft not found", 404)
+    return jsonify({"draft": draft.to_dict()})
+
+
+# ── POST /api/v1/ai/generate/drafts/<id>/review ────────────
+
+@bp.route("/generate/drafts/<int:draft_id>/review", methods=["POST"])
+@require_teacher
+def review_draft(draft_id):
+    """Teacher approves, rejects, or requests revision on a draft."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    notes = data.get("notes", "")
+
+    if action not in ("approve", "reject", "request_revision"):
+        return _error_response("invalid_request", "action must be approve, reject, or request_revision", 400)
+
+    from app.models.generated_question_draft import GeneratedQuestionDraft
+    draft = GeneratedQuestionDraft.query.filter_by(id=draft_id, teacher_id=user.id).first()
+    if not draft:
+        return _error_response("not_found", "Draft not found", 404)
+
+    if action == "approve":
+        try:
+            question = _publish_draft(draft, user.id)
+            draft.published_question_id = question.id
+            draft.status = "published"
+            db.session.commit()
+            return jsonify({"status": "published", "question_id": question.id})
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Failed to publish draft %d", draft_id)
+            return _error_response("ai_service_error", "Failed to publish question.", 500)
+
+    elif action == "request_revision":
+        draft.status = "revision_requested"
+        draft.review_notes = notes
+        db.session.commit()
+        _trigger_revision(draft)
+        db.session.refresh(draft)
+        return jsonify({"status": "revising", "draft": draft.to_dict()})
+
+    elif action == "reject":
+        draft.status = "rejected"
+        draft.review_notes = notes
+        db.session.commit()
+        return jsonify({"status": "rejected"})
+
+
+def _publish_draft(draft, created_by: int):
+    """Publish a draft to the question bank."""
+    from app.models.question import Question, TestCase
+
+    qd = draft.question_data
+    if "question" in qd:
+        qd = qd["question"]
+
+    q = Question(
+        title=qd.get("title", "AI Generated Question"),
+        description=qd.get("description", ""),
+        starter_code=qd.get("starter_code", ""),
+        solution=qd.get("solution", ""),
+        solution_explanation=qd.get("solution_explanation", ""),
+        programming_language=qd.get("programming_language", "python"),
+        created_by=created_by,
+    )
+    db.session.add(q)
+    db.session.flush()
+
+    for tc_data in qd.get("test_cases", []):
+        tc = TestCase(
+            question_id=q.id,
+            input=tc_data.get("input", ""),
+            expected_output=tc_data.get("expected_output", ""),
+            is_hidden=tc_data.get("is_hidden", False),
+            weight=tc_data.get("weight", 1.0),
+        )
+        db.session.add(tc)
+
+    return q
+
+
+def _trigger_revision(draft):
+    """Use the Generator agent to revise based on teacher feedback."""
+    from app.agents.agents.generator import GeneratorAgent
+    from langchain_core.messages import HumanMessage as LCHumanMessage
+
+    original_json = json.dumps(draft.question_data, indent=2, ensure_ascii=False)
+    revision_prompt = (
+        f"A teacher has reviewed your generated question and requested changes:\n\n"
+        f"Teacher feedback: {draft.review_notes}\n\n"
+        f"Original question:\n```json\n{original_json}\n```\n\n"
+        f"Please revise the question based on the feedback and output the "
+        f"complete updated JSON."
+    )
+
+    agent = GeneratorAgent()
+    state = {
+        "messages": [LCHumanMessage(content=revision_prompt)],
+        "agent_type": "generator",
+        "user_id": draft.teacher_id,
+        "user_role": "teacher",
+        "context": {
+            "language": draft.question_data.get("programming_language", "python"),
+        },
+        "tool_results": [],
+        "final_response": "",
+    }
+
+    try:
+        result = agent.invoke(state)
+        revised = result.get("context", {}).get("generated_question")
+        if revised:
+            draft.question_data = revised
+            draft.status = "pending_review"
+            draft.revision_count += 1
+        else:
+            draft.status = "pending_review"
+            draft.review_notes = (draft.review_notes or "") + "\n[Revision produced no valid output]"
+        db.session.commit()
+    except Exception as e:
+        logger.exception("Revision failed for draft %d", draft.id)
+        draft.status = "pending_review"
+        draft.review_notes = (draft.review_notes or "") + f"\n[Revision failed: {e}]"
+        db.session.commit()
+
+
+# ── POST /api/v1/ai/generate/to-draft ──────────────────────
+
+@bp.route("/generate/to-draft", methods=["POST"])
+@require_teacher
+def save_as_draft():
+    """Save an AI-generated question as a draft for review instead of publishing directly."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+
+    question_data = data.get("question_data")
+    conversation_id = data.get("conversation_id")
+    task_id = data.get("task_id")
+
+    if not question_data:
+        return _error_response("invalid_request", "question_data is required", 400)
+
+    from app.models.generated_question_draft import GeneratedQuestionDraft
+
+    verified = question_data.get("verified", False)
+    draft = GeneratedQuestionDraft(
+        teacher_id=user.id,
+        conversation_id=conversation_id,
+        task_id=task_id,
+        question_data=question_data,
+        validation_status="passed" if verified else "unverified",
+        status="pending_review",
+    )
+    db.session.add(draft)
+    db.session.commit()
+
+    return jsonify({"draft": draft.to_dict()}), 201
+
+
+# ── GET /api/v1/ai/traces ──────────────────────────────────
+
+@bp.route("/traces", methods=["GET"])
+@require_teacher
+def list_traces():
+    """List agent run traces. Teacher/admin only."""
+    user = get_current_user_or_401()
+    from app.models.agent_trace import AgentRun
+
+    limit = min(int(request.args.get("limit", 20)), 100)
+    offset = int(request.args.get("offset", 0))
+    agent_type = request.args.get("agent_type")
+
+    query = AgentRun.query
+    if agent_type:
+        query = query.filter_by(agent_type=agent_type)
+
+    total = query.count()
+    runs = query.order_by(AgentRun.created_at.desc()).offset(offset).limit(limit).all()
+    return jsonify({
+        "traces": [r.to_dict() for r in runs],
+        "total": total,
+    })
+
+
+# ── GET /api/v1/ai/traces/<run_id> ─────────────────────────
+
+@bp.route("/traces/<run_id>", methods=["GET"])
+@require_teacher
+def get_trace(run_id):
+    """Get detailed trace for a single agent run."""
+    from app.models.agent_trace import AgentRun, AgentRunStep
+    run = AgentRun.query.get(run_id)
+    if not run:
+        return _error_response("not_found", "Trace not found", 404)
+    steps = AgentRunStep.query.filter_by(run_id=run_id).order_by(AgentRunStep.step_index).all()
+    return jsonify({
+        "run": run.to_dict(),
+        "steps": [s.to_dict() for s in steps],
+    })
+
+
 # ── GET /api/v1/ai/analytics/<student_id> ────────────────────
 
 @bp.route("/analytics/<int:student_id>", methods=["GET"])
@@ -686,3 +1097,157 @@ def analytics_report(student_id):
         db.session.rollback()
         logger.exception("AI analytics error")
         return _error_response("ai_service_error", "An unexpected error occurred. Please try again.", 500)
+
+
+# ── GET /api/v1/ai/profile ────────────────────────────────
+# Phase 3: Student profile / Teacher preference endpoints
+
+@bp.route("/profile", methods=["GET"])
+@require_auth
+def get_profile():
+    """Get the current user's AI learning profile or teacher preferences."""
+    user = get_current_user_or_401()
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    if user_role == "student":
+        from app.models.student_profile import StudentProfile
+        profile = StudentProfile.query.filter_by(student_id=user.id).first()
+        if not profile:
+            return jsonify({"profile": None, "message": "No profile yet. It builds over time."})
+        return jsonify({"profile": profile.to_dict()})
+    else:
+        from app.models.student_profile import TeacherPreference
+        pref = TeacherPreference.query.filter_by(teacher_id=user.id).first()
+        if not pref:
+            return jsonify({"preference": None, "message": "No preferences set yet."})
+        return jsonify({"preference": pref.to_dict()})
+
+
+@bp.route("/profile", methods=["PUT"])
+@require_auth
+def update_profile():
+    """Update teacher preferences or student preferred language."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    if user_role == "student":
+        from app.models.student_profile import StudentProfile
+        profile = StudentProfile.query.filter_by(student_id=user.id).first()
+        if not profile:
+            profile = StudentProfile(student_id=user.id)
+            db.session.add(profile)
+        if "preferred_language" in data:
+            profile.preferred_language = data["preferred_language"]
+        db.session.commit()
+        return jsonify({"profile": profile.to_dict()})
+    else:
+        from app.models.student_profile import TeacherPreference
+        pref = TeacherPreference.query.filter_by(teacher_id=user.id).first()
+        if not pref:
+            pref = TeacherPreference(teacher_id=user.id)
+            db.session.add(pref)
+        for field in ("preferred_difficulty", "preferred_language", "preferred_topics",
+                       "style_notes", "class_weak_areas", "class_level"):
+            if field in data:
+                setattr(pref, field, data[field])
+        db.session.commit()
+        return jsonify({"preference": pref.to_dict()})
+
+
+@bp.route("/profile/refresh", methods=["POST"])
+@require_auth
+def refresh_profile():
+    """Rebuild the student learning profile from submission data."""
+    user = get_current_user_or_401()
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    if user_role != "student":
+        return _error_response("forbidden", "Only students have learning profiles", 403)
+
+    from app.agents.memory import MemoryService
+    try:
+        MemoryService.update_student_profile(user.id)
+        from app.models.student_profile import StudentProfile
+        profile = StudentProfile.query.filter_by(student_id=user.id).first()
+        return jsonify({"profile": profile.to_dict() if profile else None,
+                        "message": "Profile refreshed from submission data."})
+    except Exception as e:
+        logger.exception("Profile refresh error")
+        return _error_response("ai_service_error", "Failed to refresh profile.", 500)
+
+
+# ── POST /api/v1/ai/knowledge/index ──────────────────────
+# Phase 3: Knowledge base management
+
+@bp.route("/knowledge/index", methods=["POST"])
+@require_teacher
+def index_questions():
+    """Index all questions into the knowledge base vector store. Teacher/admin only."""
+    try:
+        from app.agents.knowledge_base import index_all_questions
+        count = index_all_questions()
+        return jsonify({"message": f"Indexed {count} questions into the knowledge base."})
+    except Exception as e:
+        logger.exception("Knowledge base indexing error")
+        return _error_response("ai_service_error", f"Failed to index questions: {e}", 500)
+
+
+# ── POST /api/v1/ai/evals/run ────────────────────────────
+# Phase 3: Eval framework endpoints
+
+@bp.route("/evals/run", methods=["POST"])
+@require_teacher
+def run_evals():
+    """Run an eval suite. Teacher/admin only."""
+    data = request.get_json(silent=True) or {}
+    suite = data.get("suite", "all")
+
+    try:
+        from evals.runner import EvalRunner, report_to_dict
+        runner = EvalRunner(use_real_llm=True)
+
+        if suite == "all":
+            reports = runner.run_all_suites()
+            results = [report_to_dict(r) for r in reports]
+        else:
+            import os
+            suite_path = os.path.join("evals", "cases", f"{suite}_evals.json")
+            if not os.path.exists(suite_path):
+                return _error_response("not_found", f"Suite '{suite}' not found", 404)
+            report = runner.run_suite(suite_path)
+            results = [report_to_dict(report)]
+
+        # Persist eval run results
+        from app.models.eval_run import EvalRun
+        for r in results:
+            run = EvalRun(
+                suite_name=r["suite_name"],
+                model_name=data.get("model_name", "deepseek"),
+                total_cases=r["total"],
+                passed_cases=r["passed"],
+                pass_rate=r["pass_rate"],
+                results_json=r["results"],
+                duration_seconds=r["duration_seconds"],
+            )
+            db.session.add(run)
+        db.session.commit()
+
+        return jsonify({"reports": results})
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Eval run error")
+        return _error_response("ai_service_error", f"Eval run failed: {e}", 500)
+
+
+@bp.route("/evals/history", methods=["GET"])
+@require_teacher
+def eval_history():
+    """List past eval runs."""
+    from app.models.eval_run import EvalRun
+    limit = min(int(request.args.get("limit", 20)), 100)
+    offset = int(request.args.get("offset", 0))
+
+    query = EvalRun.query.order_by(EvalRun.run_at.desc())
+    total = query.count()
+    runs = query.offset(offset).limit(limit).all()
+    return jsonify({"runs": [r.to_dict() for r in runs], "total": total})

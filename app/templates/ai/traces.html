@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set page = 'ai-traces' %}
+{% block title %}Agent Traces{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/traces.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="traces-container">
+  <!-- Header -->
+  <div class="traces-header">
+    <div class="traces-title">
+      <i class="bi bi-activity"></i>
+      <h4>Agent Traces</h4>
+    </div>
+    <div class="traces-filters">
+      <select class="form-select form-select-sm" id="agentFilter">
+        <option value="">All Agents</option>
+        <option value="tutor">Tutor</option>
+        <option value="reviewer">Reviewer</option>
+        <option value="generator">Generator</option>
+        <option value="analytics">Analytics</option>
+      </select>
+      <button class="btn btn-sm btn-outline-primary" id="refreshBtn">
+        <i class="bi bi-arrow-clockwise"></i> Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Split view: list + detail -->
+  <div class="traces-body">
+    <!-- Trace list -->
+    <div class="trace-list-panel">
+      <div class="trace-list" id="traceList">
+        <p class="text-muted small p-3">Loading traces...</p>
+      </div>
+      <div class="trace-pagination" id="tracePagination"></div>
+    </div>
+
+    <!-- Trace detail -->
+    <div class="trace-detail-panel" id="traceDetail">
+      <div class="trace-detail-empty">
+        <i class="bi bi-diagram-3" style="font-size: 2.5rem; opacity: 0.3;"></i>
+        <p>Select a trace to view details</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/traces.js') }}"></script>
+{% endblock %}

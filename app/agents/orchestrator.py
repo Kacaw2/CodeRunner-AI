@@ -1,7 +1,9 @@
 import logging
 
+from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
+from app.agents.config import AIConfig
 from app.agents.exceptions import AIError
 from app.agents.state import AgentState
 from app.agents.agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
@@ -15,10 +17,68 @@ _AGENTS = {
     "analytics": AnalyticsAgent(),
 }
 
+VALID_AGENT_TYPES = set(_AGENTS.keys())
+
+INTENT_CLASSIFY_PROMPT = """Classify this user message into one of these agent types.
+User role: {user_role}
+
+Agent types:
+- tutor: Student asking for help, hints, explanations about a coding problem
+- reviewer: Request to review, analyze, or critique code
+- generator: Teacher asking to create/generate a new coding problem or question
+- analytics: Request for performance data, statistics, learning analysis
+
+User message: "{message}"
+
+Output ONLY the agent type name (tutor/reviewer/generator/analytics).
+If unsure, output "tutor" for students and "analytics" for teachers."""
+
+
+def _classify_intent(state: AgentState) -> AgentState:
+    """LLM-based intent classification to route to the right agent."""
+    agent_type = state.get("agent_type")
+    if agent_type and agent_type in VALID_AGENT_TYPES:
+        return state
+
+    user_role = state.get("user_role", "student")
+    user_message = ""
+    if state.get("messages"):
+        last = state["messages"][-1]
+        user_message = getattr(last, "content", str(last))
+
+    if not user_message:
+        state["agent_type"] = "tutor" if user_role == "student" else "analytics"
+        state["auto_routed"] = True
+        return state
+
+    try:
+        llm = AIConfig.get_llm()
+        prompt = INTENT_CLASSIFY_PROMPT.format(user_role=user_role, message=user_message[:500])
+        response = llm.invoke([HumanMessage(content=prompt)])
+        classified = response.content.strip().lower()
+
+        if classified not in VALID_AGENT_TYPES:
+            classified = "tutor" if user_role == "student" else "analytics"
+
+        if user_role == "student" and classified == "generator":
+            classified = "tutor"
+
+        state["agent_type"] = classified
+        state["auto_routed"] = True
+        logger.info("Intent classified as '%s' for message: %.80s", classified, user_message)
+    except Exception as e:
+        logger.warning("Intent classification failed, falling back: %s", e)
+        state["agent_type"] = "tutor" if user_role == "student" else "analytics"
+        state["auto_routed"] = True
+
+    return state
+
 
 def _route(state: AgentState) -> AgentState:
     agent_type = state.get("agent_type")
-    if agent_type and agent_type in _AGENTS:
+    if agent_type == "auto" or not agent_type:
+        return _classify_intent(state)
+    if agent_type in VALID_AGENT_TYPES:
         return state
     state["agent_type"] = "tutor"
     return state

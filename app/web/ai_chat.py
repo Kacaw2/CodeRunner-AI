@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request
-from app.auth import web_login_required
+from app.auth import web_login_required, web_teacher_required
 
 ai_chat_bp = Blueprint("ai_chat", __name__, url_prefix="/ai")
 
@@ -18,3 +18,15 @@ def chat_page():
         conversation_id=conversation_id,
         agent_type=agent_type,
     )
+
+
+@ai_chat_bp.route("/review-queue")
+@web_teacher_required
+def review_queue_page():
+    return render_template("ai/review_queue.html")
+
+
+@ai_chat_bp.route("/traces")
+@web_teacher_required
+def traces_page():
+    return render_template("ai/traces.html")

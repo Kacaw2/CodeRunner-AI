@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% set page = 'review-queue' %}
+{% block title %}Review Queue - AI Generated Questions{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review_queue.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="review-container">
+  <!-- Header -->
+  <div class="review-header">
+    <div class="review-header-left">
+      <h4><i class="bi bi-clipboard-check"></i> Review Queue</h4>
+      <span class="badge bg-primary" id="pendingCount">0 pending</span>
+    </div>
+    <div class="review-header-right">
+      <select class="form-select form-select-sm" id="statusFilter" style="width:auto">
+        <option value="pending_review">Pending Review</option>
+        <option value="revision_requested">Revision Requested</option>
+        <option value="published">Published</option>
+        <option value="rejected">Rejected</option>
+        <option value="all">All</option>
+      </select>
+      <button class="btn btn-sm btn-outline-primary" id="refreshBtn" title="Refresh">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Draft list -->
+  <div class="draft-list" id="draftList">
+    <div class="loading-placeholder">
+      <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+      <span>Loading drafts...</span>
+    </div>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty-state d-none" id="emptyState">
+    <i class="bi bi-inbox"></i>
+    <p>No drafts found for the selected filter.</p>
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="previewTitle">Question Preview</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="previewBody">
+      </div>
+      <div class="modal-footer" id="previewFooter">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-warning" id="modalReviseBtn">
+          <i class="bi bi-pencil"></i> Request Revision
+        </button>
+        <button type="button" class="btn btn-danger" id="modalRejectBtn">
+          <i class="bi bi-x-lg"></i> Reject
+        </button>
+        <button type="button" class="btn btn-success" id="modalApproveBtn">
+          <i class="bi bi-check-lg"></i> Approve & Publish
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Revision Modal -->
+<div class="modal fade" id="revisionModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Request Revision</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Feedback for the AI:</label>
+        <textarea class="form-control" id="revisionNotes" rows="4"
+                  placeholder="Describe what changes you'd like, e.g. 'Add edge case for empty array' or 'Make the description clearer'"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" id="submitRevisionBtn">
+          <i class="bi bi-send"></i> Submit & Revise
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/review_queue.js') }}"></script>
+{% endblock %}

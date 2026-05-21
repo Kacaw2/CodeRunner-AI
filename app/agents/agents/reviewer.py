@@ -1,4 +1,5 @@
 from app.agents.agents.base import BaseAgent
+from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.reviewer import REVIEWER_SYSTEM_PROMPT
 from app.agents.tools.code_executor import execute_code
@@ -13,7 +14,7 @@ class ReviewerAgent(BaseAgent):
 
     def _build_system_context(self, state: dict) -> str:
         context = state.get("context", {})
-        parts = [REVIEWER_SYSTEM_PROMPT]
+        parts = [REVIEWER_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM]
         if context.get("question_id"):
             parts.append(f"\nQuestion ID (use get_question_detail to fetch requirements): {context['question_id']}")
         if context.get("language"):

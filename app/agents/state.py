@@ -10,3 +10,14 @@ class AgentState(TypedDict):
     context: dict
     tool_results: list
     final_response: str
+    # Phase 1 additions
+    validation_passed: bool
+    attempt: int
+    task_id: str
+    trace_id: str
+    parsed_output: dict
+    # Phase 2 additions
+    auto_routed: bool
+    handoff_to: str
+    handoff_reason: str
+    previous_agents: list

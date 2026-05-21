@@ -7,9 +7,13 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.agents.agents.base import BaseAgent
 from app.agents.config import AIConfig
 from app.agents.exceptions import LLMError, ValidationError
+from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.generator import GENERATOR_SYSTEM_PROMPT
 from app.agents.tools.code_executor import execute_code
+from app.agents.tools.knowledge_tools import search_similar_questions
+
+GENERATOR_TOOLS = [execute_code, search_similar_questions]
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +69,15 @@ class GeneratorAgent(BaseAgent):
     description = "Question generation agent for teachers"
 
     def _build_system_context(self, state: dict) -> str:
+        from app.agents.memory import MemoryService
+
         context = state.get("context", {})
-        parts = [GENERATOR_SYSTEM_PROMPT]
+        parts = [GENERATOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM]
+
+        memory_ctx = MemoryService.get_memory_context(state["user_id"], state.get("user_role", "teacher"))
+        if memory_ctx:
+            parts.append(f"\n## Teacher Preferences (from profile)\n{memory_ctx}")
+
         if context.get("language"):
             parts.append(f"\nTarget programming language: {context['language']}")
         if context.get("difficulty"):
