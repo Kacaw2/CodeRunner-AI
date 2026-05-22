@@ -1,6 +1,7 @@
 import json
 import logging
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+import threading
+from flask import Blueprint, request, jsonify, Response, stream_with_context, current_app
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
 from app.models.ai_conversation import AIConversation, AIMessage
@@ -89,6 +90,34 @@ def _log_audit(user_id: int, agent_type: str, action: str, message: str,
         db.session.commit()
     except Exception as e:
         logger.warning("Failed to write audit log: %s", e)
+
+
+# ── Async Summary ────────────────────────────────────────────
+
+def _maybe_generate_summary(conv_id: int):
+    """Trigger async conversation summary when message count >= 10 and no summary exists."""
+    try:
+        msg_count = AIMessage.query.filter_by(conversation_id=conv_id).count()
+        conv = AIConversation.query.get(conv_id)
+        if msg_count >= 10 and conv and not conv.summary:
+            app = current_app._get_current_object()
+
+            def _generate(app_obj, cid):
+                with app_obj.app_context():
+                    try:
+                        from app.agents.memory import MemoryService
+                        summary = MemoryService.generate_conversation_summary(cid)
+                        if summary:
+                            c = AIConversation.query.get(cid)
+                            if c:
+                                c.summary = summary
+                                db.session.commit()
+                    except Exception as e:
+                        logger.warning("Async summary generation failed: %s", e)
+
+            threading.Thread(target=_generate, args=(app, conv_id), daemon=True).start()
+    except Exception as e:
+        logger.warning("Summary check failed: %s", e)
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -273,6 +302,8 @@ def chat():
         conv.title = conv.title or message[:80]
         db.session.commit()
 
+        _maybe_generate_summary(conv.id)
+
         resp = jsonify({
             "conversation_id": conv.id,
             "message_id": assistant_msg.id,
@@ -394,6 +425,8 @@ def chat_stream():
             if _conv and not _conv.title:
                 _conv.title = message[:80]
             db.session.commit()
+
+            _maybe_generate_summary(conv_id)
 
             yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id})}\n\n"
         except Exception as e:

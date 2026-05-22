@@ -395,7 +395,7 @@ Agent 可在 response 末尾添加 `[HANDOFF: target_agent | reason]` 标记。`
 | 方法 | 功能 | 调用位置 |
 |------|------|---------|
 | `get_memory_context(user_id, role)` | 构造注入 system prompt 的记忆上下文字符串 | 所有 4 个 agent 的 `_build_system_context` |
-| `update_student_profile(student_id)` | 从最近 50 条提交重建学生 profile | API 层（暂未确认自动触发点） |
+| `update_student_profile(student_id)` | 从最近 50 条提交重建学生 profile | API 层（已确认：无自动触发点，需手动调用或集成到提交后钩子） |
 | `generate_conversation_summary(conv_id)` | LLM 生成对话摘要 | **已定义，未被自动调用** |
 | `compact_messages(messages, max=20)` | 超过 20 条消息时压缩早期消息 | **已定义，未被自动调用** |
 
@@ -424,7 +424,7 @@ Embedding 模型：`all-MiniLM-L6-v2`（sentence-transformers）。
 
 | 函数 | 功能 | 触发位置 |
 |------|------|---------|
-| `learn_from_generation(teacher_id, params, question)` | 更新 preferred_language/difficulty/topics | `/generate/pipeline` 成功后调用 |
+| `learn_from_generation(teacher_id, params, question)` | 更新 preferred_language/difficulty/topics | `/generate/pipeline` 成功后调用（已确认：`ai.py:1290`） |
 | `refresh_teacher_style_summary(teacher_id)` | LLM 分析最近 10 个 drafts 生成风格摘要 | `POST /profile/refresh-style` |
 | `analyze_class_weak_areas(teacher_id)` | 扫描所有学生 profile 找共性弱项 | `POST /profile/refresh-class-analysis` |
 
@@ -587,6 +587,6 @@ generate -> validate --passed--> dedup_check --unique--> quality_review -> final
 | L2 | `compact_messages` 死代码 | `memory.py:119` | 长对话无压缩机制 |
 | L3 | `recover_orphaned_tasks` 未集成到启动 | `recovery.py:9` | 定义了但 app factory 没有调用 |
 | L4 | `index_all_questions` 未自动触发 | `knowledge_base.py:136` | 知识库需手动全量索引 |
-| L5 | `EvalRun` 模型无写入逻辑 | `eval_run.py` | eval 结果不持久化 |
+| ~~L5~~ | ~~`EvalRun` 模型无写入逻辑~~ | ~~`eval_run.py`~~ | ~~eval 结果不持久化~~ **RESOLVED** — `ai.py:1378-1390` 已实现写入和查询 |
 | L6 | `state.py` 中 3 个死字段 | `state.py:14-18` | `validation_passed/attempt/parsed_output` 主流程不使用 |
 | L7 | 公开 metrics 泄露用户名 | `public/metrics.py` | `/metrics/latest_submissions` 暴露 username + score |

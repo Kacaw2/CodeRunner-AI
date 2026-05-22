@@ -59,7 +59,7 @@ class TraceCollector:
     def save(self, status: str, response: str = "", error: Exception = None):
         try:
             from app.core.extensions import db
-            from app.models.agent_trace import AgentRun
+            from app.models.agent_trace import AgentRun, AgentRunStep
 
             total_ms = int((time.monotonic() - self.start_time) * 1000)
             run = AgentRun(
@@ -82,6 +82,23 @@ class TraceCollector:
                 error_message=str(error)[:500] if error else None,
             )
             db.session.add(run)
+
+            for step in self.steps:
+                db_step = AgentRunStep(
+                    run_id=self.run_id,
+                    step_index=step["step_index"],
+                    step_type=step["step_type"],
+                    tool_name=step.get("tool_name"),
+                    tool_input=step.get("tool_input"),
+                    tool_output_preview=str(step.get("tool_output", ""))[:500],
+                    tool_success=step.get("tool_success"),
+                    llm_prompt_tokens=step.get("prompt_tokens"),
+                    llm_completion_tokens=step.get("completion_tokens"),
+                    latency_ms=step.get("latency_ms", 0),
+                    error=step.get("error"),
+                )
+                db.session.add(db_step)
+
             db.session.commit()
         except Exception as e:
             logger.warning("Failed to save trace: %s", e)

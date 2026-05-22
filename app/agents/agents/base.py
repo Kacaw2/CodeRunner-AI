@@ -154,6 +154,13 @@ class BaseAgent(ABC):
         llm_with_tools = llm.bind_tools(tools)
 
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
+
+        try:
+            from app.agents.memory import MemoryService
+            messages = MemoryService.compact_messages(messages, max_messages=20)
+        except Exception as e:
+            logger.warning("Message compaction failed: %s", e)
+
         response = None
 
         try:
@@ -165,6 +172,21 @@ class BaseAgent(ABC):
                         if iteration == 0:
                             raise
                         break
+
+                    input_tokens = 0
+                    output_tokens = 0
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        input_tokens = response.usage_metadata.get("input_tokens", 0)
+                        output_tokens = response.usage_metadata.get("output_tokens", 0)
+                    elif hasattr(response, "response_metadata"):
+                        usage = response.response_metadata.get("token_usage", {})
+                        input_tokens = usage.get("prompt_tokens", 0)
+                        output_tokens = usage.get("completion_tokens", 0)
+                    if input_tokens or output_tokens:
+                        trace.total_input_tokens += input_tokens
+                        trace.total_output_tokens += output_tokens
+                        llm_step["prompt_tokens"] = input_tokens
+                        llm_step["completion_tokens"] = output_tokens
 
                 messages.append(response)
 
@@ -214,6 +236,12 @@ class BaseAgent(ABC):
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
 
         try:
+            from app.agents.memory import MemoryService
+            messages = MemoryService.compact_messages(messages, max_messages=20)
+        except Exception as e:
+            logger.warning("Message compaction failed (stream): %s", e)
+
+        try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 collected_content = ""
                 tool_calls = []
@@ -238,8 +266,12 @@ class BaseAgent(ABC):
                                         if tc_chunk.get("id"):
                                             tool_calls[idx]["id"] = tc_chunk["id"]
                             if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                                trace.total_input_tokens += chunk.usage_metadata.get("input_tokens", 0)
-                                trace.total_output_tokens += chunk.usage_metadata.get("output_tokens", 0)
+                                input_t = chunk.usage_metadata.get("input_tokens", 0)
+                                output_t = chunk.usage_metadata.get("output_tokens", 0)
+                                trace.total_input_tokens += input_t
+                                trace.total_output_tokens += output_t
+                                llm_step["prompt_tokens"] = llm_step.get("prompt_tokens", 0) + input_t
+                                llm_step["completion_tokens"] = llm_step.get("completion_tokens", 0) + output_t
                 except LLMError as e:
                     if iteration == 0:
                         yield {"type": "error", "message": e.user_message}

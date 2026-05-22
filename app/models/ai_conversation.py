@@ -11,6 +11,7 @@ class AIConversation(db.Model):
     context_type = db.Column(db.String(20), nullable=True)
     context_id = db.Column(db.Integer, nullable=True)
     title = db.Column(db.String(200), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

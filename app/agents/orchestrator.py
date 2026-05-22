@@ -134,11 +134,49 @@ def _check_handoff(state: AgentState) -> str:
 
 
 def _respond(state: AgentState) -> AgentState:
+    """Validate structured agent output and trigger retry if schema check fails."""
+    agent_type = state.get("agent_type", "")
+    if agent_type == "tutor":
+        return state
+
+    final_response = state.get("final_response", "")
+    if not final_response:
+        return state
+
+    from app.agents.schemas import validate_agent_output, extract_json
+    parsed = extract_json(final_response)
+    if not parsed:
+        return state
+
+    valid, error_msg = validate_agent_output(agent_type, parsed)
+    if valid:
+        return state
+
+    attempt = state.get("validation_attempt", 0)
+    if attempt >= 2:
+        logger.warning("Schema validation failed after retries for %s: %s", agent_type, error_msg)
+        state["final_response"] = f"[Warning: output may be incomplete] {final_response}"
+        return state
+
+    from langchain_core.messages import HumanMessage
+    state["validation_attempt"] = attempt + 1
+    state["messages"].append(
+        HumanMessage(content=f"Your output failed schema validation: {error_msg}\nPlease fix and output valid JSON.")
+    )
+    state["needs_retry"] = True
     return state
 
 
 def _next_node(state: AgentState) -> str:
     return state.get("agent_type", "tutor")
+
+
+def _respond_or_retry(state: AgentState) -> str:
+    """After validation, either retry the agent or finish."""
+    if state.get("needs_retry"):
+        state["needs_retry"] = False
+        return state.get("agent_type", "tutor")
+    return "__end__"
 
 
 def build_graph() -> StateGraph:
@@ -169,7 +207,13 @@ def build_graph() -> StateGraph:
     for agent_name in _AGENTS:
         graph.add_conditional_edges(agent_name, _check_handoff, handoff_targets)
 
-    graph.add_edge("respond", END)
+    graph.add_conditional_edges("respond", _respond_or_retry, {
+        "tutor": "tutor",
+        "reviewer": "reviewer",
+        "generator": "generator",
+        "analytics": "analytics",
+        "__end__": END,
+    })
 
     return graph
 

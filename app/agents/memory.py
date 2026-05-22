@@ -117,22 +117,47 @@ class MemoryService:
 
     @staticmethod
     def compact_messages(messages: list, max_messages: int = 20) -> list:
-        """If conversation exceeds max_messages, summarize early messages."""
+        """If conversation exceeds max_messages, summarize early messages.
+
+        Uses LLM to compress early messages into a summary, falling back
+        to simple truncation if the LLM call fails.
+        """
         if len(messages) <= max_messages:
             return messages
 
+        system_msg = messages[0]
         early = messages[1:-max_messages]
         recent = messages[-max_messages:]
+
+        try:
+            from app.agents.config import AIConfig
+            transcript_parts = []
+            for m in early:
+                content = getattr(m, "content", "")
+                if content:
+                    role = getattr(m, "type", "unknown")
+                    transcript_parts.append(f"[{role}] {content[:300]}")
+            if transcript_parts:
+                llm = AIConfig.get_llm()
+                prompt = (
+                    "Compress the following conversation history into a brief summary "
+                    "(max 200 words). Preserve key facts, decisions, and context.\n\n"
+                    + "\n".join(transcript_parts)
+                )
+                response = llm.invoke([HumanMessage(content=prompt)])
+                summary_text = f"Previous conversation summary:\n{response.content}"
+                return [system_msg, HumanMessage(content=summary_text)] + recent
+        except Exception as e:
+            logger.warning("LLM compression failed, falling back to truncation: %s", e)
 
         topics = []
         for m in early:
             content = getattr(m, "content", "")
             if content:
                 topics.append(content[:100])
-
         summary_text = (
             "Previous conversation summary: discussed "
             + "; ".join(topics[:5])
             + ("..." if len(topics) > 5 else "")
         )
-        return [messages[0], HumanMessage(content=summary_text)] + recent
+        return [system_msg, HumanMessage(content=summary_text)] + recent

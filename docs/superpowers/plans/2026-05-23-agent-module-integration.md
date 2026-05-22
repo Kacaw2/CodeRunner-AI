@@ -177,13 +177,13 @@ def invoke(self, state):
 
 **文件：** `app/agents/memory.py`, `app/agents/agents/base.py`
 
-- [ ] 在 `_invoke_with_tools` 中，构建消息列表后、发送给 LLM 前，调用 `compact_messages(messages, max_messages=20)`
-- [ ] 在 `_stream_with_tools` 中同样调用
-- [ ] `compact_messages` 实现：
+- [x] 在 `_invoke_with_tools` 中，构建消息列表后、发送给 LLM 前，调用 `compact_messages(messages, max_messages=20)`
+- [x] 在 `_stream_with_tools` 中同样调用
+- [x] `compact_messages` 实现：
   - 当 `len(messages) <= max_messages` 时原样返回
   - 否则：保留 system message + 最后 `max_messages` 条消息，将早期消息用 LLM 压缩为一条摘要
   - 压缩用独立的低温 LLM 调用（`temperature=0.3`），不经过 agent 管道
-- [ ] 添加降级保护：压缩失败时截断早期消息（保留最后 N 条），不阻塞主流程
+- [x] 添加降级保护：压缩失败时截断早期消息（保留最后 N 条），不阻塞主流程
 - [ ] 添加测试：30 条消息的对话应被压缩为 <= 22 条（system + summary + 20 recent）
 
 **调用位置：**
@@ -202,11 +202,11 @@ messages = MemoryService.compact_messages(messages, max_messages=20)
 
 **文件：** `app/agents/memory.py`, `app/api/v1/ai.py`
 
-- [ ] 在 `/chat` 和 `/chat/stream` 端点中，agent 响应完成后，检查当前对话的消息总数
-- [ ] 当消息数 >= 10 且该对话尚无摘要时，异步调用 `generate_conversation_summary(conversation_id)`
-- [ ] 摘要结果存入 `AIConversation` 模型（需确认字段是否存在，不存在则添加 `summary` 字段）
-- [ ] 使用 `threading.Thread` 或 `executor.submit` 异步执行，不阻塞响应
-- [ ] 添加降级保护：摘要生成失败仅记录 warning 日志
+- [x] 在 `/chat` 和 `/chat/stream` 端点中，agent 响应完成后，检查当前对话的消息总数
+- [x] 当消息数 >= 10 且该对话尚无摘要时，异步调用 `generate_conversation_summary(conversation_id)`
+- [x] 摘要结果存入 `AIConversation` 模型（需确认字段是否存在，不存在则添加 `summary` 字段）
+- [x] 使用 `threading.Thread` 或 `executor.submit` 异步执行，不阻塞响应
+- [x] 添加降级保护：摘要生成失败仅记录 warning 日志
 
 **实现要点：**
 ```python
@@ -230,11 +230,11 @@ if msg_count >= 10 and not conv.summary:
 
 **文件：** `app/agents/schemas.py`, `app/agents/orchestrator.py`
 
-- [ ] 在 orchestrator 的 `_respond` 节点中（agent 执行完毕、handoff 检查完毕后），对 generator/reviewer/analytics 的 `final_response` 调用 `validate_agent_output`
-- [ ] 校验失败时：
+- [x] 在 orchestrator 的 `_respond` 节点中（agent 执行完毕、handoff 检查完毕后），对 generator/reviewer/analytics 的 `final_response` 调用 `validate_agent_output`
+- [x] 校验失败时：
   - 如果 `state["attempt"] < 2`：追加校验错误信息到 messages，重新执行 agent 节点
   - 如果重试耗尽：在 `final_response` 前追加警告标记，仍然返回（graceful degradation）
-- [ ] tutor 类型不做 schema 校验（其输出为自由文本）
+- [x] tutor 类型不做 schema 校验（其输出为自由文本）
 - [ ] 添加测试：generator 输出缺少 `test_cases` 字段时应触发重试
 
 ---
@@ -245,8 +245,8 @@ if msg_count >= 10 and not conv.summary:
 
 **文件：** `app/agents/tracing.py`
 
-- [ ] 修改 `TraceCollector.save()` 方法，在写入 `AgentRun` 后，遍历 `self.steps` 列表
-- [ ] 为每个 step 创建 `AgentRunStep` 记录：
+- [x] 修改 `TraceCollector.save()` 方法，在写入 `AgentRun` 后，遍历 `self.steps` 列表
+- [x] 为每个 step 创建 `AgentRunStep` 记录：
   ```python
   for step in self.steps:
       db_step = AgentRunStep(
@@ -264,7 +264,7 @@ if msg_count >= 10 and not conv.summary:
       )
       db.session.add(db_step)
   ```
-- [ ] 确保现有 `/api/v1/ai/traces/<run_id>` 端点查询 `AgentRunStep` 时能返回数据
+- [x] 确保现有 `/api/v1/ai/traces/<run_id>` 端点查询 `AgentRunStep` 时能返回数据
 - [ ] 添加测试：agent invoke 后 `AgentRunStep` 表应有对应记录
 
 ---
@@ -275,7 +275,7 @@ if msg_count >= 10 and not conv.summary:
 
 **文件：** `app/agents/agents/base.py`, `app/agents/tracing.py`
 
-- [ ] 在 `_invoke_with_tools` 的每次 LLM call 后，从 response 对象中提取 token usage：
+- [x] 在 `_invoke_with_tools` 的每次 LLM call 后，从 response 对象中提取 token usage：
   ```python
   # LangChain ChatOpenAI response 对象
   if hasattr(response, 'response_metadata'):
@@ -287,8 +287,8 @@ if msg_count >= 10 and not conv.summary:
       trace.total_input_tokens += response.usage_metadata.get('input_tokens', 0)
       trace.total_output_tokens += response.usage_metadata.get('output_tokens', 0)
   ```
-- [ ] 同步更新 `trace_llm_call()` context manager 中的 step 记录
-- [ ] 在 `_stream_with_tools` 中同样采集（流式结束时 LangChain 会返回 usage）
+- [x] 同步更新 `trace_llm_call()` context manager 中的 step 记录
+- [x] 在 `_stream_with_tools` 中同样采集（流式结束时 LangChain 会返回 usage）
 - [ ] 添加测试：agent invoke 后 `AgentRun.tokens_input` > 0
 
 ---
