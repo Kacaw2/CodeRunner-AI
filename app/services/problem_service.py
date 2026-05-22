@@ -148,3 +148,71 @@ class ProblemService:
                 if not tc.is_hidden
             ],
         }
+
+    @staticmethod
+    def create_problem(teacher_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        title = payload["title"].strip()
+        base_slug = slugify(title)
+        slug = base_slug
+        suffix = 2
+        while Problem.query.filter_by(slug=slug).first():
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+
+        problem = Problem(
+            slug=slug,
+            title=title,
+            description=payload.get("description", ""),
+            difficulty=payload.get("difficulty", "easy"),
+            points=payload.get("points", 10),
+            order=payload.get("order", 1),
+            created_by=teacher_id,
+        )
+        db.session.add(problem)
+        db.session.flush()
+
+        variants = [
+            (
+                "python",
+                payload.get("python_starter_code", ""),
+                payload.get("python_solution", ""),
+                payload.get("python_solution_explanation", ""),
+            ),
+            (
+                "c",
+                payload.get("c_starter_code", ""),
+                payload.get("c_solution", ""),
+                payload.get("c_solution_explanation", ""),
+            ),
+        ]
+
+        created_any_variant = False
+        for language, starter_code, solution, explanation in variants:
+            if language == "python" or starter_code or solution or explanation:
+                db.session.add(
+                    Question(
+                        problem_id=problem.id,
+                        programming_language=language,
+                        starter_code=starter_code,
+                        solution=solution,
+                        solution_explanation=explanation,
+                    )
+                )
+                created_any_variant = True
+
+        if not created_any_variant:
+            db.session.add(Question(problem_id=problem.id, programming_language="python"))
+
+        quiz_id = payload.get("quiz_id")
+        if quiz_id:
+            db.session.add(
+                QuizProblem(
+                    quiz_id=quiz_id,
+                    problem_id=problem.id,
+                    order=payload.get("order", 1),
+                    points=payload.get("points", 10),
+                )
+            )
+
+        db.session.commit()
+        return ProblemService.get_problem_detail(problem.id, language="python", user_id=None)

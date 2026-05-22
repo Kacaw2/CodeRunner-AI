@@ -189,9 +189,12 @@ class SubmissionService:
         Returns:
             dict: Submission list
         """
+        from app.models.problem import Problem
+
         query = (
-            db.session.query(Submission, Question.title)
+            db.session.query(Submission, Question, Problem)
             .join(Question, Submission.question_id == Question.id)
+            .join(Problem, Question.problem_id == Problem.id)
             .filter(Submission.student_id == student_id)
         )
         
@@ -207,11 +210,13 @@ class SubmissionService:
         rows = query.limit(limit).offset(offset).all()
         
         items = []
-        for submission, question_title in rows:
+        for submission, question, problem in rows:
             items.append({
                 "id": submission.id,
+                "problem_id": problem.id,
                 "question_id": submission.question_id,
-                "question_title": question_title,
+                "question_title": problem.title,
+                "language": question.programming_language,
                 "status": submission.status,
                 "score": submission.score,
                 "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
@@ -249,7 +254,8 @@ class SubmissionService:
         
         # Get question title
         question = Question.query.get(submission.question_id)
-        question_title = question.title if question else None
+        problem = question.problem if question else None
+        question_title = problem.title if problem else None
         
         # Get test results
         test_results = (
@@ -277,8 +283,10 @@ class SubmissionService:
         
         return {
             "id": submission.id,
+            "problem_id": problem.id if problem else None,
             "question_id": submission.question_id,
             "question_title": question_title,
+            "language": question.programming_language if question else None,
             "code": submission.code,
             "status": submission.status,
             "score": submission.score,

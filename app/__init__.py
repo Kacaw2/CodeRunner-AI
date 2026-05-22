@@ -57,6 +57,9 @@ def register_blueprints(app):
     from app.api.v1.quizzes import blp as quizzes_blp
     api.register_blueprint(quizzes_blp)
 
+    from app.api.v1.problems import blp as problems_blp
+    api.register_blueprint(problems_blp)
+
     from app.api.v1.teacher_stats import blp as teacher_stats_blp
     api.register_blueprint(teacher_stats_blp)
 

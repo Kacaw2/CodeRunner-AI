@@ -41,7 +41,10 @@ async function loadSubmissions() {
             const statusLabel = isPassed ? 'Passed' :
                                status === 'pending' ? 'Pending' : 'Failed';
             
-            const questionTitle = item.question_title || `Question #${item.question_id || '?'}`;
+            const questionTitle = item.question_title || `Problem #${item.problem_id || item.question_id || '?'}`;
+            const problemHref = item.problem_id
+                ? `/problem/${item.problem_id}?language=${encodeURIComponent(item.language || 'python')}`
+                : '/dashboard';
             const score = item.score !== null && item.score !== undefined ? item.score : 'N/A';
             const submittedAt = item.submitted_at
                 ? new Date(item.submitted_at).toLocaleString()
@@ -52,7 +55,7 @@ async function loadSubmissions() {
                     <div class="submission-header">
                         <div class="submission-title">
                             <i class="bi bi-file-code"></i>
-                            <a href="/question/${item.question_id}" class="text-decoration-none text-dark">
+                            <a href="${problemHref}" class="text-decoration-none text-dark">
                                 ${questionTitle}
                             </a>
                         </div>

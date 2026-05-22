@@ -10,6 +10,7 @@ Usage:
 import sys
 import os
 import argparse
+import re
 from datetime import datetime, timedelta
 
 # Add project root directory to path
@@ -19,8 +20,22 @@ from app import create_app
 from app.core.extensions import db
 from app.models.user import User, UserRole
 from app.models.classroom import Classroom, Enrollment
-from app.models.quiz import Quiz, QuizQuestion, ClassroomQuiz
+from app.models.problem import Problem
+from app.models.quiz import Quiz, QuizProblem, ClassroomQuiz
 from app.models.question import Question, TestCase
+
+
+def canonical_problem_title(title):
+    title = (title or '').strip()
+    for suffix in (' (C)', ' (c)', ' - C', ' - c'):
+        if title.endswith(suffix):
+            return title[:-len(suffix)].strip()
+    return title
+
+
+def slugify_problem(title, fallback_id):
+    base = re.sub(r'[^a-z0-9]+', '-', (title or '').lower()).strip('-')
+    return base or f'problem-{fallback_id}'
 
 def check_tables_exist():
     """Check if any tables exist in the database"""
@@ -1685,43 +1700,86 @@ int main() {
             },
         ]
 
-        for q_data in questions_data:
-            # 1. create Question（without quiz_id）
-            question = Question(
-                title=q_data['title'],
-                description=q_data['description'],
-                starter_code=q_data['starter_code'],
-                solution=q_data['solution'],
-                points=q_data['points'],
-                order=q_data['order'],
-                programming_language=q_data['language'],
-                created_by=q_data['created_by']
+        grouped = {}
+        for index, q_data in enumerate(questions_data, start=1):
+            title = canonical_problem_title(q_data['title'])
+            key = title.lower()
+            language = (q_data.get('language') or 'python').lower()
+
+            if key not in grouped:
+                grouped[key] = {
+                    'slug': slugify_problem(title, index),
+                    'title': title,
+                    'description': q_data['description'],
+                    'difficulty': q_data.get('difficulty', 'easy'),
+                    'order': q_data.get('order', index),
+                    'points': q_data.get('points', 10),
+                    'created_by': int(q_data.get('created_by') or teachers[0].id),
+                    'test_cases': q_data.get('test_cases', []),
+                    'quiz_links': [],
+                    'variants': {},
+                }
+
+            problem_data = grouped[key]
+            problem_data['variants'][language] = {
+                'starter_code': q_data.get('starter_code', ''),
+                'solution': q_data.get('solution', ''),
+                'solution_explanation': q_data.get('solution_explanation', ''),
+            }
+
+            if language == 'python' or not problem_data['test_cases']:
+                problem_data['test_cases'] = q_data.get('test_cases', [])
+
+            if not any(link['quiz'].id == q_data['quiz'].id for link in problem_data['quiz_links']):
+                problem_data['quiz_links'].append({
+                    'quiz': q_data['quiz'],
+                    'order': q_data.get('order', index),
+                    'points': q_data.get('points', 10),
+                })
+
+        problems_data = list(grouped.values())
+
+        for p_data in problems_data:
+            problem = Problem(
+                slug=p_data['slug'],
+                title=p_data['title'],
+                description=p_data['description'],
+                difficulty=p_data.get('difficulty', 'easy'),
+                points=p_data.get('points', 10),
+                order=p_data.get('order', 1),
+                created_by=p_data.get('created_by'),
             )
-            db.session.add(question)
-            db.session.flush()  # 获取 question.id
-            
-            # 2.  QuizQuestion 
-            quiz_question = QuizQuestion(
-                quiz_id=q_data['quiz'].id,
-                question_id=question.id,
-                order=q_data['order'],
-                points=q_data['points']
-            )
-            db.session.add(quiz_question)
-            
-            # 3. add testcase
-            for input_data, expected, is_hidden, weight in q_data['test_cases']:
-                test_case = TestCase(
-                    question_id=question.id,
+            db.session.add(problem)
+            db.session.flush()
+
+            for link in p_data['quiz_links']:
+                db.session.add(QuizProblem(
+                    quiz_id=link['quiz'].id,
+                    problem_id=problem.id,
+                    order=link.get('order', 1),
+                    points=link.get('points', p_data.get('points', 10)),
+                ))
+
+            for input_data, expected, is_hidden, weight in p_data['test_cases']:
+                db.session.add(TestCase(
+                    problem_id=problem.id,
                     input=input_data,
                     expected_output=expected,
                     is_hidden=is_hidden,
-                    weight=weight
-                )
-                db.session.add(test_case)
-        
+                    weight=weight,
+                ))
+
+            for language, variant_data in p_data['variants'].items():
+                db.session.add(Question(
+                    problem_id=problem.id,
+                    programming_language=language,
+                    starter_code=variant_data.get('starter_code', ''),
+                    solution=variant_data.get('solution', ''),
+                    solution_explanation=variant_data.get('solution_explanation', ''),
+                ))
+
         db.session.commit()
-        print(f"✓ {len(questions_data)} questions created (with QuizQuestion associations)")
+        print(f"✓ {len(problems_data)} problems created with {Question.query.count()} language variants")
         
         # ============================================
         # Verification
@@ -1729,15 +1787,17 @@ int main() {
         print("\n" + "="*70)
         print("Verifying data...")
         
-        total_quiz_questions = QuizQuestion.query.count()
-        total_questions = Question.query.count()
-        
-        print(f"   • QuizQuestion associations: {total_quiz_questions}")
-        print(f"   • Total Question records: {total_questions}")
-        
+        total_problems = Problem.query.count()
+        total_variants = Question.query.count()
+        total_quiz_problems = QuizProblem.query.count()
+
+        print(f"   - Problems: {total_problems}")
+        print(f"   - Language variants: {total_variants}")
+        print(f"   - QuizProblem associations: {total_quiz_problems}")
+
         for quiz in quizzes:
-            count = QuizQuestion.query.filter_by(quiz_id=quiz.id).count()
-            print(f"   • {quiz.title}: {count} questions")
+            count = QuizProblem.query.filter_by(quiz_id=quiz.id).count()
+            print(f"   - {quiz.title}: {count} problems")
         
         # ============================================
         # Completion
@@ -1751,8 +1811,9 @@ int main() {
         print(f"   • Enrollments: {enrollment_count}")
         print(f"   • Quizzes: {len(quizzes)}")
         print(f"   • Quiz Assignments: {len(assignments)}")
-        print(f"   • Questions: {total_questions}")
-        print(f"   • QuizQuestion associations: {total_quiz_questions}")
+        print(f"   - Problems: {total_problems}")
+        print(f"   - Language variants: {total_variants}")
+        print(f"   - QuizProblem associations: {total_quiz_problems}")
         print(f"\n Login credentials (all passwords: admin123):")
         print(f"   • admin / admin123")
         print(f"   • teacher1-3 / admin123")

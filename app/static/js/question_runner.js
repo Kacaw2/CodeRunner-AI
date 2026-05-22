@@ -8,12 +8,12 @@
   // ============================================================
   
   const codeEl = document.getElementById("codeEditor");
-  const PID = Number(codeEl?.dataset?.problemId || window.PROBLEM_ID || 0);
-  const LANG = String(codeEl?.dataset?.language || window.PROBLEM_LANGUAGE || "c").toLowerCase();
+  const PROBLEM_ID = Number(codeEl?.dataset?.problemId || window.PROBLEM_ID || 0);
+  let LANG = String(codeEl?.dataset?.language || window.PROBLEM_LANGUAGE || "python").toLowerCase();
 
   const API_JUDGE = "/api/v1/judge/run";
-  const API_SUBMIT = (id) => `/api/v1/questions/${id}/submit`;
-  const API_SOLUTION = (id) => `/api/public/questions/${id}`;
+  const API_SUBMIT = (id) => `/api/v1/problems/${id}/submit`;
+  const API_PROBLEM = (id, language) => `/api/v1/problems/${id}?language=${encodeURIComponent(language)}`;
 
   let allSubmissionCases = [];
   let currentSubmissionIndex = 0;
@@ -96,7 +96,8 @@
       case "cpp":
       case "c++": return "text/x-c++src";
       case "java": return "text/x-java";
-      default: return "text/x-csrc";
+      case "python": return "python";
+      default: return "python";
     }
   }
 
@@ -202,7 +203,7 @@
   async function initTestCases() {
     try {
       // Load test cases from API
-      const response = await fetch(API_SOLUTION(PID), {
+      const response = await fetch(API_PROBLEM(PROBLEM_ID, LANG), {
         headers: AUTH.authHeaders()
       });
       if (!response.ok) {
@@ -212,6 +213,13 @@
       }
       
       const data = await response.json();
+      LANG = data.selected_language || LANG;
+      if (cm) {
+        cm.setValue(data.starter_code || "");
+        cm.setOption("mode", cmModeFor(LANG));
+      } else if (els.code) {
+        els.code.value = data.starter_code || "";
+      }
       
       // Check if test_cases exist
       if (data.test_cases && data.test_cases.length > 0) {
@@ -717,11 +725,12 @@ ${escapeHtml(result.error)}
 
     const payload = {
       code: code,
+      language: LANG,
       time_limit_sec: tlimit
     };
 
     try {
-      const response = await fetch(API_SUBMIT(PID), {
+      const response = await fetch(API_SUBMIT(PROBLEM_ID), {
         method: "POST",
         headers: AUTH.authHeaders(),
         body: JSON.stringify(payload),
@@ -979,7 +988,7 @@ ${escapeHtml(parsedStderr)}
         return;
       }
       
-      const response = await fetch(API_SOLUTION(PID), {
+      const response = await fetch(API_PROBLEM(PROBLEM_ID, LANG), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -1004,7 +1013,7 @@ ${escapeHtml(parsedStderr)}
         
         // Preload solution content
         const solutionCode = data.solution_code || data.solution || "No solution available";
-        const solutionLang = data.programming_language || LANG;
+        const solutionLang = data.selected_language || data.programming_language || LANG;
         
         if (els.solutionCode) els.solutionCode.textContent = solutionCode;
         if (els.solutionLanguage) els.solutionLanguage.textContent = solutionLang.toUpperCase();
@@ -1026,7 +1035,7 @@ ${escapeHtml(parsedStderr)}
     try {
       const token = AUTH.getToken();
       
-      const response = await fetch(API_SOLUTION(PID), {
+      const response = await fetch(API_PROBLEM(PROBLEM_ID, LANG), {
         headers: token ? {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -1044,7 +1053,7 @@ ${escapeHtml(parsedStderr)}
       
       // Extract solution from response
       const solutionCode = data.solution_code || data.solution || "No solution available";
-      const solutionLang = data.programming_language || LANG;
+      const solutionLang = data.selected_language || data.programming_language || LANG;
       
       if (els.solutionLocked) els.solutionLocked.style.display = "none";
       if (els.solutionUnlocked) els.solutionUnlocked.style.display = "block";
@@ -1265,6 +1274,14 @@ ${escapeHtml(parsedStderr)}
 
     if (els.copySolutionBtn) {
       els.copySolutionBtn.addEventListener('click', copySolution);
+    }
+
+    const languageSelect = document.getElementById("problemLanguageSelect");
+    if (languageSelect) {
+      languageSelect.addEventListener("change", () => {
+        const next = languageSelect.value || "python";
+        window.location.href = `/problem/${PROBLEM_ID}?language=${encodeURIComponent(next)}`;
+      });
     }
 
     document.addEventListener('keydown', (e) => {

@@ -1,28 +1,21 @@
-# app/web/question.py
-"""question run page"""
-from flask import Blueprint, render_template, abort
-from app.models.question import Question
+"""Problem runner page."""
+from flask import Blueprint, abort, render_template, request
 
-question_bp = Blueprint('question', __name__, url_prefix='/question')
+from app.models.problem import Problem
 
 
-@question_bp.route('/<int:question_id>')
-def run_question(question_id):
-    """
-    code run page (public)
-    
-    Args:
-        question_id: question ID
-        
-    return:
-        - code run page (code editor)
-        - submit need login
-    """
-    question = Question.query.get(question_id)
-    if not question:
-        abort(404, description="Question not found")
-    
+question_bp = Blueprint("question", __name__)
+
+
+@question_bp.route("/problem/<int:problem_id>")
+def run_problem(problem_id):
+    problem = Problem.query.get(problem_id)
+    if not problem:
+        abort(404, description="Problem not found")
+
+    selected_language = request.args.get("language", "python")
     return render_template(
-        'question_runner.html',
-        question=question
+        "problem_runner.html",
+        problem=problem,
+        selected_language=selected_language,
     )

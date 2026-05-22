@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from flask import jsonify
 from sqlalchemy import func, distinct
 from app.api.public import public_bp
-from app.models import User, Quiz, Question, Submission
+from app.models import User, Quiz, Problem, Question, Submission
 
 @public_bp.route('/metrics/overview', methods=['GET'])
 def get_overview():
@@ -26,7 +26,7 @@ def get_overview():
         total_users = User.query.count()
         # only published quizzes
         total_quizzes = Quiz.query.filter_by(is_published=True).count()  
-        total_questions = Question.query.count()
+        total_questions = Problem.query.count()
         
         #  Submissions in the past 24 hours 
         now = datetime.now()

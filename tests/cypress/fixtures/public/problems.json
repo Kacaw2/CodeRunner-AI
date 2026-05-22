@@ -1,0 +1,21 @@
+{
+  "items": [
+    {
+      "id": 1,
+      "slug": "add-two-numbers",
+      "title": "Add Two Numbers",
+      "description": "Read two integers and output their sum.",
+      "difficulty": "easy",
+      "points": 10,
+      "default_language": "python",
+      "completed": false,
+      "variants": [
+        { "question_id": 101, "language": "python" },
+        { "question_id": 102, "language": "c" }
+      ]
+    }
+  ],
+  "total": 1,
+  "limit": 100,
+  "offset": 0
+}

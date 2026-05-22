@@ -213,6 +213,7 @@
 .diff-badge.easy   { background: #dcfce7; color: #15803d; }
 .diff-badge.medium { background: #fef3c7; color: #92400e; }
 .diff-badge.hard   { background: #fee2e2; color: #991b1b; }
+.diff-badge.muted  { background: #f3f4f6; color: #9ca3af; }
 
 /* Language tag */
 .lang-tag {
@@ -227,6 +228,16 @@
   color: #4338ca;
 }
 .lang-tag i { font-size: 0.85rem; }
+
+.problem-language-select {
+  min-width: 92px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 8px;
+  border-color: #c7d2fe;
+  color: #4338ca;
+  background-color: #eef2ff;
+}
 
 /* Empty state */
 .table-empty-state {

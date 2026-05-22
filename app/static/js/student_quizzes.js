@@ -301,7 +301,7 @@ async function loadQuizDetail(quizId) {
                         </div>
                     </div>
                     <div class="question-item-action">
-                        <a href="/question/${question.id}" class="btn btn-sm ${hasSubmission ? 'btn-outline-success' : 'btn-primary'}">
+                        <a href="${question.problem_id ? `/problem/${question.problem_id}?language=${encodeURIComponent(question.language || question.programming_language || 'python')}` : `/problem/${question.id}?language=python`}" class="btn btn-sm ${hasSubmission ? 'btn-outline-success' : 'btn-primary'}">
                             ${hasSubmission ? 'Review' : 'Start'}
                         </a>
                     </div>

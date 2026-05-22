@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% set selected_variant = problem.variant_for(selected_language) or problem.variant_for('python') or (problem.variants[0] if problem.variants else None) %}
+{% block title %}{{ problem.title }} - Run Code{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/darcula.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/monokai.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/theme/solarized.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/question_runner.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/embedded_tutor.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="code-runner-container">
+  <div class="left-panel">
+    <div class="nav-buttons">
+      <a class="btn btn-secondary" href="{{ url_for('main.dashboard') }}">
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
+      <a class="btn btn-info" href="/submissions">
+        <i class="bi bi-list-check"></i> My Submissions
+      </a>
+    </div>
+
+    <div class="description-section">
+      <div class="problem-header">
+        <h1 class="problem-title">{{ problem.title }}</h1>
+      </div>
+      <div class="problem-description">
+        <div class="description-header">
+          <h3><i class="bi bi-file-text"></i> Description</h3>
+          <div class="problem-meta">
+            <span class="meta-badge">
+              <i class="bi bi-code-slash"></i>
+              <select id="problemLanguageSelect" class="form-select form-select-sm d-inline-block w-auto">
+                {% for variant in problem.variants %}
+                <option value="{{ variant.programming_language }}" {% if selected_variant and variant.programming_language == selected_variant.programming_language %}selected{% endif %}>
+                  {{ variant.programming_language|upper }}
+                </option>
+                {% endfor %}
+              </select>
+            </span>
+            <span class="meta-badge">
+              <i class="bi bi-hash"></i> Problem #{{ problem.id }}
+            </span>
+          </div>
+        </div>
+        <div class="description-content">{{ problem.description|safe }}</div>
+      </div>
+    </div>
+
+    <div class="horizontal-divider" id="horizontalDivider"><div class="divider-line"></div></div>
+
+    <div class="testcase-section">
+      <div class="testcase-tabs-header">
+        <button class="testcase-tab active" data-case="testcase">
+          <i class="bi bi-check-circle"></i> Testcase
+        </button>
+      </div>
+      <div class="testcase-content" id="testcaseContent">
+        <div class="case-selector">
+          <button class="case-btn active" data-case-num="1">Case 1</button>
+          <button class="case-btn-add" id="addCaseBtn"><i class="bi bi-plus"></i></button>
+        </div>
+        <div class="case-inputs" id="caseInputs"></div>
+        <div class="time-limit-group">
+          <label class="input-label"><i class="bi bi-stopwatch"></i> Time Limit (seconds)</label>
+          <input id="tlimit" type="number" min="0.1" step="0.1" value="2.0" class="time-limit-input">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vertical-divider" id="verticalDivider"><div class="divider-handle"></div></div>
+
+  <div class="right-panel">
+    <div class="editor-section">
+      <div class="editor-header">
+        <div class="editor-tabs">
+          <button class="editor-tab active" data-tab="editor">
+            <i class="bi bi-code-square"></i> Code
+          </button>
+          <button class="editor-tab solution-tab locked" data-tab="solution" id="solutionTab">
+            <i class="bi bi-lightbulb"></i> Solution
+          </button>
+        </div>
+        <div class="editor-actions">
+          <button class="btn btn-theme" id="themeBtn" type="button" title="Change Theme">
+            <i class="bi bi-palette"></i>
+          </button>
+          <button class="btn btn-run" id="runBtn" type="button">
+            <i class="bi bi-play-fill"></i> Run
+          </button>
+          <button class="btn btn-submit" id="submitBtn" type="button">
+            <i class="bi bi-send-fill"></i> Submit
+          </button>
+          <a class="btn btn-ai-tutor" id="askAiBtn" href="/ai/chat?question_id={{ selected_variant.id if selected_variant else '' }}&agent_type=tutor" title="Ask AI Tutor">
+            <i class="bi bi-robot"></i> Ask AI
+          </a>
+        </div>
+      </div>
+
+      <div id="editorTab" class="tab-content">
+        <textarea
+          id="codeEditor"
+          data-problem-id="{{ problem.id }}"
+          data-language="{{ selected_variant.programming_language if selected_variant else (selected_language or 'python') }}"
+          placeholder="// Write your code here..."
+        >{{ selected_variant.starter_code|default('') if selected_variant else '' }}</textarea>
+      </div>
+
+      <div id="solutionTabContent" class="tab-content" style="display:none;">
+        <div id="solutionLocked" class="solution-locked">
+          <i class="bi bi-lock-fill solution-lock-icon"></i>
+          <h4>Solution Locked</h4>
+          <p>Submit your solution to unlock the reference solution.</p>
+        </div>
+        <div id="solutionUnlocked" class="solution-content" style="display:none;">
+          <div class="solution-header">
+            <h4><i class="bi bi-check-circle-fill"></i> Reference Solution</h4>
+            <div class="solution-actions">
+              <span class="solution-language" id="solutionLanguage">-</span>
+              <button class="copy-solution-btn" id="copySolutionBtn">
+                <i class="bi bi-clipboard"></i> Copy
+              </button>
+            </div>
+          </div>
+          <div class="solution-code"><pre id="solutionCode">Loading solution...</pre></div>
+        </div>
+      </div>
+
+      <p id="errorMsg" class="error-message"></p>
+    </div>
+
+    <div class="horizontal-divider-right" id="horizontalDividerRight"><div class="divider-line"></div></div>
+
+    <div class="results-section" id="resultsSection">
+      <div class="results-tabs-header">
+        <button class="results-tab active" data-result-tab="testresult">
+          <i class="bi bi-terminal-fill"></i> Test Result
+        </button>
+        <button class="results-tab" data-result-tab="submission">
+          <i class="bi bi-clipboard-check-fill"></i> Submission Result
+        </button>
+      </div>
+      <div class="results-tab-content" id="testResultTabContent">
+        <div id="runResults" class="run-results">
+          <div class="result-placeholder">
+            <i class="bi bi-play-circle" style="font-size: 2.5rem; opacity: 0.3;"></i>
+            <p>Run your code to see test results</p>
+          </div>
+        </div>
+      </div>
+      <div class="results-tab-content" id="submissionResultTabContent" style="display:none;">
+        <div id="processingSection" class="evaluation-state" style="display:none;">
+          <div class="processing-container">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="processing-text">
+              <h4 id="processingText">Evaluating Your Solution</h4>
+              <p>Running test cases and analyzing your code...</p>
+            </div>
+          </div>
+        </div>
+        <div id="scoreSection" class="evaluation-state" style="display:none;">
+          <span id="scoreDisplay"></span>
+          <span id="passedTests"></span>
+          <span id="failedTests"></span>
+          <span id="totalTime"></span>
+        </div>
+        <div id="testResultsSection" class="evaluation-state" style="display:none;">
+          <div id="testCases"></div>
+          <div id="singleTestCase" class="single-test-case"></div>
+        </div>
+        <div id="errorSection" class="evaluation-state error-state" style="display:none;">
+          <div class="error-container">
+            <i class="bi bi-exclamation-triangle-fill error-icon"></i>
+            <div class="error-content">
+              <h4>Submission Error</h4>
+              <p id="errorDetail" class="error-message"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="aiTutorPanel" class="ai-tutor-panel collapsed">
+  <div class="ai-tutor-tab" id="aiTutorTab" title="AI Tutor"><i class="bi bi-robot"></i></div>
+  <div class="ai-tutor-content">
+    <div class="ai-tutor-header">
+      <div class="ai-tutor-title">
+        <i class="bi bi-robot"></i>
+        <span>AI Tutor</span>
+        <span class="ai-tutor-status" id="aiTutorStatus">Ready</span>
+      </div>
+      <button class="ai-tutor-close" id="aiTutorClose" title="Close"><i class="bi bi-x-lg"></i></button>
+    </div>
+    <div class="ai-tutor-messages" id="aiTutorMessages"></div>
+    <div class="ai-tutor-quick-actions">
+      <button class="quick-action-btn" data-action="hint"><i class="bi bi-lightbulb"></i> Get a Hint</button>
+      <button class="quick-action-btn" data-action="explain_error"><i class="bi bi-bug"></i> Explain Error</button>
+      <button class="quick-action-btn" data-action="review"><i class="bi bi-code-slash"></i> Review Code</button>
+    </div>
+    <div class="ai-tutor-input-area">
+      <textarea id="aiTutorInput" placeholder="Ask about this problem..." rows="2"></textarea>
+      <button class="ai-tutor-send" id="aiTutorSend" title="Send"><i class="bi bi-send-fill"></i></button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/mode/clike/clike.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/mode/python/python.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/addon/edit/matchbrackets.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5/addon/edit/closebrackets.js"></script>
+<script src="{{ url_for('static', filename='js/question_runner.js') }}"></script>
+<script>
+  window.TUTOR_CONFIG = {
+    questionId: {{ selected_variant.id if selected_variant else 'null' }},
+    language: "{{ selected_variant.programming_language if selected_variant else (selected_language or 'python') }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='js/embedded_tutor.js') }}"></script>
+{% endblock %}

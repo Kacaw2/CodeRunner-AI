@@ -1,12 +1,11 @@
 describe("Student question runner", () => {
   beforeEach(() => {
-    cy.seedDatabase();
     cy.loginByApi("student");
-    cy.intercept("GET", "**/api/public/questions/1", {
+    cy.intercept("GET", "**/api/v1/problems/1?language=python", {
       fixture: "student/question_solution.json",
-    }).as("questionSolution");
-    cy.visit("/question/1");
-    cy.wait("@questionSolution");
+    }).as("problemDetail");
+    cy.visit("/problem/1?language=python");
+    cy.wait("@problemDetail");
   });
 
   it("runs a custom test case and shows the results", () => {
