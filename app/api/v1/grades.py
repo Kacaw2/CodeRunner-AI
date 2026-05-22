@@ -4,7 +4,7 @@ from datetime import datetime
 
 from flask import g, request, make_response
 from flask_smorest import Blueprint, abort
-from sqlalchemy import func, case, and_, desc
+from sqlalchemy import func, case, and_, desc, select
 
 import csv
 import io
@@ -12,6 +12,7 @@ import io
 from app.auth import require_teacher
 from app.core.extensions import db
 from app.models.submission import Submission
+from app.models.problem import Problem
 from app.models.question import Question
 from app.models.user import User, UserRole
 from app.models.classroom import Classroom, Enrollment
@@ -43,7 +44,7 @@ def get_all_submissions():
     
     Query Parameters:
         - student_id: Filter by specific student
-        - question_id: Filter by specific question
+        - problem_id: Filter by specific problem
         - status: Filter by status (completed/error)
         - limit: Return limit (default 100)
         - offset: Offset (default 0)
@@ -53,6 +54,7 @@ def get_all_submissions():
     # Get query parameters
     student_id = request.args.get('student_id', type=int)
     question_id = request.args.get('question_id', type=int)
+    problem_id = request.args.get('problem_id', type=int)
     status = request.args.get('status')
     limit = request.args.get('limit', 100, type=int)
     offset = request.args.get('offset', 0, type=int)
@@ -69,11 +71,13 @@ def get_all_submissions():
             Submission.status,
             Submission.score,
             Submission.submitted_at,
+            Question.problem_id,
             func.row_number().over(
-                partition_by=[Submission.student_id, Submission.question_id],
+                partition_by=[Submission.student_id, Question.problem_id],
                 order_by=desc(Submission.id)
             ).label('rn')
         )
+        .join(Question, Submission.question_id == Question.id)
         .join(User, Submission.student_id == User.id)
         .filter(User.role == UserRole.STUDENT)
         .filter(Submission.student_id.in_(db.session.query(teacher_student_ids)))
@@ -87,14 +91,17 @@ def get_all_submissions():
             ranked_submissions.c.student_id,
             User.username.label('student_name'),
             User.email.label('student_email'),
+            ranked_submissions.c.problem_id,
             ranked_submissions.c.question_id,
-            Question.title.label('question_title'),
+            Question.programming_language.label('language'),
+            Problem.title.label('question_title'),
             ranked_submissions.c.status,
             ranked_submissions.c.score,
             ranked_submissions.c.submitted_at
         )
         .join(User, ranked_submissions.c.student_id == User.id)
         .join(Question, ranked_submissions.c.question_id == Question.id)
+        .join(Problem, ranked_submissions.c.problem_id == Problem.id)
         .filter(ranked_submissions.c.rn == 1)  # Only select the first in each group (latest)
         .order_by(desc(ranked_submissions.c.submitted_at))
     )
@@ -104,6 +111,9 @@ def get_all_submissions():
         query = query.filter(ranked_submissions.c.student_id == student_id)
     if question_id:
         query = query.filter(ranked_submissions.c.question_id == question_id)
+    if problem_id:
+        variant_ids = select(Question.id).where(Question.problem_id == problem_id)
+        query = query.filter(ranked_submissions.c.question_id.in_(variant_ids))
     if status:
         query = query.filter(ranked_submissions.c.status == status)
     
@@ -121,8 +131,10 @@ def get_all_submissions():
             'student_id': item.student_id,
             'student_name': item.student_name,
             'student_email': item.student_email,
+            'problem_id': item.problem_id,
             'question_id': item.question_id,
             'question_title': item.question_title,
+            'language': item.language,
             'status': item.status,
             'score': item.score,
             'submitted_at': item.submitted_at.isoformat() if item.submitted_at else None
@@ -237,11 +249,13 @@ def export_csv():
             Submission.status,
             Submission.score,
             Submission.submitted_at,
+            Question.problem_id,
             func.row_number().over(
-                partition_by=[Submission.student_id, Submission.question_id],
+                partition_by=[Submission.student_id, Question.problem_id],
                 order_by=desc(Submission.id)
             ).label('rn')
         )
+        .join(Question, Submission.question_id == Question.id)
         .join(User, Submission.student_id == User.id)
         .filter(User.role == UserRole.STUDENT)
         .filter(Submission.student_id.in_(db.session.query(teacher_student_ids)))
@@ -254,13 +268,14 @@ def export_csv():
             ranked_submissions.c.id,
             User.username,
             User.email,
-            Question.title,
+            Problem.title,
             ranked_submissions.c.status,
             ranked_submissions.c.score,
             ranked_submissions.c.submitted_at
         )
         .join(User, ranked_submissions.c.student_id == User.id)
         .join(Question, ranked_submissions.c.question_id == Question.id)
+        .join(Problem, ranked_submissions.c.problem_id == Problem.id)
         .filter(ranked_submissions.c.rn == 1)
         .order_by(User.username, desc(ranked_submissions.c.submitted_at))
         .all()

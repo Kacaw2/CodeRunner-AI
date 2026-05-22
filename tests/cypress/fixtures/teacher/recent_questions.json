@@ -3,13 +3,18 @@
     {
       "id": 101,
       "title": "Binary Search Warmup",
-      "programming_language": "python",
+      "variants": [
+        { "language": "python", "question_id": 1101 },
+        { "language": "c", "question_id": 1102 }
+      ],
       "difficulty": "Easy"
     },
     {
       "id": 202,
       "title": "Dynamic Programming Path Count",
-      "programming_language": "c",
+      "variants": [
+        { "language": "c", "question_id": 1202 }
+      ],
       "difficulty": "Medium"
     }
   ]

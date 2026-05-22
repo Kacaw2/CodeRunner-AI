@@ -57,8 +57,9 @@ class QuestionService:
         testcase = TestCase.query.get(tc_id)
         if not testcase:
             return False
-        
-        return QuestionService.teacher_owns_question(teacher_id, testcase.question_id)
+        from app.services.problem_service import ProblemService
+
+        return ProblemService.teacher_owns_problem(teacher_id, testcase.problem_id)
     
     @staticmethod
     def verify_teacher_owns_quiz(teacher_id: int, quiz_id: int) -> None:
@@ -444,7 +445,7 @@ class QuestionService:
         """
         return {
             "id": testcase.id,
-            "question_id": testcase.question_id,
+            "problem_id": testcase.problem_id,
             "input": testcase.input,
             "expected": testcase.expected_output,  # Note this is mapped to 'expected'
             "is_hidden": testcase.is_hidden,

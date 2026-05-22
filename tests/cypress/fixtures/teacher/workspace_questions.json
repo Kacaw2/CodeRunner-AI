@@ -2,25 +2,45 @@
   "items": [
     {
       "id": 870,
-      "title": "Week 5 · Array Prefix Sum",
-      "programming_language": "python",
+      "title": "Week 5 - Array Prefix Sum",
+      "difficulty": "medium",
+      "points": 30,
+      "order": 1,
       "test_case_count": 3,
-      "quiz_id": 11
+      "quiz_ids": [11],
+      "creator": { "id": 2, "name": "Teacher" },
+      "variants": [
+        { "language": "python", "question_id": 1870 },
+        { "language": "c", "question_id": 1871 }
+      ]
     },
     {
       "id": 871,
       "title": "Greedy - Meeting Rooms",
-      "programming_language": "c",
+      "difficulty": "medium",
+      "points": 25,
+      "order": 2,
       "test_case_count": 2,
-      "quiz_id": 11
+      "quiz_ids": [11],
+      "creator": { "id": 2, "name": "Teacher" },
+      "variants": [
+        { "language": "python", "question_id": 1872 },
+        { "language": "c", "question_id": 1873 }
+      ]
     },
     {
       "id": 905,
       "title": "Stack Balancer",
-      "programming_language": "python",
+      "difficulty": "easy",
+      "points": 10,
+      "order": 3,
       "test_case_count": 0,
-      "quiz_id": 12
+      "quiz_ids": [12],
+      "creator": { "id": 2, "name": "Teacher" },
+      "variants": [
+        { "language": "python", "question_id": 1905 }
+      ]
     }
-  ]
+  ],
+  "total": 3
 }
-

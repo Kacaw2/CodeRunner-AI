@@ -40,7 +40,7 @@ function getStatusBadge(quiz) {
     if (quiz.is_overdue) {
         // Check completion status from either attempt or progress
         const isCompleted = (quiz.attempt && quiz.attempt.status === 'completed') ||
-                           (quiz.progress && quiz.progress.completed_questions === quiz.progress.total_questions);
+                           (quiz.progress && quiz.progress.completed_problems === quiz.progress.total_problems);
         
         if (!isCompleted) {
             return '<span class="quiz-badge badge-overdue">Overdue</span>';
@@ -57,7 +57,8 @@ function getStatusBadge(quiz) {
     
     // Check for 'progress' (detail view format)
     if (quiz.progress) {
-        const { completed_questions, total_questions } = quiz.progress;
+        const completed_questions = quiz.progress.completed_problems ?? quiz.progress.completed_questions;
+        const total_questions = quiz.progress.total_problems ?? quiz.progress.total_questions;
         
         if (completed_questions === total_questions && total_questions > 0) {
             return '<span class="quiz-badge badge-completed">✓ Completed</span>';
@@ -164,7 +165,7 @@ async function loadQuizzes() {
                             <div class="quiz-progress-bar" style="width: ${quiz.progress_percentage}%"></div>
                         </div>
                         <small class="text-muted">
-                            ${quiz.completed_questions}/${quiz.question_count} questions completed
+                            ${quiz.completed_problems ?? quiz.completed_questions}/${quiz.problem_count ?? quiz.question_count} problems completed
                         </small>
                     </div>
 
@@ -228,21 +229,22 @@ async function loadQuizDetail(quizId) {
 
         // Progress - use progress object from backend
         let completedCount = 0;
-        let totalCount = quiz.questions.length;
+        const problems = quiz.problems || quiz.questions || [];
+        let totalCount = problems.length;
         
         if (quiz.progress) {
-            completedCount = quiz.progress.completed_questions;
-            totalCount = quiz.progress.total_questions;
+            completedCount = quiz.progress.completed_problems ?? quiz.progress.completed_questions;
+            totalCount = quiz.progress.total_problems ?? quiz.progress.total_questions;
         } else {
-            // Fallback: count from questions
-            completedCount = quiz.questions.filter(q => q.submission).length;
+            // Fallback: count from problems
+            completedCount = problems.filter(q => q.submission).length;
         }
         
         const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
         
         document.getElementById('detail-progress-bar').style.width = progress + '%';
         document.getElementById('detail-progress-text').textContent = 
-            `${completedCount}/${totalCount} questions completed`;
+            `${completedCount}/${totalCount} problems completed`;
 
         // Statistics
         document.getElementById('detail-duration').textContent = 
@@ -263,45 +265,46 @@ async function loadQuizDetail(quizId) {
         const questionsContainer = document.getElementById('detail-questions');
         questionsContainer.innerHTML = '';
 
-        if (quiz.questions.length === 0) {
+        if (problems.length === 0) {
             questionsContainer.innerHTML = `
                 <div class="text-center text-muted py-4">
-                    <p>No questions in this quiz yet</p>
+                    <p>No problems in this quiz yet</p>
                 </div>
             `;
         } else {
-            quiz.questions.forEach((question, index) => {
-                const hasSubmission = question.submission !== null && question.submission !== undefined;
+            problems.forEach((problem, index) => {
+                const hasSubmission = problem.submission !== null && problem.submission !== undefined;
                 const div = document.createElement('div');
                 div.className = 'question-item' + (hasSubmission ? ' completed' : '');
                 
                 let scoreInfo = '';
-                if (hasSubmission && question.submission.score !== null) {
-                    scoreInfo = `<span class="ms-2 badge ${question.submission.score >= 70 ? 'bg-success' : 'bg-warning'}">
-                        ${question.submission.score}%
+                if (hasSubmission && problem.submission.score !== null) {
+                    scoreInfo = `<span class="ms-2 badge ${problem.submission.score >= 70 ? 'bg-success' : 'bg-warning'}">
+                        ${problem.submission.score}%
                     </span>`;
                 }
+                const languages = (problem.variants || []).map(v => (v.language || '').toUpperCase()).join(' / ') || 'Python';
                 
                 div.innerHTML = `
                     <div class="question-item-content">
                         <div class="question-item-header">
                             <div class="question-item-title">
                                 ${hasSubmission ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-circle text-muted"></i>'}
-                                <strong>${escapeHtml(question.title)}</strong>
+                                <strong>${escapeHtml(problem.title)}</strong>
                                 ${scoreInfo}
                             </div>
                         </div>
                         <div class="question-item-meta">
                             <span class="question-meta-item">
-                                <i class="bi bi-code-slash"></i> ${escapeHtml(question.programming_language)}
+                                <i class="bi bi-code-slash"></i> ${escapeHtml(languages)}
                             </span>
                             <span class="question-meta-item">
-                                <i class="bi bi-star"></i> ${question.points} points
+                                <i class="bi bi-star"></i> ${problem.points} points
                             </span>
                         </div>
                     </div>
                     <div class="question-item-action">
-                        <a href="${question.problem_id ? `/problem/${question.problem_id}?language=${encodeURIComponent(question.language || question.programming_language || 'python')}` : `/problem/${question.id}?language=python`}" class="btn btn-sm ${hasSubmission ? 'btn-outline-success' : 'btn-primary'}">
+                        <a href="/problem/${problem.id}?language=python" class="btn btn-sm ${hasSubmission ? 'btn-outline-success' : 'btn-primary'}">
                             ${hasSubmission ? 'Review' : 'Start'}
                         </a>
                     </div>

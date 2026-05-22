@@ -4,6 +4,31 @@ describe("Student question runner", () => {
     cy.intercept("GET", "**/api/v1/problems/1?language=python", {
       fixture: "student/question_solution.json",
     }).as("problemDetail");
+    cy.intercept("GET", "**/api/v1/problems/1?language=c", {
+      body: {
+        id: 1,
+        problem_id: 1,
+        title: "Array Prefix Sum",
+        description: "Given numbers, return prefix sums.",
+        selected_language: "c",
+        selected_question_id: 1871,
+        starter_code: "#include <stdio.h>\nint main(){return 0;}\n",
+        variants: [
+          { language: "python", question_id: 1870 },
+          { language: "c", question_id: 1871 },
+        ],
+        test_cases: [
+          {
+            id: 5001,
+            problem_id: 1,
+            input: "nums = 1 2 3",
+            expected_output: "1 3 6",
+            is_hidden: false,
+            weight: 1,
+          },
+        ],
+      },
+    }).as("problemDetailC");
     cy.visit("/problem/1?language=python");
     cy.wait("@problemDetail");
   });
@@ -62,5 +87,11 @@ describe("Student question runner", () => {
     cy.contains(".editor-tab", "Solution").click();
     cy.get("#solutionUnlocked").should("be.visible");
     cy.get("#solutionCode").should("contain.text", "def prefix");
+  });
+
+  it("switches language through the problem URL", () => {
+    cy.get("#problemLanguageSelect").select("c");
+    cy.location("pathname").should("eq", "/problem/1");
+    cy.location("search").should("contain", "language=c");
   });
 });

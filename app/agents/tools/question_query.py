@@ -8,12 +8,16 @@ def get_question_detail(question_id: int) -> dict:
     q = Question.query.get(question_id)
     if not q:
         return {"error": "Question not found"}
+    problem = q.problem
+    if not problem:
+        return {"error": "Problem not found"}
     # Only expose public test cases; hidden ones must stay confidential
-    cases = TestCase.query.filter_by(question_id=question_id, is_hidden=False).all()
+    cases = TestCase.query.filter_by(problem_id=problem.id, is_hidden=False).all()
     return {
         "id": q.id,
-        "title": q.title,
-        "description": q.description,
+        "problem_id": problem.id,
+        "title": problem.title,
+        "description": problem.description,
         "language": q.programming_language,
         "test_cases": [
             {"input": tc.input, "expected_output": tc.expected_output}

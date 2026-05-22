@@ -164,13 +164,16 @@ Classroom
 
 Quiz
   ├── N:1 → User (creator)
-  ├── 1:N → QuizQuestion (有 order + 可覆盖默认 points)
+  ├── 1:N → QuizProblem (有 order + 可覆盖默认 points)
   ├── 1:N → ClassroomQuiz (一份 quiz 可分配到多个班级)
   └── 1:N → QuizAttempt
 
-Question
+Problem
+  ├── 1:N → Question (Python/C 等语言变体)
   ├── 1:N → TestCase (input / expected_output / is_hidden / weight)
-  ├── 1:N → QuizQuestion
+  └── 1:N → QuizProblem
+
+Question
   └── 1:N → Submission
 
 Submission
@@ -186,11 +189,11 @@ ClassroomQuiz (作业分配，含 due_date / allow_late_submission)
 
 ### 关键设计决策
 
-1. **关联表都是显式实体**（不是隐式 secondary）：`Enrollment / QuizQuestion / ClassroomQuiz` 都有自己的 `id`、时间戳、附加字段（如 `QuizQuestion.order/points` 可覆盖 `Question` 默认值）。
+1. **关联表都是显式实体**（不是隐式 secondary）：`Enrollment / QuizProblem / ClassroomQuiz` 都有自己的 `id`、时间戳、附加字段（如 `QuizProblem.order/points` 可覆盖 `Problem` 默认值）。
 2. **角色枚举**：`UserRole = STUDENT / TEACHER / ADMIN`，落库为 MySQL ENUM。
-3. **唯一约束**：`(student_id, classroom_id)` 不重复入班、`(quiz_id, question_id)` 不重复加题、`(classroom_id, quiz_id)` 不重复布置。
-4. **级联删除**：`Classroom → Enrollment`、`Quiz → QuizQuestion / ClassroomQuiz`、`Question → TestCase / QuizQuestion`、`Submission → TestResult` 全部 `cascade='all, delete-orphan'`。
-5. **测试用例隐藏**：`TestCase.is_hidden` 控制学生侧能否看到。`Question.to_dict(include_solution=False)` 默认隐藏参考解。
+3. **唯一约束**：`(student_id, classroom_id)` 不重复入班、`(quiz_id, problem_id)` 不重复加题、`(problem_id, programming_language)` 不重复建同语种变体、`(classroom_id, quiz_id)` 不重复布置。
+4. **级联删除**：`Classroom → Enrollment`、`Quiz → QuizProblem / ClassroomQuiz`、`Problem → Question / TestCase / QuizProblem`、`Submission → TestResult` 全部 `cascade='all, delete-orphan'`。
+5. **测试用例隐藏**：`TestCase.is_hidden` 控制学生侧能否看到。`ProblemService.get_problem_detail()` 默认隐藏参考解，只有有提交记录时返回当前语言变体的 solution。
 6. **评测状态字符串**：`Submission.status` 用 `pending / running / completed / error`；测试结果细分 `AC / WA / CE / RE / TLE`（来自 `TestResult` 与 executor 输出）。
 
 ### 数据表清单
@@ -201,11 +204,12 @@ ClassroomQuiz (作业分配，含 due_date / allow_late_submission)
 | `classrooms` | id, name, code (unique 邀请码), description, teacher_id |
 | `enrollments` | id, student_id, classroom_id, enrolled_at（unique student+classroom）|
 | `quizzes` | id, title, description, created_by, duration_minutes, is_published |
-| `quiz_questions` | id, quiz_id, question_id, order, points（unique quiz+question）|
+| `quiz_problems` | id, quiz_id, problem_id, order, points（unique quiz+problem）|
 | `classroom_quizzes` | id, classroom_id, quiz_id, due_date, allow_late_submission, assigned_by |
 | `quiz_attempts` | id, quiz_id, student_id, classroom_quiz_id, started_at, completed_at, status, score, max_score |
-| `questions` | id, title, description, starter_code, solution, points, programming_language, created_by |
-| `test_cases` | id, question_id, input, expected_output, is_hidden, weight |
+| `problems` | id, slug, title, description, difficulty, points, order, created_by |
+| `questions` | id, problem_id, programming_language, starter_code, solution, solution_explanation |
+| `test_cases` | id, problem_id, input, expected_output, is_hidden, weight |
 | `submissions` | id, student_id, question_id, code, score, status, error_message, execution_time, memory_used |
 | `test_results` | id, submission_id, test_case_id, passed, actual_output, error_message, execution_time |
 
@@ -309,3 +313,23 @@ CodeRunner/
 - REST API 参考：[API.md](API.md)
 - 部署：[INSTALLATION.md](INSTALLATION.md)
 - 测试：[TESTING.md](TESTING.md)
+## Current Problem Variant Model
+
+The question bank is now grouped around a parent `Problem`:
+
+- `Problem` is the public practice unit shown on the dashboard, quiz pages, teacher workspace, and `/problem/{problem_id}` runner.
+- `Question` is an executable language variant for a parent problem. It owns `programming_language`, `starter_code`, `solution`, and `solution_explanation`.
+- `TestCase` belongs to `Problem`, so Python and C variants share the same visible and hidden tests.
+- `Submission` still belongs to `Question`, preserving language-specific history and executor routing.
+- `QuizProblem` links quizzes to parent problems. Completion is problem-level: any accepted variant can mark the Problem complete.
+
+Current core tables:
+
+| Table | Primary role |
+|---|---|
+| `problems` | title, slug, description, difficulty, points, order, created_by |
+| `questions` | problem_id, programming_language, starter_code, solution |
+| `test_cases` | problem_id, input, expected_output, is_hidden, weight |
+| `quiz_problems` | quiz_id, problem_id, order, points |
+| `submissions` | student_id, question_id, code, score, status |
+| `test_results` | submission_id, test_case_id, pass/fail detail |

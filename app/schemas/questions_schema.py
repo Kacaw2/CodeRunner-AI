@@ -158,7 +158,7 @@ class TestCaseIn(Schema):
 class TestCaseOut(Schema):
     """Full test case response data"""
     id = fields.Int()
-    question_id = fields.Int()
+    problem_id = fields.Int()
     input = fields.Str()
     expected = fields.Str(attribute="expected_output")
     is_hidden = fields.Bool()

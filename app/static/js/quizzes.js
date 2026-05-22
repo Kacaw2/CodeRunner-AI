@@ -54,7 +54,7 @@ async function loadQuizzes() {
           </p>
           <div class="card-footer-row">
             <span class="badge-info-custom">
-              ${quiz.question_count || 0} questions
+              ${quiz.problem_count || quiz.question_count || 0} problems
             </span>
             <span class="badge-primary-custom">
               ${quiz.total_points || 0} points
@@ -137,7 +137,7 @@ function updateModalContent(quiz) {
     ? "Unpublish"
     : "Publish";
   document.getElementById("quizQuestionCount").textContent =
-    quiz.question_count || 0;
+    quiz.problem_count || quiz.question_count || 0;
   document.getElementById("quizTotalPoints").textContent =
     quiz.total_points || 0;
 }
@@ -156,7 +156,7 @@ async function refreshModalContent() {
     updateModalContent(quiz);
 
     // Reload tabs data
-    await loadQuizQuestions(currentQuizId);
+    await loadQuizProblems(currentQuizId);
     await loadQuizAssignments(currentQuizId);
     await loadQuizAttempts(currentQuizId);
   } catch (error) {
@@ -177,7 +177,7 @@ window.viewQuiz = async function (quizId) {
     updateModalContent(quiz);
 
     // Load tabs data
-    await loadQuizQuestions(quizId);
+    await loadQuizProblems(quizId);
     await loadQuizAssignments(quizId);
     await loadQuizAttempts(quizId);
 
@@ -191,24 +191,24 @@ window.viewQuiz = async function (quizId) {
   }
 };
 
-// ========== Load Quiz Questions ==========
-async function loadQuizQuestions(quizId) {
+// ========== Load Quiz Problems ==========
+async function loadQuizProblems(quizId) {
   const container = document.getElementById("questionsList");
 
   try {
     const response = await authenticatedFetch(
-      `${API_BASE}/quizzes/${quizId}/questions`
+      `${API_BASE}/quizzes/${quizId}/problems`
     );
     const data = await response.json();
 
-    const questions = data.items || [];
+    const problems = data.items || [];
 
-    if (!questions.length) {
-      container.innerHTML = '<p class="text-muted text-center">No questions yet</p>';
+    if (!problems.length) {
+      container.innerHTML = '<p class="text-muted text-center">No problems yet</p>';
       return;
     }
 
-    container.innerHTML = questions
+    container.innerHTML = problems
       .map(
         (q) => `
       <div class="question-item">
@@ -216,7 +216,7 @@ async function loadQuizQuestions(quizId) {
           <div class="d-flex align-items-center gap-2 mb-2">
             <i class="bi bi-code-square text-primary"></i>
             <strong>${q.title}</strong>
-            <span class="badge bg-secondary">${q.programming_language}</span>
+            <span class="badge bg-secondary">${(q.variants || []).map(v => (v.language || '').toUpperCase()).join(' / ') || '-'}</span>
           </div>
           <div class="d-flex gap-3 small text-muted">
             <span><i class="bi bi-star"></i> ${q.points} points</span>
@@ -237,7 +237,7 @@ async function loadQuizQuestions(quizId) {
       .join("");
   } catch (error) {
     container.innerHTML =
-      '<p class="text-danger text-center">Failed to load questions</p>';
+      '<p class="text-danger text-center">Failed to load problems</p>';
   }
 }
 
@@ -386,53 +386,39 @@ async function loadQuizAttempts(quizId) {
   }
 }
 
-// ========== Add Question ==========
+// ========== Add Problem ==========
 async function showAddQuestionModal() {
-  // Load available questions
   const select = document.getElementById("selectQuestion");
   select.innerHTML = '<option value="">Loading...</option>';
 
   try {
-    const response = await authenticatedFetch(`${API_BASE}/quizzes/mine`);
-    const data = await response.json();
-
-    // Get all questions from all quizzes
-    const allQuestions = [];
-    for (const quiz of data.items || []) {
-      const qResponse = await authenticatedFetch(
-        `${API_BASE}/quizzes/${quiz.id}/questions`
-      );
-      const qData = await qResponse.json();
-      allQuestions.push(...(qData.items || []));
-    }
-
-    // Remove duplicates and current quiz questions
+    const allResponse = await authenticatedFetch(`${API_BASE}/teacher/problems?created_by_me=true`);
+    const allData = await allResponse.json();
+    const allProblems = allData.items || [];
     const currentQuestions = new Set();
     const currentResponse = await authenticatedFetch(
-      `${API_BASE}/quizzes/${currentQuizId}/questions`
+      `${API_BASE}/quizzes/${currentQuizId}/problems`
     );
     const currentData = await currentResponse.json();
     (currentData.items || []).forEach((q) => currentQuestions.add(q.id));
 
-    const uniqueQuestions = allQuestions.filter(
-      (q, index, self) =>
-        index === self.findIndex((t) => t.id === q.id) &&
-        !currentQuestions.has(q.id)
+    const uniqueProblems = allProblems.filter(
+      (q, index, self) => index === self.findIndex((t) => t.id === q.id) && !currentQuestions.has(q.id)
     );
 
-    if (!uniqueQuestions.length) {
-      select.innerHTML = '<option value="">No available questions</option>';
+    if (!uniqueProblems.length) {
+      select.innerHTML = '<option value="">No available problems</option>';
       return;
     }
 
-    select.innerHTML = uniqueQuestions
+    select.innerHTML = uniqueProblems
       .map(
         (q) =>
-          `<option value="${q.id}">${q.title} (${q.programming_language})</option>`
+          `<option value="${q.id}">${q.title}</option>`
       )
       .join("");
   } catch (error) {
-    select.innerHTML = '<option value="">Error loading questions</option>';
+    select.innerHTML = '<option value="">Error loading problems</option>';
   }
 
   // Show modal
@@ -443,23 +429,23 @@ async function showAddQuestionModal() {
 }
 
 async function confirmAddQuestion() {
-  const questionId = document.getElementById("selectQuestion").value;
+  const problemId = document.getElementById("selectQuestion").value;
   const points = document.getElementById("questionPoints").value;
   const order = document.getElementById("questionOrder").value;
 
-  if (!questionId) {
-    alert("Please select a question");
+  if (!problemId) {
+    alert("Please select a problem");
     return;
   }
 
   try {
     const response = await authenticatedFetch(
-      `${API_BASE}/quizzes/${currentQuizId}/questions`,
+      `${API_BASE}/quizzes/${currentQuizId}/problems`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question_id: parseInt(questionId),
+          problem_id: parseInt(problemId),
           points: parseInt(points),
           order: parseInt(order),
         }),
@@ -476,24 +462,24 @@ async function confirmAddQuestion() {
       await refreshModalContent();
     } else {
       const error = await response.json();
-      alert(error.message || "Failed to add question");
+      alert(error.message || "Failed to add problem");
     }
   } catch (error) {
-    alert("Failed to add question");
+    alert("Failed to add problem");
   }
 }
 
-// ========== Remove Question ==========
-window.removeQuestion = async function (questionId) {
+// ========== Remove Problem ==========
+window.removeQuestion = async function (problemId) {
   if (
-    !confirm("Are you sure you want to remove this question from the quiz?")
+    !confirm("Are you sure you want to remove this problem from the quiz?")
   ) {
     return;
   }
 
   try {
     const response = await authenticatedFetch(
-      `${API_BASE}/quizzes/${currentQuizId}/questions/${questionId}`,
+      `${API_BASE}/quizzes/${currentQuizId}/problems/${problemId}`,
       { method: "DELETE" }
     );
 

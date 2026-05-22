@@ -132,9 +132,13 @@ class TestMemoryService:
             from app.agents.memory import MemoryService
             from app.models.student_profile import StudentProfile
             from app.models.submission import Submission
+            from app.models.problem import Problem
             from app.models.question import Question
 
-            q = Question(title="Test Q", description="Desc", programming_language="python", created_by=1)
+            problem = Problem(slug="test-q-phase3", title="Test Q", description="Desc", created_by=1)
+            db_session.add(problem)
+            db_session.flush()
+            q = Question(problem_id=problem.id, programming_language="python")
             db_session.add(q)
             db_session.flush()
 

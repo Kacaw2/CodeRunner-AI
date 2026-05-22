@@ -1,7 +1,8 @@
 # app/services/quiz_service.py
 """Quiz business logic service"""
 from app.core.extensions import db
-from app.models.quiz import Quiz, QuizQuestion, ClassroomQuiz, QuizAttempt
+from app.models.quiz import Quiz, QuizProblem, ClassroomQuiz, QuizAttempt
+from app.models.problem import Problem
 from app.models.question import Question
 from app.models.classroom import Classroom, Enrollment
 from app.models.user import User
@@ -46,7 +47,7 @@ class QuizService:
         """Get quiz by ID"""
         return db.session.query(Quiz)\
             .options(
-                joinedload(Quiz.quiz_questions).joinedload(QuizQuestion.question),
+                joinedload(Quiz.quiz_problems).joinedload(QuizProblem.problem),
                 joinedload(Quiz.creator)
             )\
             .filter_by(id=quiz_id)\
@@ -148,29 +149,29 @@ class QuizService:
         return True
     
     @staticmethod
-    def add_question_to_quiz(quiz_id, question_id, order=None, points=10):
+    def add_problem_to_quiz(quiz_id, problem_id, order=None, points=10):
         """
         Add a question to a quiz
         
         Args:
             quiz_id: Quiz ID
-            question_id: Question ID
+            problem_id: Problem ID
             order: Order
             points: Points
             
         Returns:
-            QuizQuestion object or None
+            QuizProblem object or None
         """
         quiz = Quiz.query.get(quiz_id)
-        question = Question.query.get(question_id)
+        problem = Problem.query.get(problem_id)
         
-        if not quiz or not question:
+        if not quiz or not problem:
             return None
         
         # Check if the association already exists
-        existing = QuizQuestion.query.filter_by(
+        existing = QuizProblem.query.filter_by(
             quiz_id=quiz_id,
-            question_id=question_id
+            problem_id=problem_id
         ).first()
         
         if existing:
@@ -179,47 +180,47 @@ class QuizService:
         # If order is not specified, use current max order + 1
         if order is None:
             max_order = db.session.query(
-                db.func.max(QuizQuestion.order)
+                db.func.max(QuizProblem.order)
             ).filter_by(quiz_id=quiz_id).scalar()
             order = (max_order or 0) + 1
         
-        quiz_question = QuizQuestion(
+        quiz_problem = QuizProblem(
             quiz_id=quiz_id,
-            question_id=question_id,
+            problem_id=problem_id,
             order=order,
             points=points
         )
         
-        db.session.add(quiz_question)
+        db.session.add(quiz_problem)
         db.session.commit()
         
-        return quiz_question
+        return quiz_problem
     
     @staticmethod
-    def remove_question_from_quiz(quiz_id, question_id):
+    def remove_problem_from_quiz(quiz_id, problem_id):
         """
         Remove a question from a quiz
         
         Args:
             quiz_id: Quiz ID
-            question_id: Question ID
+            problem_id: Problem ID
             
         Returns:
             bool: Whether removal succeeded
         """
-        quiz_question = QuizQuestion.query.filter_by(
+        quiz_problem = QuizProblem.query.filter_by(
             quiz_id=quiz_id,
-            question_id=question_id
+            problem_id=problem_id
         ).first()
         
-        if not quiz_question:
+        if not quiz_problem:
             return False
         
-        db.session.delete(quiz_question)
+        db.session.delete(quiz_problem)
         db.session.commit()
         
-        # Reorder remaining questions
-        remaining = QuizQuestion.query.filter_by(quiz_id=quiz_id).order_by(QuizQuestion.order).all()
+        # Reorder remaining problems
+        remaining = QuizProblem.query.filter_by(quiz_id=quiz_id).order_by(QuizProblem.order).all()
         for i, qq in enumerate(remaining):
             qq.order = i + 1
         
@@ -228,36 +229,40 @@ class QuizService:
         return True
     
     @staticmethod
-    def update_quiz_question(quiz_id, question_id, order=None, points=None):
+    def update_quiz_problem(quiz_id, problem_id, order=None, points=None):
         """
         Update configuration of a question within a quiz
         
         Args:
             quiz_id: Quiz ID
-            question_id: Question ID
+            problem_id: Problem ID
             order: New order
             points: New points
             
         Returns:
-            QuizQuestion object or None
+            QuizProblem object or None
         """
-        quiz_question = QuizQuestion.query.filter_by(
+        quiz_problem = QuizProblem.query.filter_by(
             quiz_id=quiz_id,
-            question_id=question_id
+            problem_id=problem_id
         ).first()
         
-        if not quiz_question:
+        if not quiz_problem:
             return None
         
         if order is not None:
-            quiz_question.order = order
+            quiz_problem.order = order
         
         if points is not None:
-            quiz_question.points = points
+            quiz_problem.points = points
         
         db.session.commit()
         
-        return quiz_question
+        return quiz_problem
+
+    add_question_to_quiz = add_problem_to_quiz
+    remove_question_from_quiz = remove_problem_from_quiz
+    update_quiz_question = update_quiz_problem
     
     @staticmethod
     def assign_quiz_to_classroom(quiz_id, classroom_id, assigned_by, due_date=None, allow_late_submission=False):

@@ -21,12 +21,14 @@ class GeneratedQuestionDraft(db.Model):
     revision_count = db.Column(db.Integer, default=0)
 
     published_question_id = db.Column(db.Integer, db.ForeignKey("questions.id"), nullable=True)
+    published_problem_id = db.Column(db.Integer, db.ForeignKey("problems.id"), nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     teacher = db.relationship("User", foreign_keys=[teacher_id])
     published_question = db.relationship("Question", foreign_keys=[published_question_id])
+    published_problem = db.relationship("Problem", foreign_keys=[published_problem_id])
 
     def to_dict(self):
         return {
@@ -41,6 +43,7 @@ class GeneratedQuestionDraft(db.Model):
             "review_notes": self.review_notes,
             "revision_count": self.revision_count,
             "published_question_id": self.published_question_id,
+            "published_problem_id": self.published_problem_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -37,7 +37,7 @@ tests/cypress/
 ```bash
 # 1. 后端跑在 http://localhost:9900
 docker-compose -f docker/docker-compose.yml up -d
-docker-compose exec web python -m app.core.init_db --drop --seed
+docker-compose exec web python -m app.core.init_db --drop --seed --force
 
 # 2. 安装 Node 依赖
 npm install
@@ -66,13 +66,13 @@ npx cypress run --spec tests/cypress/e2e/teacher/profile.cy.js
 |---|---|---|
 | 公开页 | `public_home.cy.js`、`auth.cy.js` | 主页 hero、登录流程、localStorage token |
 | 教师班级 | `teacher/classrooms.cy.js` | 创建 / 删除 / 学生列表 + 500 兜底、删除重试 |
-| 教师题库 | `teacher/questions.cy.js` | 创建 / 删除题目、过滤器、modal 交互、API 失败 |
-| 教师 quiz | `teacher/quizzes.cy.js` | quiz CRUD、题目添加、班级分配 |
+| 教师题库 | `teacher/questions.cy.js` | 创建 / 删除 Problem、过滤器、modal 交互、API 失败 |
+| 教师 quiz | `teacher/quizzes.cy.js` | quiz CRUD、Problem 添加、班级分配 |
 | 教师成绩 | `teacher/grades.cy.js` | dashboard、CSV 导出（含失败场景）|
 | 教师 profile | `teacher/profile.cy.js` | 邮箱修改成功 / 失败、用户名 / 密码校验、重复 email、未登录跳转 |
 | 学生 profile | `student/profile.cy.js` | dashboard 数据、profile 字段 |
 | 学生 quiz | `student/quizzes.cy.js` | quiz 列表 / 详情 / 提交流程 |
-| 学生答题 | `student/question_runner.cy.js` | CodeMirror 编辑、提交、AC / WA / RE 反馈 |
+| 学生答题 | `student/question_runner.cy.js` | `/problem/<id>` runner、CodeMirror 编辑、提交、AC / WA / RE 反馈 |
 
 ---
 
@@ -164,3 +164,12 @@ describe('<feature>', () => {
 ### 新增 fixture
 
 `tests/cypress/fixtures/<role>/<endpoint>.json` 命名约定与 endpoint 路径对应，便于追踪。
+## Current Problem Variant Test Notes
+
+Seed data is destructive and grouped by parent Problem:
+
+```powershell
+python -m app.core.init_db --drop --seed --force
+```
+
+The seed creates one `Problem` per prompt, Python/C `Question` variants where available, shared `TestCase.problem_id` rows, and `QuizProblem` associations. Cypress fixtures should mirror that shape: lists use `problem_id`, `variants: [{ language, question_id }]`, and `/problem/{problem_id}?language=python|c` links. Quiz progress assertions should count completed Problems, not language-specific rows.

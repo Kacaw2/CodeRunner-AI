@@ -75,10 +75,11 @@ function updateStatistics(items) {
 }
 
 function formatQuestionTitle(item) {
-  if (!item) return 'Question';
+  if (!item) return 'Problem';
   if (item.question_title) return item.question_title;
-  if (item.question_id) return `Question #${item.question_id}`;
-  return 'Question';
+  if (item.problem_id) return `Problem #${item.problem_id}`;
+  if (item.question_id) return `Problem #${item.question_id}`;
+  return 'Problem';
 }
 
 function renderSubmissions(items) {
@@ -116,7 +117,7 @@ function renderSubmissions(items) {
     row.innerHTML = `
       <td><strong>#${item.id}</strong></td>
       <td>
-        <a href="/question/${item.question_id}" class="text-decoration-none">
+        <a href="/problem/${item.problem_id || item.question_id}?language=${encodeURIComponent(item.language || 'python')}" class="text-decoration-none">
           ${formatQuestionTitle(item)}
         </a>
       </td>

@@ -2,20 +2,30 @@
   "items": [
     {
       "id": 870,
+      "problem_id": 870,
       "title": "Array Prefix Sum",
-      "programming_language": "python",
+      "difficulty": "medium",
       "points": 30,
       "order": 1,
-      "test_case_count": 3
+      "test_case_count": 3,
+      "variants": [
+        { "language": "python", "question_id": 1870 },
+        { "language": "c", "question_id": 1871 }
+      ]
     },
     {
       "id": 871,
+      "problem_id": 871,
       "title": "Merge Sort Runs",
-      "programming_language": "c",
+      "difficulty": "medium",
       "points": 50,
       "order": 2,
-      "test_case_count": 4
+      "test_case_count": 4,
+      "variants": [
+        { "language": "python", "question_id": 1872 },
+        { "language": "c", "question_id": 1873 }
+      ]
     }
-  ]
+  ],
+  "total": 2
 }
-

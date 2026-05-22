@@ -4,8 +4,11 @@ const visitTeacherProfile = () => {
 };
 
 describe("Teacher profile dashboard", () => {
-  beforeEach(() => {
+  before(() => {
     cy.seedDatabase();
+  });
+
+  beforeEach(() => {
     cy.loginByApi("teacher");
 
     cy.intercept("GET", "**/api/v1/auth/me", {
@@ -14,7 +17,7 @@ describe("Teacher profile dashboard", () => {
     cy.intercept("GET", "**/api/v1/teacher/stats", {
       fixture: "teacher/stats.json",
     }).as("stats");
-    cy.intercept("GET", "**/api/v1/questions/mine*", {
+    cy.intercept("GET", "**/api/v1/teacher/problems*", {
       fixture: "teacher/recent_questions.json",
     }).as("recentQuestions");
   });
@@ -111,7 +114,7 @@ describe("Teacher profile dashboard", () => {
       statusCode: 500,
       body: { message: "stats offline" },
     }).as("stats");
-    cy.intercept("GET", "**/api/v1/questions/mine*", {
+    cy.intercept("GET", "**/api/v1/teacher/problems*", {
       statusCode: 500,
       body: { message: "recent questions down" },
     }).as("recentQuestions");
@@ -125,7 +128,7 @@ describe("Teacher profile dashboard", () => {
     cy.get("#recent-questions-tbody")
       .find("td")
       .first()
-      .should("contain.text", "Failed to load questions");
+      .should("contain.text", "Failed to load problems");
   });
 
   it("surfaces validation errors when updating email fails", () => {

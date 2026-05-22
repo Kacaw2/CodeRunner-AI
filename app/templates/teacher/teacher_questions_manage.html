@@ -1,7 +1,6 @@
-<!-- app/templates/teacher/question_manage.html -->
 {% extends "base.html" %}
 {% set page = 'questions' %}
-{% block title %}Manage Question · Teacher{% endblock %}
+{% block title %}Manage Problem · Teacher{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/teacher_questions_manage.css') }}">
@@ -9,129 +8,114 @@
 
 {% block content %}
 <div class="container-fluid page-manage-question py-4">
-  <!-- Page Header -->
   <div class="page-header">
     <div class="page-header__content">
-      <h1 class="page-header__title">Manage Question</h1>
-      <p class="page-header__subtitle">
-        View question details and manage test cases.
-      </p>
+      <h1 class="page-header__title">Manage Problem</h1>
+      <p class="page-header__subtitle">Edit shared problem details, language variants, and test cases.</p>
     </div>
     <div class="page-header__actions">
       <a href="{{ url_for('teacher.questions_create') }}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left"></i>
-        Back to Questions
+        Back to Problems
       </a>
     </div>
   </div>
 
-  <!-- Two Column Layout -->
   <div class="row g-4">
-    <!-- Left Column: Question Details -->
     <div class="col-lg-5">
-      <!-- Question Info Card -->
       <div class="card detail-card">
         <div class="card-body">
           <div class="detail-header">
             <div>
-              <h3 class="detail-title">
-                <i class="bi bi-file-code"></i>
-                Question Details
-              </h3>
-              <span class="question-badge" id="questionId">#...</span>
+              <h3 class="detail-title"><i class="bi bi-file-code"></i> Problem Details</h3>
+              <span class="question-badge" id="problemId">#...</span>
             </div>
             <div class="edit-mode-toggle">
-              <button class="btn btn-sm btn-outline-primary" id="editQuestionBtn">
-                <i class="bi bi-pencil"></i> Edit
-              </button>
-              <button class="btn btn-sm btn-success d-none" id="saveQuestionBtn">
+              <button class="btn btn-sm btn-success" id="saveProblemBtn">
                 <i class="bi bi-check-lg"></i> Save
-              </button>
-              <button class="btn btn-sm btn-outline-secondary d-none" id="cancelEditBtn">
-                <i class="bi bi-x-lg"></i> Cancel
               </button>
             </div>
           </div>
 
-          <!-- Question Information -->
           <div class="detail-section">
             <label class="detail-label">Title</label>
-            <div class="detail-value" id="questionTitle">Loading...</div>
-            <div class="detail-input">
-              <input type="text" class="form-control" id="questionTitleInput" placeholder="Question title">
-            </div>
+            <input type="text" class="form-control" id="problemTitleInput" placeholder="Problem title">
           </div>
 
           <div class="row g-3">
-            <div class="col-6">
-              <div class="detail-section">
-                <label class="detail-label">Language</label>
-                <div class="detail-value">
-                  <span class="badge bg-info" id="questionLang">-</span>
-                </div>
-                <div class="detail-input">
-                  <select class="form-select" id="questionLangInput">
-                    <option value="python">Python</option>
-                    <option value="c">C</option>
-                  </select>
-                </div>
-              </div>
+            <div class="col-4">
+              <label class="detail-label">Difficulty</label>
+              <select class="form-select" id="problemDifficultyInput">
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
             </div>
-            <div class="col-6">
-              <div class="detail-section">
-                <label class="detail-label">Order</label>
-                <div class="detail-value" id="questionOrder">-</div>
-                <div class="detail-input">
-                  <input type="number" class="form-control" id="questionOrderInput" min="1" step="1">
-                </div>
-              </div>
+            <div class="col-4">
+              <label class="detail-label">Order</label>
+              <input type="number" class="form-control" id="problemOrderInput" min="1" step="1">
+            </div>
+            <div class="col-4">
+              <label class="detail-label">Points</label>
+              <input type="number" class="form-control" id="problemPointsInput" min="0" step="1">
             </div>
           </div>
 
           <div class="detail-section">
             <label class="detail-label">Quiz</label>
-            <div class="detail-value" id="questionQuiz">Not assigned</div>
+            <div class="detail-value" id="problemQuiz">Not assigned</div>
           </div>
 
           <div class="detail-section">
             <label class="detail-label">Description</label>
-            <div class="detail-value detail-description" id="questionDesc">Loading...</div>
-            <div class="detail-input">
-              <textarea class="form-control" id="questionDescInput" rows="6" placeholder="Question description"></textarea>
+            <textarea class="form-control" id="problemDescInput" rows="6" placeholder="Problem description"></textarea>
+          </div>
+
+          <ul class="nav nav-tabs mt-4" id="variantTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="python-tab" data-bs-toggle="tab" data-bs-target="#python-pane" type="button" role="tab">Python</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="c-tab" data-bs-toggle="tab" data-bs-target="#c-pane" type="button" role="tab">C</button>
+            </li>
+          </ul>
+          <div class="tab-content border border-top-0 p-3" id="variantTabContent">
+            <div class="tab-pane fade show active" id="python-pane" role="tabpanel" aria-labelledby="python-tab">
+              <label class="detail-label">Starter Code</label>
+              <textarea class="form-control code-textarea mb-3" id="pythonStarterInput" rows="6"></textarea>
+              <label class="detail-label">Solution</label>
+              <textarea class="form-control code-textarea mb-3" id="pythonSolutionInput" rows="8"></textarea>
+              <label class="detail-label">Solution Explanation</label>
+              <textarea class="form-control" id="pythonExplanationInput" rows="3"></textarea>
+            </div>
+            <div class="tab-pane fade" id="c-pane" role="tabpanel" aria-labelledby="c-tab">
+              <label class="detail-label">Starter Code</label>
+              <textarea class="form-control code-textarea mb-3" id="cStarterInput" rows="6"></textarea>
+              <label class="detail-label">Solution</label>
+              <textarea class="form-control code-textarea mb-3" id="cSolutionInput" rows="8"></textarea>
+              <label class="detail-label">Solution Explanation</label>
+              <textarea class="form-control" id="cExplanationInput" rows="3"></textarea>
             </div>
           </div>
 
-          <div class="detail-section">
-            <label class="detail-label">Starter Code</label>
-            <pre class="detail-code" id="questionStarter">No starter code</pre>
-            <div class="detail-input">
-              <textarea class="form-control code-textarea" id="questionStarterInput" rows="8" placeholder="Starter code template"></textarea>
-            </div>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="detail-actions">
-            <a href="/question/{{ question_id }}" target="_blank" class="btn btn-outline-primary w-100 mb-2">
-              <i class="bi bi-eye"></i> Preview Question
+          <div class="detail-actions mt-4">
+            <a href="/problem/{{ problem_id }}?language=python" target="_blank" class="btn btn-outline-primary w-100 mb-2">
+              <i class="bi bi-eye"></i> Preview Problem
             </a>
-            <button class="btn btn-outline-danger w-100" id="deleteQuestionBtn">
-              <i class="bi bi-trash"></i> Delete Question
+            <button class="btn btn-outline-danger w-100" id="deleteProblemBtn">
+              <i class="bi bi-trash"></i> Delete Problem
             </button>
           </div>
+          <div id="problemMsg" class="mt-2"></div>
         </div>
       </div>
     </div>
 
-    <!-- Right Column: Test Cases Management -->
     <div class="col-lg-7">
-      <!-- Add Test Case Card -->
       <div class="card testcase-card">
         <div class="card-body">
           <div class="testcase-header">
-            <h3 class="testcase-title">
-              <i class="bi bi-plus-circle"></i>
-              Add New Test Case
-            </h3>
+            <h3 class="testcase-title"><i class="bi bi-plus-circle"></i> Add Shared Test Case</h3>
           </div>
 
           <form id="testCaseForm">
@@ -173,15 +157,11 @@
         </div>
       </div>
 
-      <!-- Test Cases List -->
       <div class="card testcase-card mt-4">
         <div class="card-body">
           <div class="testcase-header">
             <div>
-              <h3 class="testcase-title mb-1">
-                <i class="bi bi-list-check"></i>
-                Test Cases
-              </h3>
+              <h3 class="testcase-title mb-1"><i class="bi bi-list-check"></i> Shared Test Cases</h3>
               <span id="testCaseCount" class="badge bg-primary rounded-pill">0 test cases</span>
             </div>
             <button id="refreshTestCases" class="btn btn-sm btn-outline-secondary">
@@ -189,7 +169,6 @@
             </button>
           </div>
 
-          <!-- Test Cases Container -->
           <div id="testCasesContainer" class="testcases-list">
             <div class="empty-state">
               <i class="bi bi-inbox"></i>

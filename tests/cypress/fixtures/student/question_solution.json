@@ -1,5 +1,29 @@
 {
+  "id": 1,
+  "problem_id": 1,
+  "title": "Array Prefix Sum",
+  "description": "Given numbers, return prefix sums.",
+  "difficulty": "medium",
+  "points": 30,
+  "selected_language": "python",
+  "selected_question_id": 1870,
+  "starter_code": "def prefix(nums):\n    pass\n",
+  "solution": "def prefix(nums):\n    return [sum(nums[:i + 1]) for i in range(len(nums))]\n",
   "solution_code": "def prefix(nums):\n    return [sum(nums[:i + 1]) for i in range(len(nums))]\n",
-  "programming_language": "python"
+  "programming_language": "python",
+  "variants": [
+    { "language": "python", "question_id": 1870 },
+    { "language": "c", "question_id": 1871 }
+  ],
+  "test_cases": [
+    {
+      "id": 5001,
+      "problem_id": 1,
+      "input": "nums = 1 2 3",
+      "expected_output": "1 3 6",
+      "is_hidden": false,
+      "weight": 1
+    }
+  ]
 }
 

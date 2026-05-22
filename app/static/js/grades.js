@@ -23,7 +23,7 @@ let currentPage = 0;
 const pageSize = 20;
 let totalSubmissions = 0;
 let allStudents = []; // Store all students for filter
-let allQuestions = []; // Store all questions for filter
+let allQuestions = []; // Store all problems for filter
 
 // ============================================================
 // Load Initial Data (for filters)
@@ -36,16 +36,17 @@ async function loadInitialFilterData() {
     const studentsData = await studentsResponse.json();
     allStudents = studentsData.items || [];
     
-    // Load all submissions once to get all unique questions
+    // Load all submissions once to get all unique problems
     const submissionsResponse = await authenticatedFetch(`${API_BASE}/grades/submissions?limit=1000`);
     const submissionsData = await submissionsResponse.json();
     const submissions = submissionsData.items || [];
     
-    // Extract unique questions
+    // Extract unique problems
     const questionMap = new Map();
     submissions.forEach(sub => {
-      if (!questionMap.has(sub.question_id)) {
-        questionMap.set(sub.question_id, sub.question_title || `Question #${sub.question_id}`);
+      const id = sub.problem_id || sub.question_id;
+      if (!questionMap.has(id)) {
+        questionMap.set(id, sub.question_title || `Problem #${id}`);
       }
     });
     allQuestions = Array.from(questionMap.entries()).map(([id, title]) => ({ id, title }));
@@ -67,9 +68,9 @@ function populateFilters() {
   studentFilter.innerHTML = '<option value="">All Students</option>' +
     allStudents.map(s => `<option value="${s.student_id}">${s.student_name}</option>`).join('');
   
-  // Populate question filter
+  // Populate problem filter
   const questionFilter = document.getElementById('filterQuestion');
-  questionFilter.innerHTML = '<option value="">All Questions</option>' +
+  questionFilter.innerHTML = '<option value="">All Problems</option>' +
     allQuestions.map(q => `<option value="${q.id}">${q.title}</option>`).join('');
 }
 
@@ -181,7 +182,7 @@ async function loadSubmissions() {
     
     let url = `${API_BASE}/grades/submissions?limit=${pageSize}&offset=${currentPage * pageSize}`;
     if (studentId) url += `&student_id=${studentId}`;
-    if (questionId) url += `&question_id=${questionId}`;
+    if (questionId) url += `&problem_id=${questionId}`;
     if (status) url += `&status=${status}`;
     
     const response = await authenticatedFetch(url);
@@ -225,7 +226,7 @@ async function loadSubmissions() {
             <div class="submission-title-container">
               <div class="submission-question-title">
                 <i class="bi bi-file-code"></i>
-                ${sub.question_title || `Question #${sub.question_id}`}
+                ${sub.question_title || `Problem #${sub.problem_id || sub.question_id}`}
               </div>
               <div class="submission-student-info">
                 <i class="bi bi-person"></i> ${sub.student_name}
