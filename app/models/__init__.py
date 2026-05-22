@@ -7,7 +7,8 @@ All models are imported here for convenient use by other modules
 
 from .user import User, UserRole
 from .classroom import Classroom, Enrollment
-from .quiz import Quiz, QuizQuestion, ClassroomQuiz, QuizAttempt
+from .problem import Problem
+from .quiz import Quiz, QuizProblem, ClassroomQuiz, QuizAttempt
 from .question import Question, TestCase
 from .submission import Submission, TestResult
 from .agent_task import AgentTask
@@ -16,6 +17,8 @@ from .ai_audit_log import AIAuditLog
 from .generated_question_draft import GeneratedQuestionDraft
 from .student_profile import StudentProfile, TeacherPreference
 from .eval_run import EvalRun
+
+QuizQuestion = QuizProblem
 
 __all__ = [
     # User models
@@ -28,9 +31,12 @@ __all__ = [
 
     # Quiz models
     'Quiz',
-    'QuizQuestion',
+    'QuizProblem',
     'ClassroomQuiz',
     'QuizAttempt',
+
+    # Problem models
+    'Problem',
 
     # Question models
     'Question',

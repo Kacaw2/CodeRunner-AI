@@ -28,11 +28,12 @@ class Quiz(db.Model):
     # Relationships - Fixed: using back_populates instead of backref
     creator = db.relationship('User', back_populates='created_quizzes')
     
-    # Many-to-many relationship through association table
-    quiz_questions = db.relationship('QuizQuestion', 
-                                    back_populates='quiz',
-                                    cascade='all, delete-orphan',
-                                    order_by='QuizQuestion.order')
+    quiz_problems = db.relationship(
+        'QuizProblem',
+        back_populates='quiz',
+        cascade='all, delete-orphan',
+        order_by='QuizProblem.order'
+    )
     
     classroom_assignments = db.relationship('ClassroomQuiz',
                                           back_populates='quiz',
@@ -46,43 +47,41 @@ class Quiz(db.Model):
     
     @property
     def question_count(self):
-        """Get question count"""
-        return len(self.quiz_questions)
+        return len(self.quiz_problems)
     
     @property
     def total_points(self):
-        """Get total points"""
-        return sum(qq.points for qq in self.quiz_questions)
+        return sum(qp.points for qp in self.quiz_problems)
+
+    @property
+    def quiz_questions(self):
+        return self.quiz_problems
 
 
-class QuizQuestion(db.Model):
-    """Association table for Quiz and Question (many-to-many with order and points)"""
-    __tablename__ = 'quiz_questions'
-    
+class QuizProblem(db.Model):
+    """Association table for Quiz and Problem."""
+
+    __tablename__ = 'quiz_problems'
+
     id = db.Column(db.Integer, primary_key=True)
     quiz_id = db.Column(db.Integer, db.ForeignKey('quizzes.id'), nullable=False)
-    question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False)
-    
-    # Order of question in quiz
+    problem_id = db.Column(db.Integer, db.ForeignKey('problems.id'), nullable=False)
     order = db.Column(db.Integer, nullable=False, default=0)
-    
-    # Points for this question in this quiz (can differ from question's default points)
     points = db.Column(db.Integer, default=10)
-    
-    # Timestamp
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationships - Fixed: using back_populates instead of backref
-    quiz = db.relationship('Quiz', back_populates='quiz_questions')
-    question = db.relationship('Question', back_populates='quiz_associations')
-    
-    # Unique constraint: same question cannot be added to the same quiz twice
+
+    quiz = db.relationship('Quiz', back_populates='quiz_problems')
+    problem = db.relationship('Problem', back_populates='quiz_associations')
+
     __table_args__ = (
-        db.UniqueConstraint('quiz_id', 'question_id', name='unique_quiz_question'),
+        db.UniqueConstraint('quiz_id', 'problem_id', name='unique_quiz_problem'),
     )
-    
+
     def __repr__(self):
-        return f'<QuizQuestion quiz={self.quiz_id} question={self.question_id} order={self.order}>'
+        return f'<QuizProblem quiz={self.quiz_id} problem={self.problem_id} order={self.order}>'
+
+
+QuizQuestion = QuizProblem
 
 
 class ClassroomQuiz(db.Model):

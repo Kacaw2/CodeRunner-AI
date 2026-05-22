@@ -7,6 +7,7 @@ from app.schemas.submissions_schema import (
     SubmitIn, SubmitOut,
     MySubmissionsOut, SubmissionDetailOut
 )
+from app.schemas.questions_schema import ProblemSubmitIn
 from app.services.submission_service import SubmissionService
 
 
@@ -48,6 +49,21 @@ def submit_code(payload, question_id):
     )
     
     return result
+
+
+@blp.post("/problems/<int:problem_id>/submit")
+@blp.arguments(ProblemSubmitIn)
+@blp.response(201, SubmitOut)
+@require_student
+def submit_problem_code(payload, problem_id):
+    current_user = g.current_user
+    return SubmissionService.submit_problem_code(
+        student_id=current_user.id,
+        problem_id=problem_id,
+        language=payload.get("language", "python"),
+        code=payload["code"],
+        time_limit_sec=payload.get("time_limit_sec", 2.0),
+    )
 
 
 @blp.get("/submissions/mine")

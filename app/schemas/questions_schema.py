@@ -98,6 +98,54 @@ class QuestionPublicListResponse(Schema):
     total = fields.Int()
 
 
+# ---------- Problem Schemas ----------
+class ProblemVariantOut(Schema):
+    question_id = fields.Int(required=True)
+    language = fields.Str(required=True)
+    starter_code = fields.Str(allow_none=True)
+
+
+class ProblemListItemOut(Schema):
+    id = fields.Int(required=True)
+    slug = fields.Str()
+    title = fields.Str(required=True)
+    description = fields.Str()
+    difficulty = fields.Str(allow_none=True)
+    points = fields.Int()
+    order = fields.Int()
+    default_language = fields.Str()
+    completed = fields.Bool(load_default=False)
+    variants = fields.List(fields.Nested(ProblemVariantOut))
+
+
+class ProblemListResponse(Schema):
+    items = fields.List(fields.Nested(ProblemListItemOut))
+    total = fields.Int()
+    limit = fields.Int()
+    offset = fields.Int()
+
+
+class ProblemCreateIn(Schema):
+    quiz_id = fields.Int(required=False, allow_none=True, load_default=None)
+    title = fields.Str(required=True, validate=validate.Length(min=1, max=200))
+    description = fields.Str(required=True)
+    difficulty = fields.Str(load_default="easy", validate=validate.OneOf(["easy", "medium", "hard"]))
+    points = fields.Int(load_default=10)
+    order = fields.Int(load_default=1)
+    python_starter_code = fields.Str(load_default="")
+    python_solution = fields.Str(load_default="")
+    python_solution_explanation = fields.Str(load_default="")
+    c_starter_code = fields.Str(load_default="")
+    c_solution = fields.Str(load_default="")
+    c_solution_explanation = fields.Str(load_default="")
+
+
+class ProblemSubmitIn(Schema):
+    language = fields.Str(load_default="python", validate=validate.OneOf(["python", "c"]))
+    code = fields.Str(required=True)
+    time_limit_sec = fields.Float(load_default=2.0, validate=validate.Range(min=0.1, max=10.0))
+
+
 # ---------- TestCase Schemas ----------
 class TestCaseIn(Schema):
     """Input data for creating a test case"""
