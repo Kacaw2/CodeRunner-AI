@@ -58,21 +58,21 @@ async function loadStatistics() {
   }
 }
 
-// Load recent questions
+// Load recent problems
 async function loadRecentQuestions() {
   const tbody = document.getElementById('recent-questions-tbody');
   
   try {
-    const response = await authenticatedFetch(`${API_BASE}/questions/mine?limit=10`);
+    const response = await authenticatedFetch(`${API_BASE}/teacher/problems?created_by_me=true`);
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data?.message || 'Failed to load questions');
+      throw new Error(data?.message || 'Failed to load problems');
     }
     const items = data.items || [];
 
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No questions yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No problems yet</td></tr>';
       return;
     }
 
@@ -84,25 +84,25 @@ async function loadRecentQuestions() {
           ${q.title || 'Untitled'}
         </span>
       </td>
-        <td><span class="badge badge--language">${q.programming_language || 'N/A'}</span></td>
+        <td><span class="badge badge--language">${(q.variants || []).map(v => (v.language || '').toUpperCase()).join(' / ') || 'N/A'}</span></td>
         <td><span class="badge bg-info">${q.difficulty || 'Medium'}</span></td>
         <td>
 
           <div class="btn-group-actions">
-          <a href="/question/${q.id}" 
+          <a href="/problem/${q.id}?language=python" 
              target="_blank" 
              class="btn btn-outline-primary btn-sm btn-action"
-             title="View question">
+             title="View problem">
             <i class="bi bi-eye"></i>
           </a>
           <button class="btn btn-outline-success btn-sm btn-action" 
                   data-manage="${q.id}"
-                  title="Manage test cases">
+                  title="Manage problem">
             <i class="bi bi-gear"></i>
           </button>
           <button class="btn btn-outline-danger btn-sm btn-action" 
                   data-delete="${q.id}"
-                  title="Delete question">
+                  title="Delete problem">
             <i class="bi bi-trash"></i>
           </button>
         </div>
@@ -111,30 +111,30 @@ async function loadRecentQuestions() {
       </tr>
     `).join('');
   } catch (error) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Failed to load questions</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Failed to load problems</td></tr>';
   }
 }
 
-// Delete question function
+// Delete problem function
 async function deleteQuestion(id) {
-  if (!confirm('Are you sure you want to delete this question?')) {
+  if (!confirm('Are you sure you want to delete this problem?')) {
     return;
   }
 
   try {
-    const response = await authenticatedFetch(`${API_BASE}/questions/${id}`, {
+    const response = await authenticatedFetch(`${API_BASE}/problems/${id}`, {
       method: 'DELETE'
     });
 
     if (response.ok) {
-      alert('Question deleted successfully!');
+      alert('Problem deleted successfully!');
       await loadRecentQuestions();
     } else {
       const data = await response.json();
       alert(`Failed to delete: ${data.message || 'Unknown error'}`);
     }
   } catch (error) {
-    alert('Failed to delete question');
+    alert('Failed to delete problem');
   }
 }
 
@@ -344,11 +344,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     
-    // Manage button - navigate to question management page
+    // Manage button - navigate to problem management page
     const manageBtn = e.target.closest('[data-manage]');
     if (manageBtn) {
       const id = manageBtn.getAttribute('data-manage');
-      window.location.href = `/teacher/questions/${id}/manage`;
+      window.location.href = `/teacher/problems/${id}/manage`;
       return;
     }
   });

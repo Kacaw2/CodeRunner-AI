@@ -6,8 +6,9 @@ from typing import Dict, Any
 from sqlalchemy import select, func, distinct
 
 from app.core.extensions import db
+from app.models.problem import Problem
 from app.models.question import Question
-from app.models.quiz import Quiz, QuizQuestion
+from app.models.quiz import Quiz, QuizProblem
 from app.models.classroom import Classroom, Enrollment
 from app.models.submission import Submission
 from app.models.user import User
@@ -42,26 +43,11 @@ class TeacherStatsService:
     @staticmethod
     def get_questions_count(teacher_id: int) -> int:
         """
-        Get the number of questions published by the teacher.
-        
-        Count questions through quizzes created by the teacher (via the QuizQuestion association table).
+        Get the number of problems published by the teacher.
         """
-        # Method 1: Count via quizzes
-        # Get all quizzes created by the teacher
-        teacher_quiz_ids = db.session.execute(
-            select(Quiz.id).where(Quiz.created_by == teacher_id)
-        ).scalars().all()
-        
-        if not teacher_quiz_ids:
-            return 0
-        
-        # Count distinct questions in these quizzes
-        question_count = db.session.execute(
-            select(func.count(distinct(QuizQuestion.question_id)))
-            .where(QuizQuestion.quiz_id.in_(teacher_quiz_ids))
+        return db.session.execute(
+            select(func.count(Problem.id)).where(Problem.created_by == teacher_id)
         ).scalar() or 0
-        
-        return question_count
     
     @staticmethod
     def get_classrooms_count(teacher_id: int) -> int:
@@ -117,14 +103,16 @@ class TeacherStatsService:
         if not teacher_quiz_ids:
             return 0
         
-        # Get all question IDs in those quizzes
-        question_ids = db.session.execute(
-            select(QuizQuestion.question_id)
-            .where(QuizQuestion.quiz_id.in_(teacher_quiz_ids))
+        problem_ids = db.session.execute(
+            select(QuizProblem.problem_id)
+            .where(QuizProblem.quiz_id.in_(teacher_quiz_ids))
         ).scalars().all()
-        
-        if not question_ids:
+
+        if not problem_ids:
             return 0
+        question_ids = db.session.execute(
+            select(Question.id).where(Question.problem_id.in_(problem_ids))
+        ).scalars().all()
         
         # Count submissions for these questions
         submission_count = db.session.execute(
@@ -154,33 +142,38 @@ class TeacherStatsService:
         if not teacher_quiz_ids:
             return []
         
-        # Get all question IDs in those quizzes
-        question_ids = db.session.execute(
-            select(QuizQuestion.question_id)
-            .where(QuizQuestion.quiz_id.in_(teacher_quiz_ids))
+        problem_ids = db.session.execute(
+            select(QuizProblem.problem_id)
+            .where(QuizProblem.quiz_id.in_(teacher_quiz_ids))
         ).scalars().all()
-        
-        if not question_ids:
+
+        if not problem_ids:
             return []
+        question_ids = db.session.execute(
+            select(Question.id).where(Question.problem_id.in_(problem_ids))
+        ).scalars().all()
         
         # Query recent submissions
         submissions = db.session.execute(
-            select(Submission, User, Question)
+            select(Submission, User, Question, Problem)
             .join(User, Submission.student_id == User.id)
             .join(Question, Submission.question_id == Question.id)
+            .join(Problem, Question.problem_id == Problem.id)
             .where(Submission.question_id.in_(question_ids))
             .order_by(Submission.submitted_at.desc())
             .limit(limit)
         ).all()
         
         result = []
-        for submission, user, question in submissions:
+        for submission, user, question, problem in submissions:
             result.append({
                 "id": submission.id,
                 "student_name": user.username,
                 "student_id": user.id,
-                "question_title": question.title,
+                "question_title": problem.title,
+                "problem_id": problem.id,
                 "question_id": question.id,
+                "language": question.programming_language,
                 "status": submission.status,
                 "score": submission.score,
                 "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None

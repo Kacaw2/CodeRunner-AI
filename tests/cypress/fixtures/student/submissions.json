@@ -2,7 +2,8 @@
   "items": [
     {
       "id": 501,
-      "question_id": 870,
+      "problem_id": 870,
+      "question_id": 1870,
       "question_title": "Array Prefix Sum",
       "status": "completed",
       "score": 92,
@@ -11,7 +12,8 @@
     },
     {
       "id": 502,
-      "question_id": 905,
+      "problem_id": 905,
+      "question_id": 1905,
       "question_title": "Stack Balancer",
       "status": "pending",
       "score": null,
@@ -20,7 +22,8 @@
     },
     {
       "id": 503,
-      "question_id": 910,
+      "problem_id": 910,
+      "question_id": 1910,
       "question_title": "Graph Paths",
       "status": "completed",
       "score": 55,

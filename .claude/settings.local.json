@@ -46,7 +46,28 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(taskkill //F //PID 33720)",
       "Bash(taskkill //F //PID 30824)",
-      "Bash(taskkill //F //PID 31308)"
+      "Bash(taskkill //F //PID 31308)",
+      "Bash(taskkill //F //PID 62388)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(python -c \"import flask; print\\(flask.__file__\\)\")",
+      "Bash(py -3 -c \"import flask; print\\(flask.__file__\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"from app.agents.task_state import TaskStatus, TRANSITIONS, validate_transition; print\\('TaskStatus:', [s.value for s in TaskStatus]\\); print\\('[OK] task_state'\\)\")",
+      "Bash(python -m pytest tests/test_agents.py -v --tb=short)",
+      "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/test_agents.py -v --tb=short)",
+      "Bash(python -m pytest tests/ -x -v --tb=short)",
+      "Bash(where pytest *)",
+      "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/ -x -v --tb=short)",
+      "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/test_agents.py -x -v --tb=short)",
+      "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/test_phase3.py -x -v --tb=short --cache-clear)",
+      "Bash(\"C:\\\\Users\\\\libie\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m pytest tests/ -v --tb=short --cache-clear)",
+      "Bash(git push *)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('app/api/v1/ai.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(python -m pytest tests/ -x -q --tb=short)",
+      "Bash(python -c \"import pytest; print\\(pytest.__file__\\)\")",
+      "Bash(pip3 install *)",
+      "Bash(pip3 show *)",
+      "Bash(xargs head *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

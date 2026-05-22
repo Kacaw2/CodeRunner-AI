@@ -33,7 +33,7 @@ async function loadSubmissionDetail() {
         const passedCount = cases.filter(c => c.passed).length;
         const totalCases = cases.length;
 
-        const questionTitle = data.question_title || `Question #${data.question_id}`;
+        const questionTitle = data.question_title || `Problem #${data.problem_id || data.question_id}`;
         const statusRaw = (data.status || '').toLowerCase();
         const submittedAt = data.submitted_at ? new Date(data.submitted_at).toLocaleString() : '';
         const score = data.score || 0;
@@ -60,7 +60,7 @@ ${submittedAt ? `
 </div>
 </div>
 <div>
-<a href="/question/${data.question_id}" class="btn btn-run">
+<a href="/problem/${data.problem_id || data.question_id}?language=${encodeURIComponent(data.language || 'python')}" class="btn btn-run">
 <i class="bi bi-arrow-repeat"></i> Try Again
 </a>
 </div>

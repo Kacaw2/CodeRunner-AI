@@ -1,7 +1,7 @@
 <!-- app/templates/teacher/questions_create.html -->
 {% extends "base.html" %}
 {% set page = 'questions' %}
-{% block title %}Question Workspace · Teacher{% endblock %}
+{% block title %}Problem Workspace · Teacher{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/teacher_questions_create.css') }}">
@@ -12,9 +12,9 @@
   <!-- Page Header -->
   <div class="page-header">
     <div class="page-header__content">
-      <h1 class="page-header__title">Question Workspace</h1>
+      <h1 class="page-header__title">Problem Workspace</h1>
       <p class="page-header__subtitle">
-        Create and manage your questions across different quizzes.
+        Create parent problems with shared tests and language variants.
       </p>
     </div>
     <div class="page-header__actions">
@@ -46,7 +46,7 @@
             <div class="quiz-select-group">
               <div class="input-group flex-grow-1">
                 <select id="quizSelect" class="form-select">
-                  <option value="">-- All Questions --</option>
+                  <option value="">-- All Problems --</option>
                 </select>
                 <button id="refreshQuiz" class="btn btn-outline-secondary" type="button" title="Refresh">
                   <i class="bi bi-arrow-clockwise"></i>
@@ -66,28 +66,33 @@
           <div class="step-header">
             <div class="step-number">2</div>
             <div>
-              <h3 class="step-title">Create New Question</h3>
-              <p class="step-subtitle">Define your question details below.</p>
+              <h3 class="step-title">Create New Problem</h3>
+              <p class="step-subtitle">Define shared problem details and optional variants.</p>
             </div>
           </div>
 
           <form id="questionForm">
             <div class="mb-3">
-              <label class="form-label">Question Title <span class="text-danger">*</span></label>
+              <label class="form-label">Problem Title <span class="text-danger">*</span></label>
               <input id="qTitle" class="form-control" placeholder="e.g., Two Sum Problem" required>
             </div>
 
             <div class="row g-3 mb-3">
-              <div class="col-6">
-                <label class="form-label">Language</label>
-                <select id="qLang" class="form-select">
-                  <option value="c">C</option>
-                  <option value="python">Python</option>
+              <div class="col-4">
+                <label class="form-label">Difficulty</label>
+                <select id="qDifficulty" class="form-select">
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
                 </select>
               </div>
-              <div class="col-6">
+              <div class="col-4">
                 <label class="form-label">Order</label>
                 <input id="qOrder" class="form-control" type="number" value="1" min="1">
+              </div>
+              <div class="col-4">
+                <label class="form-label">Points</label>
+                <input id="qPoints" class="form-control" type="number" value="10" min="0">
               </div>
             </div>
 
@@ -96,7 +101,7 @@
               <select id="qQuizSelect" class="form-select">
                 <option value="">-- No Quiz --</option>
               </select>
-              <small class="help-text">You can assign this question to a quiz later.</small>
+              <small class="help-text">You can assign this problem to a quiz later.</small>
             </div>
 
             <div class="mb-3">
@@ -105,13 +110,38 @@
               <small class="help-text">Markdown is supported.</small>
             </div>
 
-            <div class="mb-3">
-              <label class="form-label">Starter Code (Optional)</label>
-              <textarea id="qStarter" class="form-control code-textarea" rows="4" placeholder="int main() {\n    // Your code here\n    return 0;\n}"></textarea>
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label">Python Starter Code</label>
+                <textarea id="pythonStarter" class="form-control code-textarea" rows="4"></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Python Solution</label>
+                <textarea id="pythonSolution" class="form-control code-textarea" rows="6"></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Python Solution Explanation</label>
+                <textarea id="pythonSolutionExplanation" class="form-control" rows="2"></textarea>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label">C Starter Code</label>
+                <textarea id="cStarter" class="form-control code-textarea" rows="4"></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">C Solution</label>
+                <textarea id="cSolution" class="form-control code-textarea" rows="6"></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label">C Solution Explanation</label>
+                <textarea id="cSolutionExplanation" class="form-control" rows="2"></textarea>
+              </div>
             </div>
 
             <button type="submit" id="createBtn" class="btn btn-primary w-100">
-              <i class="bi bi-plus-circle"></i> Create Question
+              <i class="bi bi-plus-circle"></i> Create Problem
             </button>
             <div id="msg" class="mt-2"></div>
           </form>
@@ -129,8 +159,8 @@
             <div class="d-flex align-items-center gap-3">
               <!-- Question count badge -->
               <h5 class="mb-0">
-                Questions 
-                <span id="questionCount" class="badge bg-primary">0 questions</span>
+                Problems 
+                <span id="questionCount" class="badge bg-primary">0 problems</span>
               </h5>
             </div>
             
@@ -141,7 +171,7 @@
                 id="creatorFilterBtn" 
                 class="btn btn-outline-secondary btn-sm"
                 title="Toggle between all questions and my questions">
-                <i class="bi bi-funnel"></i> All Questions
+                <i class="bi bi-funnel"></i> All Problems
               </button>
               
               <!-- Existing search input -->
@@ -153,7 +183,7 @@
                   type="text" 
                   id="searchInput" 
                   class="form-control" 
-                  placeholder="Search questions...">
+                  placeholder="Search problems...">
               </div>
             </div>
           </div>
@@ -166,7 +196,7 @@
                   <th width="50" class="text-center">ID</th>
                   <th width="180" class="text-center">Title</th>
                   <th width="120" class="text-center">Creator</th>
-                  <th width="80" class="text-center">Language</th>
+                  <th width="120" class="text-center">Languages</th>
                   <th width="80" class="text-center">Tests</th>
                   <th width="150" class="text-center">Actions</th>
                 </tr>
@@ -175,7 +205,7 @@
                 <tr>
                   <td colspan="6" class="text-center text-muted py-4">
                     <i class="bi bi-inbox"></i>
-                    <div class="mt-2">No questions yet. Create your first question!</div>
+                    <div class="mt-2">No problems yet. Create your first problem!</div>
                   </td>
                 </tr>
               </tbody>

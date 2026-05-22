@@ -84,28 +84,26 @@ CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthed
 
 ---
 
-## 四、题目 API
+## 四、Problem API
 
-### 受保护（`/api/v1/questions`，需要登录）
+`Problem` 是 dashboard、quiz 和 `/problem/<problem_id>` runner 暴露给用户的练习单元；`Question` 只作为内部可执行语言变体保留，用于 starter code、solution、executor language 和 submission 归属。
 
-| Method | Path | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/` | 登录 | 题目列表（教师看全部 + 自己的，学生看公开+自己班级 quiz 涉及的）|
-| POST | `/` | 教师 | 创建题目 |
-| GET | `/<id>` | 登录 | 题目详情（学生不返回 `solution`）|
-| PATCH | `/<id>` | 教师（创建者）| 修改题目 |
-| DELETE | `/<id>` | 教师（创建者）| 删除题目 |
-| GET | `/<id>/test-cases` | 教师 | 测试用例列表（含 `is_hidden`、`expected_output`）|
-| POST | `/<id>/test-cases` | 教师 | 添加测试用例 |
-| PATCH | `/<id>/test-cases/<tc_id>` | 教师 | 修改测试用例 |
-| DELETE | `/<id>/test-cases/<tc_id>` | 教师 | 删除测试用例 |
-
-### 公开（`/api/public/questions`）
+### 受保护（`/api/v1/problems`，按接口要求登录或教师权限）
 
 | Method | Path | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/` | 公开 | 公开题库浏览（仅返回非敏感字段）|
-| GET | `/<id>` | 公开 | 单题预览（不含 solution / hidden test cases）|
+| GET | `/problems` | 可选登录 | dashboard/list；一行一个 Problem，返回 `variants: [{language, question_id}]` |
+| GET | `/problems/<id>?language=python` | 可选登录 | runner 详情；按语言选择变体，返回共享公开测试用例 |
+| POST | `/problems/<id>/submit` | 学生 | 提交 `{language, code, time_limit_sec}`，记录选中变体的 `question_id` |
+| POST | `/problems` | 教师 | 创建一个 Problem，可同时带 Python/C starter code、solution、explanation |
+| PATCH | `/problems/<id>` | 教师（创建者）| 修改 Problem 元数据和语言变体代码 |
+| DELETE | `/problems/<id>` | 教师（创建者）| 删除 Problem、语言变体和共享测试用例 |
+| GET | `/teacher/problems` | 教师 | 教师题库列表，可按 `quiz_id` / `created_by_me` 过滤 |
+| GET | `/problems/<id>/manage` | 教师（创建者）| 管理页详情，含隐藏测试用例和变体 solution |
+| POST | `/problems/<id>/test-cases` | 教师（创建者）| 添加共享测试用例 |
+| DELETE | `/test-cases/<tc_id>` | 教师（创建者）| 删除共享测试用例 |
+
+旧 `/api/v1/questions` 端点仅作为兼容层保留，不作为当前用户界面入口；公开题库列表使用 `/api/v1/problems`。
 
 ---
 
@@ -115,15 +113,17 @@ CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthed
 |---|---|---|---|
 | GET | `/` | 登录 | quiz 列表（教师看自己创建的，学生看分配到自己班级的）|
 | POST | `/` | 教师 | 创建 quiz |
-| GET | `/<id>` | 登录 | quiz 详情（含题目列表与 order）|
+| GET | `/<id>` | 登录 | quiz 详情（含 `problems` 列表与 order）|
 | PATCH | `/<id>` | 教师（创建者）| 修改 quiz |
 | DELETE | `/<id>` | 教师（创建者）| 删除 quiz |
-| POST | `/<id>/questions` | 教师 | 添加题目到 quiz：`{question_id, order, points}` |
-| DELETE | `/<id>/questions/<qq_id>` | 教师 | 从 quiz 移除题目 |
+| GET | `/<id>/problems` | 教师（创建者）| 列出 quiz 内的 Problems |
+| POST | `/<id>/problems` | 教师 | 添加 Problem 到 quiz：`{problem_id, order, points}` |
+| PUT | `/<id>/problems/<problem_id>` | 教师 | 修改 quiz 内 Problem 的 order / points |
+| DELETE | `/<id>/problems/<problem_id>` | 教师 | 从 quiz 移除 Problem |
 | POST | `/<id>/assign` | 教师 | 把 quiz 分配到班级：`{classroom_id, due_date, allow_late_submission}` |
 | GET | `/<id>/attempts` | 教师 / 学生（仅本人）| quiz 的所有 attempt |
 | POST | `/<id>/start` | 学生 | 开始一次 attempt（写入 `quiz_attempts` 表）|
-| POST | `/attempts/<attempt_id>/submit` | 学生 | 提交一道题：`{question_id, code}` |
+| POST | `/attempts/<attempt_id>/submit` | 学生 | 兼容提交接口；当前 runner 使用 `/api/v1/problems/<problem_id>/submit` |
 | POST | `/attempts/<attempt_id>/finalize` | 学生 | 结束 attempt，计算总分 |
 
 ### 公开（`/api/public/quizzes`）
@@ -138,7 +138,8 @@ CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthed
 
 | Method | Path | 权限 | 说明 |
 |---|---|---|---|
-| POST | `/` | 学生 | 提交一份代码：`{question_id, code, language}`。同步评测，返回 `Submission` + `TestResult[]` |
+| POST | `/problems/<problem_id>/submit` | 学生 | 提交一份代码：`{language, code, time_limit_sec}`。同步评测，返回 `problem_id`、`question_id`、`Submission` + `TestResult[]` |
+| POST | `/questions/<question_id>/submit` | 学生 | 兼容旧 question-id 提交路径 |
 | GET | `/` | 登录 | 我的提交列表（教师可加 `?student_id` 看指定学生）|
 | GET | `/<id>` | 提交者 / 教师 | 提交详情（含每个 test case 的 pass / actual_output）|
 
@@ -213,3 +214,32 @@ CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthed
 - 当前认证状态
 
 OpenAPI 规范本身可通过 `/swagger.json`（`OPENAPI_URL_PREFIX` 控制）下载。
+## Current Problem Variant API
+
+CodeRunner-AI now exposes `Problem` as the public practice and quiz unit. `Question` remains the internal executable language variant selected by the runner and stored by submissions.
+
+### Problem APIs (`/api/v1`)
+
+| Method | Path | Access | Notes |
+|---|---|---|---|
+| GET | `/problems` | optional auth | Dashboard/list view; returns one row per Problem with available variants. |
+| GET | `/problems/{problem_id}?language=python` | optional auth | Problem runner detail; selects a language variant and returns shared public test cases. |
+| POST | `/problems/{problem_id}/submit` | student | Submit code by `{language, code, time_limit_sec}`; stores the selected variant `question_id`. |
+| POST | `/problems` | teacher | Create one Problem with optional Python/C starter code, solution, and explanations. |
+| PATCH | `/problems/{problem_id}` | teacher owner | Update problem metadata and variant code fields. |
+| GET | `/teacher/problems` | teacher | Teacher problem workspace list, with optional `quiz_id` / `created_by_me`. |
+| GET | `/problems/{problem_id}/manage` | teacher owner | Teacher management detail including hidden shared test cases and variant solutions. |
+| POST | `/problems/{problem_id}/test-cases` | teacher owner | Add a shared test case for all variants. |
+| DELETE | `/test-cases/{tc_id}` | teacher owner | Delete a shared test case. |
+
+### Quiz Problem APIs (`/api/v1/quizzes`)
+
+| Method | Path | Access | Notes |
+|---|---|---|---|
+| GET | `/{quiz_id}` | auth | Returns `problems` and problem-level progress. |
+| GET | `/{quiz_id}/problems` | teacher owner | List problems in a quiz. |
+| POST | `/{quiz_id}/problems` | teacher owner | Add `{problem_id, order, points}` to a quiz. |
+| PUT | `/{quiz_id}/problems/{problem_id}` | teacher owner | Update quiz-specific order/points. |
+| DELETE | `/{quiz_id}/problems/{problem_id}` | teacher owner | Remove a Problem from a quiz. |
+
+Legacy question-id submission and quiz-question routes are kept only as compatibility shims. User-facing navigation should use `/problem/{problem_id}?language=python|c`, not `/question/{question_id}`.

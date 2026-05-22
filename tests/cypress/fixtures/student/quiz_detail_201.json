@@ -1,32 +1,39 @@
 {
   "id": 201,
   "title": "Week 3 Arrays",
-  "description": "Two medium questions on prefix sums.",
+  "description": "Two medium problems on prefix sums.",
   "classroom": { "name": "COMP1511 Lab A" },
   "duration_minutes": 30,
   "due_date": "2025-03-01T23:59:00",
   "progress": {
-    "completed_questions": 1,
-    "total_questions": 2,
+    "completed_problems": 1,
+    "total_problems": 2,
     "total_score": 45,
     "max_score": 100,
     "percentage": 45
   },
-  "questions": [
+  "problems": [
     {
       "id": 870,
+      "problem_id": 870,
       "title": "Array Prefix Sum",
-      "programming_language": "python",
       "points": 50,
+      "variants": [
+        { "language": "python", "question_id": 1870 },
+        { "language": "c", "question_id": 1871 }
+      ],
       "submission": { "score": 90 }
     },
     {
       "id": 871,
+      "problem_id": 871,
       "title": "Rotate Array",
-      "programming_language": "c",
       "points": 50,
+      "variants": [
+        { "language": "python", "question_id": 1872 },
+        { "language": "c", "question_id": 1873 }
+      ],
       "submission": null
     }
   ]
 }
-

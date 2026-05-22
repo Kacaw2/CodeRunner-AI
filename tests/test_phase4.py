@@ -338,10 +338,14 @@ class TestAnalyticsTools:
 
     def test_get_student_activity_with_submissions(self, app, student_user, db_session):
         from app.models.submission import Submission
+        from app.models.problem import Problem
         from app.models.question import Question
         from app.agents.tools.analytics_query import get_student_activity
 
-        q = Question(title="Test Q", description="Desc", programming_language="python", created_by=1)
+        problem = Problem(slug="test-q-activity", title="Test Q", description="Desc", created_by=1)
+        db_session.add(problem)
+        db_session.flush()
+        q = Question(problem_id=problem.id, programming_language="python")
         db_session.add(q)
         db_session.flush()
 
@@ -372,10 +376,14 @@ class TestAnalyticsTools:
 
     def test_get_question_difficulty_stats_with_data(self, app, student_user, db_session):
         from app.models.submission import Submission
+        from app.models.problem import Problem
         from app.models.question import Question
         from app.agents.tools.analytics_query import get_question_difficulty_stats
 
-        q = Question(title="Stats Q", description="Desc", programming_language="python", created_by=1)
+        problem = Problem(slug="stats-q", title="Stats Q", description="Desc", created_by=1)
+        db_session.add(problem)
+        db_session.flush()
+        q = Question(problem_id=problem.id, programming_language="python")
         db_session.add(q)
         db_session.flush()
 

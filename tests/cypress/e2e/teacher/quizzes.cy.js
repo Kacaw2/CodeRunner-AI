@@ -17,9 +17,9 @@ describe("Teacher quizzes page", () => {
       fixture: "teacher/quiz_detail.json",
     }).as("quizDetail");
 
-    cy.intercept("GET", "**/api/v1/quizzes/301/questions", {
+    cy.intercept("GET", "**/api/v1/quizzes/301/problems", {
       fixture: "teacher/quiz_questions.json",
-    }).as("quizQuestions");
+    }).as("quizProblems");
 
     cy.intercept("GET", "**/api/v1/quizzes/301/assignments", {
       fixture: "teacher/quiz_assignments.json",
@@ -37,7 +37,7 @@ describe("Teacher quizzes page", () => {
     cy.get(".quiz-card").should("have.length", quizzesData.items.length);
     cy.contains(".quiz-card", "Week 6 Sorting").within(() => {
       cy.contains("Published").should("exist");
-      cy.contains("4 questions").should("exist");
+      cy.contains("4 problems").should("exist");
       cy.contains("80 points").should("exist");
     });
     cy.contains(".quiz-card", "Week 7 Graphs")
@@ -50,7 +50,7 @@ describe("Teacher quizzes page", () => {
     cy.wait("@quizzesList");
 
     cy.contains(".quiz-card", "Week 6 Sorting").click();
-    cy.wait(["@quizDetail", "@quizQuestions", "@quizAssignments", "@quizAttempts"]);
+    cy.wait(["@quizDetail", "@quizProblems", "@quizAssignments", "@quizAttempts"]);
 
     cy.get("#quizDetailModal").should("have.class", "show");
     cy.get("#quizDetailTitle").should("contain.text", "Week 6 Sorting");
@@ -78,7 +78,7 @@ describe("Teacher quizzes page", () => {
       const newQuiz = {
         id: 399,
         ...payload,
-        question_count: 0,
+        problem_count: 0,
         total_points: 0,
         assigned_to_count: 0,
       };

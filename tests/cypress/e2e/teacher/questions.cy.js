@@ -21,20 +21,20 @@ describe("Teacher question workspace", () => {
       req.reply(quizzes);
     }).as("quizzes");
 
-    cy.intercept("GET", "**/api/v1/teacher/questions*", (req) => {
+    cy.intercept("GET", "**/api/v1/teacher/problems*", (req) => {
       req.reply(workspaceQuestions);
     }).as("teacherQuestions");
   });
 
-  it("lists quizzes, toggles creator filter, and searches questions", () => {
+  it("lists quizzes, toggles creator filter, and searches problems", () => {
     visitWorkspace();
 
     cy.get("#quizSelect option").should("have.length", quizzes.items.length + 1);
     cy.get("#questionCount").should("contain.text", "3");
 
-    cy.contains("#creatorFilterBtn", "All Questions")
+    cy.contains("#creatorFilterBtn", "All Problems")
       .click()
-      .should("contain.text", "My Questions");
+      .should("contain.text", "My Problems");
     cy.wait("@teacherQuestions");
 
     cy.get("#searchInput").type("Stack");
@@ -43,7 +43,7 @@ describe("Teacher question workspace", () => {
     cy.get("#qTableBody tr").should("have.length", 1);
   });
 
-  it("creates quizzes and questions", () => {
+  it("creates quizzes and problems", () => {
     cy.intercept("POST", "**/api/v1/quizzes", (req) => {
       const payload =
         typeof req.body === "string" ? JSON.parse(req.body) : req.body;
@@ -52,16 +52,20 @@ describe("Teacher question workspace", () => {
       req.reply({ statusCode: 201, body: newQuiz });
     }).as("createQuiz");
 
-    cy.intercept("POST", "**/api/v1/questions", (req) => {
+    cy.intercept("POST", "**/api/v1/problems", (req) => {
       const payload =
         typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      expect(payload).to.include.keys("python_starter_code", "python_solution", "c_starter_code", "c_solution");
       const newQuestion = {
         id: 990,
         title: payload.title,
         description: payload.description,
-        programming_language: payload.programming_language,
+        variants: [
+          { language: "python", question_id: 1990 },
+          { language: "c", question_id: 1991 }
+        ],
         test_case_count: 0,
-        quiz_id: payload.quiz_id ?? null,
+        quiz_ids: payload.quiz_id ? [payload.quiz_id] : [],
       };
       workspaceQuestions.items.unshift(newQuestion);
       req.reply({ statusCode: 201, body: newQuestion });
@@ -81,15 +85,15 @@ describe("Teacher question workspace", () => {
 
     cy.get("#qTitle").type("Topological Sort Paths");
     cy.get("#qDesc").type("Describe the number of valid topological orders.");
-    cy.contains("button", "Create Question").click();
+    cy.contains("button", "Create Problem").click();
 
     cy.wait("@createQuestion");
     cy.wait("@teacherQuestions");
     cy.contains("#qTableBody tr", "Topological Sort Paths").should("exist");
   });
 
-  it("deletes questions and refreshes table", () => {
-    cy.intercept("DELETE", "**/api/v1/questions/905", {
+  it("deletes problems and refreshes table", () => {
+    cy.intercept("DELETE", "**/api/v1/problems/905", {
       statusCode: 204,
       body: {},
     }).as("deleteQuestion");
@@ -114,8 +118,8 @@ describe("Teacher question workspace", () => {
     cy.get("#msg").should("contain.text", "Title and description are required");
   });
 
-  it("shows a helpful error when the question API returns a failure", () => {
-    cy.intercept("POST", "**/api/v1/questions", {
+  it("shows a helpful error when the problem API returns a failure", () => {
+    cy.intercept("POST", "**/api/v1/problems", {
       statusCode: 500,
       body: { message: "Database unavailable" },
     }).as("createQuestionError");
@@ -124,7 +128,7 @@ describe("Teacher question workspace", () => {
 
     cy.get("#qTitle").type("Unhappy Path Question");
     cy.get("#qDesc").type("Force the creation endpoint to fail");
-    cy.contains("button", "Create Question").click();
+    cy.contains("button", "Create Problem").click();
 
     cy.wait("@createQuestionError");
     cy.get("#msg")
@@ -140,7 +144,7 @@ describe("Teacher question test-case management", () => {
     cy.seedDatabase();
     cy.loginByApi("teacher");
     detailState = "initial";
-    cy.intercept("GET", "**/api/v1/questions/870/detail*", (req) => {
+    cy.intercept("GET", "**/api/v1/problems/870/manage*", (req) => {
       if (detailState === "initial") {
         req.reply({ fixture: "teacher/manage_question/detail.json" });
       } else if (detailState === "afterAdd") {
@@ -154,7 +158,7 @@ describe("Teacher question test-case management", () => {
       }
     }).as("questionDetail");
 
-    cy.intercept("POST", "**/api/v1/questions/870/test-cases", (req) => {
+    cy.intercept("POST", "**/api/v1/problems/870/test-cases", (req) => {
       detailState = "afterAdd";
       req.reply({
         statusCode: 201,
@@ -172,10 +176,10 @@ describe("Teacher question test-case management", () => {
   });
 
   it("adds and deletes test cases", () => {
-    cy.visit("/teacher/questions/870/manage");
+    cy.visit("/teacher/problems/870/manage");
     cy.wait("@questionDetail");
 
-    cy.get("#questionTitle").should("contain.text", "Array Prefix Sum");
+    cy.get("#problemTitleInput").should("have.value", "Array Prefix Sum");
     cy.get("#testCaseCount").should("contain.text", "2 test cases");
 
     cy.get("#tcInput").type("8 8");

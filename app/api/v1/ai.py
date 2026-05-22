@@ -145,6 +145,74 @@ def _try_parse_review_json(text: str) -> dict | None:
         return None
 
 
+def _slugify_problem_title(title: str) -> str:
+    import re
+    base = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    return base or "ai-generated-problem"
+
+
+def _publish_question_data_as_problem(question_data: dict, created_by: int):
+    """Create one Problem with one or more executable language variants."""
+    from app.models.problem import Problem
+    from app.models.question import Question, TestCase
+
+    qd = question_data.get("question", question_data)
+    title = qd.get("title", "AI Generated Question")
+    base_slug = _slugify_problem_title(title)
+    slug = base_slug
+    suffix = 2
+    while Problem.query.filter_by(slug=slug).first():
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
+
+    problem = Problem(
+        slug=slug,
+        title=title,
+        description=qd.get("description", ""),
+        difficulty=qd.get("difficulty", "medium"),
+        points=qd.get("points", 10),
+        order=qd.get("order", 1),
+        created_by=created_by,
+    )
+    db.session.add(problem)
+    db.session.flush()
+
+    variants = qd.get("variants")
+    if not variants:
+        language = qd.get("programming_language") or qd.get("language") or "python"
+        variants = [{
+            "language": language,
+            "starter_code": qd.get("starter_code", ""),
+            "solution": qd.get("solution", ""),
+            "solution_explanation": qd.get("solution_explanation", ""),
+        }]
+
+    first_variant = None
+    for variant_data in variants:
+        language = variant_data.get("language") or variant_data.get("programming_language") or "python"
+        variant = Question(
+            problem_id=problem.id,
+            programming_language=language,
+            starter_code=variant_data.get("starter_code", ""),
+            solution=variant_data.get("solution", ""),
+            solution_explanation=variant_data.get("solution_explanation", ""),
+        )
+        db.session.add(variant)
+        db.session.flush()
+        first_variant = first_variant or variant
+
+    for tc_data in qd.get("test_cases", []):
+        db.session.add(TestCase(
+            problem_id=problem.id,
+            input=tc_data.get("input", ""),
+            expected_output=tc_data.get("expected_output", tc_data.get("expected", "")),
+            is_hidden=tc_data.get("is_hidden", False),
+            weight=tc_data.get("weight", 1.0),
+        ))
+
+    return problem, first_variant
+
+
 # ── POST /api/v1/ai/chat  (sync) ─────────────────────────────
 
 @bp.route("/chat", methods=["POST"])
@@ -610,48 +678,24 @@ def save_generated_question():
         question_json = question_json["question"]
 
     try:
-        from app.models.question import Question, TestCase
-
-        q = Question(
-            title=question_json.get("title", "AI Generated Question"),
-            description=question_json.get("description", ""),
-            starter_code=question_json.get("starter_code", ""),
-            solution=question_json.get("solution", ""),
-            solution_explanation=question_json.get("solution_explanation", ""),
-            programming_language=question_json.get("programming_language", "python"),
-            created_by=user.id,
-        )
-        db.session.add(q)
-        db.session.flush()
-
-        tc_count = 0
-        for tc_data in question_json.get("test_cases", []):
-            tc = TestCase(
-                question_id=q.id,
-                input=tc_data.get("input", ""),
-                expected_output=tc_data.get("expected_output", ""),
-                is_hidden=tc_data.get("is_hidden", False),
-                weight=tc_data.get("weight", 1.0),
-            )
-            db.session.add(tc)
-            tc_count += 1
+        problem, variant = _publish_question_data_as_problem(question_json, user.id)
 
         quiz_id = data.get("quiz_id")
         if quiz_id:
-            from app.models.quiz import QuizQuestion, Quiz
+            from app.models.quiz import Quiz, QuizProblem
             quiz = Quiz.query.get(quiz_id)
             if quiz:
-                max_order = (db.session.query(db.func.max(QuizQuestion.order))
+                max_order = (db.session.query(db.func.max(QuizProblem.order))
                              .filter_by(quiz_id=quiz_id).scalar() or 0)
-                qq = QuizQuestion(quiz_id=quiz_id, question_id=q.id, order=max_order + 1)
-                db.session.add(qq)
+                db.session.add(QuizProblem(quiz_id=quiz_id, problem_id=problem.id, order=max_order + 1))
 
         db.session.commit()
 
         return jsonify({
-            "question_id": q.id,
-            "test_case_count": tc_count,
-            "message": "Question saved successfully",
+            "problem_id": problem.id,
+            "question_id": variant.id if variant else None,
+            "test_case_count": len(problem.test_cases),
+            "message": "Problem saved successfully",
         }), 201
 
     except Exception as e:
@@ -923,11 +967,16 @@ def review_draft(draft_id):
 
     if action == "approve":
         try:
-            question = _publish_draft(draft, user.id)
-            draft.published_question_id = question.id
+            problem, question = _publish_draft(draft, user.id)
+            draft.published_problem_id = problem.id
+            draft.published_question_id = question.id if question else None
             draft.status = "published"
             db.session.commit()
-            return jsonify({"status": "published", "question_id": question.id})
+            return jsonify({
+                "status": "published",
+                "problem_id": problem.id,
+                "question_id": question.id if question else None,
+            })
         except Exception as e:
             db.session.rollback()
             logger.exception("Failed to publish draft %d", draft_id)
@@ -949,36 +998,8 @@ def review_draft(draft_id):
 
 
 def _publish_draft(draft, created_by: int):
-    """Publish a draft to the question bank."""
-    from app.models.question import Question, TestCase
-
-    qd = draft.question_data
-    if "question" in qd:
-        qd = qd["question"]
-
-    q = Question(
-        title=qd.get("title", "AI Generated Question"),
-        description=qd.get("description", ""),
-        starter_code=qd.get("starter_code", ""),
-        solution=qd.get("solution", ""),
-        solution_explanation=qd.get("solution_explanation", ""),
-        programming_language=qd.get("programming_language", "python"),
-        created_by=created_by,
-    )
-    db.session.add(q)
-    db.session.flush()
-
-    for tc_data in qd.get("test_cases", []):
-        tc = TestCase(
-            question_id=q.id,
-            input=tc_data.get("input", ""),
-            expected_output=tc_data.get("expected_output", ""),
-            is_hidden=tc_data.get("is_hidden", False),
-            weight=tc_data.get("weight", 1.0),
-        )
-        db.session.add(tc)
-
-    return q
+    """Publish a draft to the problem bank."""
+    return _publish_question_data_as_problem(draft.question_data, created_by)
 
 
 def _trigger_revision(draft):

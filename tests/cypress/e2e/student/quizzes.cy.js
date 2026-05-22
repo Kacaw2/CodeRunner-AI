@@ -16,7 +16,7 @@ describe("Student quizzes workspace", () => {
 
     cy.get("#quiz-list .quiz-card").should("have.length", 3);
     cy.contains(".quiz-card", "Week 3 Arrays").within(() => {
-      cy.contains("1/2 questions completed").should("exist");
+      cy.contains("1/2 problems completed").should("exist");
       cy.contains("In Progress").should("exist");
     });
     cy.contains(".quiz-card", "Week 4 Pointers").within(() => {
@@ -43,10 +43,12 @@ describe("Student quizzes workspace", () => {
 
     cy.get("#quiz-detail-view").should("be.visible");
     cy.get("#detail-title").should("contain.text", "Week 3 Arrays");
-    cy.get("#detail-progress-text").should("contain.text", "1/2 questions completed");
+    cy.get("#detail-progress-text").should("contain.text", "1/2 problems completed");
     cy.get("#detail-questions .question-item").should("have.length", 2);
     cy.contains("#detail-questions .question-item", "Array Prefix Sum").within(() => {
       cy.contains("Review").should("exist");
+      cy.contains("Review")
+        .should("have.attr", "href", "/problem/870?language=python");
     });
 
     cy.get("#back-to-list").click();

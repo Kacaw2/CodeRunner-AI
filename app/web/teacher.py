@@ -70,9 +70,21 @@ def grades():
 @teacher_bp.get('/questions/<int:question_id>/manage')
 @web_teacher_required
 def question_manage(question_id):
-    """manage single question and test case"""
+    """Compatibility redirect from variant management to parent problem management."""
+    from app.models.question import Question
+
+    question = Question.query.get(question_id)
+    if question and question.problem_id:
+        return redirect(url_for('teacher.problem_manage', problem_id=question.problem_id))
+    return redirect(url_for('teacher.questions_create'))
+
+
+@teacher_bp.get('/problems/<int:problem_id>/manage')
+@web_teacher_required
+def problem_manage(problem_id):
+    """manage single problem and shared test cases"""
     return render_template(
         'teacher/teacher_questions_manage.html',
         page='questions',
-        question_id=question_id
+        problem_id=problem_id
     )

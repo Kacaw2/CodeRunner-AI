@@ -53,19 +53,26 @@ class TestQuestionQueryTool:
     def test_returns_question_detail(self, app, db_session):
         with app.app_context():
             from app.agents.tools.question_query import get_question_detail
+            from app.models.problem import Problem
             from app.models.question import Question, TestCase
 
-            q = Question(
+            problem = Problem(
+                slug="test-q",
                 title="Test Q",
                 description="Desc",
-                programming_language="python",
                 created_by=1,
+            )
+            db_session.add(problem)
+            db_session.flush()
+            q = Question(
+                problem_id=problem.id,
+                programming_language="python",
             )
             db_session.add(q)
             db_session.flush()
 
-            tc_visible = TestCase(question_id=q.id, input="1", expected_output="1", is_hidden=False)
-            tc_hidden = TestCase(question_id=q.id, input="2", expected_output="2", is_hidden=True)
+            tc_visible = TestCase(problem_id=problem.id, input="1", expected_output="1", is_hidden=False)
+            tc_hidden = TestCase(problem_id=problem.id, input="2", expected_output="2", is_hidden=True)
             db_session.add_all([tc_visible, tc_hidden])
             db_session.flush()
 
