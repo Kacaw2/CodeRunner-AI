@@ -19,6 +19,8 @@ _AGENTS = {
 
 VALID_AGENT_TYPES = set(_AGENTS.keys())
 
+MAX_HANDOFFS = 2
+
 INTENT_CLASSIFY_PROMPT = """Classify this user message into one of these agent types.
 User role: {user_role}
 
@@ -87,7 +89,12 @@ def _route(state: AgentState) -> AgentState:
 def _run_agent(agent_type: str, state: AgentState) -> AgentState:
     agent = _AGENTS[agent_type]
     try:
-        return agent.invoke(state)
+        result = agent.invoke(state)
+        previous = result.get("previous_agents") or []
+        if agent_type not in previous:
+            previous.append(agent_type)
+        result["previous_agents"] = previous
+        return result
     except AIError as e:
         logger.error("Agent '%s' failed: %s", agent_type, e)
         state["final_response"] = e.user_message
@@ -96,6 +103,34 @@ def _run_agent(agent_type: str, state: AgentState) -> AgentState:
         logger.exception("Unexpected error in agent '%s'", agent_type)
         state["final_response"] = "An unexpected error occurred. Please try again later."
         return state
+
+
+def _check_handoff(state: AgentState) -> str:
+    """After an agent runs, check if it requested a handoff to another agent."""
+    handoff_to = state.get("handoff_to")
+    if not handoff_to or handoff_to not in VALID_AGENT_TYPES:
+        return "respond"
+
+    current_agent = state.get("agent_type", "")
+    if handoff_to == current_agent:
+        return "respond"
+
+    previous = state.get("previous_agents") or []
+    if handoff_to in previous:
+        logger.info("Handoff to '%s' blocked: already processed by that agent", handoff_to)
+        return "respond"
+
+    if len(previous) >= MAX_HANDOFFS:
+        logger.info("Handoff to '%s' blocked: max handoffs (%d) reached", handoff_to, MAX_HANDOFFS)
+        return "respond"
+
+    logger.info("Agent '%s' handing off to '%s' (reason: %s)",
+                current_agent, handoff_to, state.get("handoff_reason", ""))
+
+    state["agent_type"] = handoff_to
+    state["handoff_to"] = None
+    state["handoff_reason"] = None
+    return handoff_to
 
 
 def _respond(state: AgentState) -> AgentState:
@@ -123,8 +158,17 @@ def build_graph() -> StateGraph:
         "generator": "generator",
         "analytics": "analytics",
     })
+
+    handoff_targets = {
+        "tutor": "tutor",
+        "reviewer": "reviewer",
+        "generator": "generator",
+        "analytics": "analytics",
+        "respond": "respond",
+    }
     for agent_name in _AGENTS:
-        graph.add_edge(agent_name, "respond")
+        graph.add_conditional_edges(agent_name, _check_handoff, handoff_targets)
+
     graph.add_edge("respond", END)
 
     return graph

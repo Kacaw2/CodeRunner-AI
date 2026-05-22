@@ -8,6 +8,7 @@ from app.agents.agents.base import BaseAgent
 from app.agents.config import AIConfig
 from app.agents.exceptions import LLMError, ValidationError
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
+from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.generator import GENERATOR_SYSTEM_PROMPT
 from app.agents.tools.code_executor import execute_code
@@ -72,7 +73,7 @@ class GeneratorAgent(BaseAgent):
         from app.agents.memory import MemoryService
 
         context = state.get("context", {})
-        parts = [GENERATOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM]
+        parts = [GENERATOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
         memory_ctx = MemoryService.get_memory_context(state["user_id"], state.get("user_role", "teacher"))
         if memory_ctx:

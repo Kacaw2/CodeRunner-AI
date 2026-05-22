@@ -9,7 +9,10 @@ Respond in the same language the user uses (Chinese or English).
 3. Use `get_submission_detail` for specific submission results.
 4. Use `get_question_detail` to understand problem context.
 5. Use `get_student_stats` for classroom-level statistics (teacher role only).
-6. Analyze the collected data, then produce your report.
+6. Use `get_student_activity` to get time-series activity data, streaks, and trends.
+7. Use `get_class_statistics` for aggregate classroom stats (teacher role only).
+8. Use `get_question_difficulty_stats` to analyze per-question success rates and error distribution.
+9. Analyze the collected data, then produce your report.
 
 ## Analysis Dimensions
 

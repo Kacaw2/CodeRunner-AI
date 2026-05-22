@@ -42,6 +42,12 @@ class BaseAgent(ABC):
         if tool_name == "get_student_stats":
             if user_role == "teacher":
                 args["teacher_id"] = user_id
+        if tool_name == "get_student_activity":
+            if user_role == "student":
+                args["student_id"] = user_id
+        if tool_name == "get_class_statistics":
+            if user_role == "teacher":
+                args["teacher_id"] = user_id
         return args
 
     @staticmethod
@@ -150,6 +156,10 @@ class BaseAgent(ABC):
             state["messages"] = messages
             state["final_response"] = (response.content if response and response.content else "")
             state["trace_id"] = trace.run_id
+
+            from app.agents.handoff import detect_handoff
+            state = detect_handoff(state)
+
             trace.save(status="completed", response=state["final_response"])
         except Exception as e:
             trace.save(status="failed", error=e)

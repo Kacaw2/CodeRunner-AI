@@ -1,12 +1,21 @@
 from app.agents.agents.base import BaseAgent
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
+from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.analytics import ANALYTICS_SYSTEM_PROMPT
 from app.agents.tools.question_query import get_question_detail
 from app.agents.tools.submission_query import get_student_submissions, get_submission_detail
 from app.agents.tools.stats_query import get_student_stats
+from app.agents.tools.analytics_query import (
+    get_student_activity,
+    get_class_statistics,
+    get_question_difficulty_stats,
+)
 
-ANALYTICS_TOOLS = [get_question_detail, get_student_submissions, get_submission_detail, get_student_stats]
+ANALYTICS_TOOLS = [
+    get_question_detail, get_student_submissions, get_submission_detail, get_student_stats,
+    get_student_activity, get_class_statistics, get_question_difficulty_stats,
+]
 
 
 class AnalyticsAgent(BaseAgent):
@@ -17,7 +26,7 @@ class AnalyticsAgent(BaseAgent):
         from app.agents.memory import MemoryService
 
         context = state.get("context", {})
-        parts = [ANALYTICS_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM]
+        parts = [ANALYTICS_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
         memory_ctx = MemoryService.get_memory_context(
             state.get("user_id", 0), state.get("user_role", "student")

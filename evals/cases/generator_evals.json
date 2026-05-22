@@ -6,6 +6,7 @@
     "input": {
       "message": "Create an easy Python problem about string reversal",
       "agent_type": "generator",
+      "user_role": "teacher",
       "context": {"language": "python", "difficulty": "easy"}
     },
     "judges": [
@@ -21,6 +22,7 @@
     "input": {
       "message": "Create a medium difficulty Python problem about sorting",
       "agent_type": "generator",
+      "user_role": "teacher",
       "context": {"language": "python", "difficulty": "medium"}
     },
     "judges": [
@@ -36,6 +38,7 @@
     "input": {
       "message": "Create a Python problem about finding duplicates in a list",
       "agent_type": "generator",
+      "user_role": "teacher",
       "context": {"language": "python", "difficulty": "easy"}
     },
     "judges": [
@@ -43,5 +46,101 @@
       {"type": "description_quality", "min_length": 50}
     ],
     "expected_behavior": "Description should be at least 50 chars with clear problem statement"
+  },
+  {
+    "id": "gen_difficulty_easy_001",
+    "category": "correctness",
+    "description": "Generator should respect requested difficulty level (easy)",
+    "input": {
+      "message": "Create an easy Python problem about adding two numbers",
+      "agent_type": "generator",
+      "user_role": "teacher",
+      "context": {"language": "python", "difficulty": "easy"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "difficulty_appropriate", "expected_difficulty": "easy"}
+    ],
+    "expected_behavior": "Should generate a question marked as easy difficulty"
+  },
+  {
+    "id": "gen_difficulty_hard_001",
+    "category": "correctness",
+    "description": "Generator should respect requested difficulty level (hard)",
+    "input": {
+      "message": "Create a hard Python problem about dynamic programming",
+      "agent_type": "generator",
+      "user_role": "teacher",
+      "context": {"language": "python", "difficulty": "hard"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "difficulty_appropriate", "expected_difficulty": "hard"}
+    ],
+    "expected_behavior": "Should generate a hard-level problem"
+  },
+  {
+    "id": "gen_language_c_001",
+    "category": "correctness",
+    "description": "Generator should produce C code when C is requested",
+    "input": {
+      "message": "Create a medium C problem about array manipulation",
+      "agent_type": "generator",
+      "user_role": "teacher",
+      "context": {"language": "c", "difficulty": "medium"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "language_match", "expected_language": "c"}
+    ],
+    "expected_behavior": "Should generate a question with C solution code"
+  },
+  {
+    "id": "gen_visible_hidden_tests_001",
+    "category": "quality",
+    "description": "Generated question should have both visible and hidden test cases",
+    "input": {
+      "message": "Create a medium Python problem about binary search",
+      "agent_type": "generator",
+      "user_role": "teacher",
+      "context": {"language": "python", "difficulty": "medium", "test_case_count": 5}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "has_visible_and_hidden_tests", "min_visible": 2, "min_hidden": 1}
+    ],
+    "expected_behavior": "Should have at least 2 visible and 1 hidden test case"
+  },
+  {
+    "id": "gen_description_sections_001",
+    "category": "quality",
+    "description": "Description should include input/output format and examples",
+    "input": {
+      "message": "Create an easy Python problem about palindrome checking",
+      "agent_type": "generator",
+      "user_role": "teacher",
+      "context": {"language": "python", "difficulty": "easy"}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "description_quality", "min_length": 100}
+    ],
+    "expected_behavior": "Description should be thorough with input/output format"
+  },
+  {
+    "id": "gen_test_case_count_001",
+    "category": "correctness",
+    "description": "Generator should meet minimum test case count",
+    "input": {
+      "message": "Create an easy Python problem about sum of digits with at least 5 test cases",
+      "agent_type": "generator",
+      "user_role": "teacher",
+      "context": {"language": "python", "difficulty": "easy", "test_case_count": 5}
+    },
+    "judges": [
+      {"type": "json_schema", "schema_name": "question_schema"},
+      {"type": "test_case_count", "min_count": 5}
+    ],
+    "expected_behavior": "Should produce at least 5 test cases"
   }
 ]

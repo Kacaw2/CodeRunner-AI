@@ -725,6 +725,91 @@ def generate_batch():
     return resp, 201
 
 
+# ── POST /api/v1/ai/generate/pipeline ─────────────────────
+# Phase 4: Multi-agent generation pipeline
+
+@bp.route("/generate/pipeline", methods=["POST"])
+@require_teacher
+def generate_pipeline():
+    """Run the multi-agent generation pipeline (generate → validate → dedup → quality review)."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+
+    prompt = (data.get("prompt") or data.get("message") or "").strip()
+    if not prompt:
+        return _error_response("invalid_request", "prompt is required", 400)
+
+    try:
+        rl_info = _rate_limit_or_abort(user.id, "generator")
+    except RateLimitError as e:
+        return _error_response("ai_rate_limit", e.user_message, 429,
+                               {"Retry-After": str(e.retry_after)})
+
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    from app.agents.memory import MemoryService
+    teacher_ctx = MemoryService.get_memory_context(user.id, user_role)
+
+    from app.agents.generation_pipeline import run_generation_pipeline
+    try:
+        result = run_generation_pipeline(
+            teacher_id=user.id,
+            prompt=prompt,
+            language=data.get("language", "python"),
+            difficulty=data.get("difficulty", "medium"),
+            topic=data.get("topic", ""),
+            test_case_count=int(data.get("test_case_count", 5)),
+            teacher_context=teacher_ctx,
+        )
+
+        draft_info = None
+        final_draft = result.get("final_draft")
+        if final_draft and final_draft.get("question_data"):
+            from app.models.generated_question_draft import GeneratedQuestionDraft
+            draft = GeneratedQuestionDraft(
+                teacher_id=user.id,
+                question_data=final_draft["question_data"],
+                validation_status="passed" if final_draft.get("validation_passed") else "failed",
+                validation_details={
+                    "results": final_draft.get("validation_results", []),
+                    "quality_review": final_draft.get("quality_review"),
+                    "similar_questions": final_draft.get("similar_questions", []),
+                },
+                status="pending_review",
+            )
+            db.session.add(draft)
+            db.session.commit()
+            draft_info = draft.to_dict()
+
+            _learn_teacher_preferences(user.id, data, final_draft["question_data"])
+
+        rl_headers = _rate_limit_headers(rl_info)
+        resp = jsonify({
+            "status": result.get("status", "unknown"),
+            "question": final_draft.get("question_data") if final_draft else None,
+            "draft": draft_info,
+            "pipeline_metadata": {
+                "generate_attempts": result.get("generate_attempts", 0),
+                "dedup_attempts": result.get("dedup_attempts", 0),
+                "validation_passed": result.get("validation_passed", False),
+                "quality_review": result.get("quality_review"),
+                "similar_questions": result.get("similar_questions", []),
+            },
+            "error": result.get("error"),
+        })
+        for k, v in rl_headers.items():
+            resp.headers[k] = v
+        return resp
+
+    except ConfigError as e:
+        db.session.rollback()
+        return _error_response("ai_config_error", e.user_message, 503)
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Generation pipeline error")
+        return _error_response("ai_service_error", "Pipeline failed. Please try again.", 500)
+
+
 # ── GET /api/v1/ai/tasks/<task_id> ─────────────────────────
 
 @bp.route("/tasks/<task_id>", methods=["GET"])
@@ -1174,6 +1259,57 @@ def refresh_profile():
     except Exception as e:
         logger.exception("Profile refresh error")
         return _error_response("ai_service_error", "Failed to refresh profile.", 500)
+
+
+# ── Phase 4: Teacher preference learning helpers ─────────
+
+def _learn_teacher_preferences(teacher_id: int, request_params: dict, question_data: dict):
+    """Background call to update teacher preferences after a successful generation."""
+    try:
+        from app.agents.preference_learner import learn_from_generation
+        learn_from_generation(teacher_id, request_params, question_data)
+    except Exception as e:
+        logger.debug("Preference learning skipped: %s", e)
+
+
+@bp.route("/profile/refresh-style", methods=["POST"])
+@require_teacher
+def refresh_teacher_style():
+    """Refresh the teacher's AI style summary based on generation history."""
+    user = get_current_user_or_401()
+    try:
+        from app.agents.preference_learner import refresh_teacher_style_summary
+        refresh_teacher_style_summary(user.id)
+
+        from app.models.student_profile import TeacherPreference
+        pref = TeacherPreference.query.filter_by(teacher_id=user.id).first()
+        return jsonify({
+            "preference": pref.to_dict() if pref else None,
+            "message": "Style summary refreshed from generation history.",
+        })
+    except Exception as e:
+        logger.exception("Style refresh error")
+        return _error_response("ai_service_error", "Failed to refresh style summary.", 500)
+
+
+@bp.route("/profile/refresh-class-analysis", methods=["POST"])
+@require_teacher
+def refresh_class_analysis():
+    """Analyze students' weak areas across teacher's classrooms."""
+    user = get_current_user_or_401()
+    try:
+        from app.agents.preference_learner import analyze_class_weak_areas
+        analyze_class_weak_areas(user.id)
+
+        from app.models.student_profile import TeacherPreference
+        pref = TeacherPreference.query.filter_by(teacher_id=user.id).first()
+        return jsonify({
+            "preference": pref.to_dict() if pref else None,
+            "message": "Class weak areas analysis completed.",
+        })
+    except Exception as e:
+        logger.exception("Class analysis error")
+        return _error_response("ai_service_error", "Failed to analyze class data.", 500)
 
 
 # ── POST /api/v1/ai/knowledge/index ──────────────────────

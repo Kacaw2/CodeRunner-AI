@@ -25,6 +25,11 @@ TOOL_PERMISSIONS: dict[tuple[str, str], set[str]] = {
     ("analytics", "get_student_submissions"):  {"student", "teacher", "admin"},
     ("analytics", "get_submission_detail"):    {"student", "teacher", "admin"},
     ("analytics", "get_student_stats"):        {"teacher", "admin"},
+
+    # Phase 4: Expanded analytics tools
+    ("analytics", "get_student_activity"):        {"student", "teacher", "admin"},
+    ("analytics", "get_class_statistics"):         {"teacher", "admin"},
+    ("analytics", "get_question_difficulty_stats"):{"student", "teacher", "admin"},
 }
 
 
