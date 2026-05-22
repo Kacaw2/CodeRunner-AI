@@ -15,6 +15,31 @@ from app.services.executor_service import ExecutorService
 
 class SubmissionService:
     """Submission management service"""
+
+    @staticmethod
+    def submit_problem_code(
+        student_id: int,
+        problem_id: int,
+        language: str,
+        code: str,
+        time_limit_sec: float = 2.0
+    ) -> Dict[str, Any]:
+        from app.models.problem import Problem
+
+        problem = Problem.query.get(problem_id)
+        if not problem:
+            abort(404, message="Problem not found")
+
+        variant = problem.variant_for(language)
+        if not variant:
+            abort(404, message=f"No {language} variant available for this problem")
+
+        return SubmissionService.submit_code(
+            student_id=student_id,
+            question_id=variant.id,
+            code=code,
+            time_limit_sec=time_limit_sec,
+        )
     
     @staticmethod
     def submit_code(
@@ -54,13 +79,12 @@ class SubmissionService:
         db.session.add(submission)
         db.session.flush()  # Get submission.id
         
-        # Fetch test cases for this question
-        test_cases = TestCase.query.filter_by(question_id=question_id).order_by(TestCase.id).all()
+        test_cases = TestCase.query.filter_by(problem_id=question.problem_id).order_by(TestCase.id).all()
         if not test_cases:
             submission.status = "error"
             submission.score = 0.0
             db.session.commit()
-            abort(400, message="No test cases for this question")
+            abort(400, message="No test cases for this problem")
         
         # Compute total weight
         total_weight = sum(tc.weight or 1.0 for tc in test_cases) or 1.0
@@ -138,6 +162,9 @@ class SubmissionService:
         
         return {
             "id": submission.id,
+            "problem_id": question.problem_id,
+            "question_id": submission.question_id,
+            "language": language,
             "status": submission.status,
             "score": submission.score,
             "cases": cases_output

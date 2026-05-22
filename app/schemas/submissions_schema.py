@@ -25,6 +25,9 @@ class CaseResultOut(Schema):
 class SubmitOut(Schema):
     """submit result output"""
     id = fields.Int()
+    problem_id = fields.Int()
+    question_id = fields.Int()
+    language = fields.Str()
     status = fields.Str()
     score = fields.Float()
     cases = fields.List(fields.Nested(CaseResultOut))
