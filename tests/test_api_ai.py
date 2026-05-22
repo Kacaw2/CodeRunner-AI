@@ -223,6 +223,7 @@ class TestGenerateEndpoint:
 }
 ```'''
         mock_llm = MagicMock()
+        mock_llm.bind_tools.return_value = mock_llm
         mock_resp = MagicMock()
         mock_resp.content = q_json
         mock_resp.tool_calls = []

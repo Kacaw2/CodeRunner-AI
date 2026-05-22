@@ -6,7 +6,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.agents.agents.base import BaseAgent
 from app.agents.config import AIConfig
-from app.agents.exceptions import LLMError, ValidationError
+from app.agents.exceptions import LLMError
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
@@ -35,19 +35,37 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-def _validate_solution(solution: str, language: str, test_cases: list) -> list[dict]:
-    """Run the reference solution against every test case via the sandbox."""
+def _validate_solution(solution: str, language: str, test_cases: list,
+                       agent=None, state=None) -> list[dict]:
+    """Run the reference solution against every test case via the sandbox.
+
+    When agent and state are provided, routes execution through _run_tools()
+    for permission checks and tracing. Falls back to direct invocation otherwise.
+    """
+    from uuid import uuid4
+
     results = []
     for i, tc in enumerate(test_cases):
         stdin_text = tc.get("input", "")
         expected = tc.get("expected_output", "").rstrip()
+        tool_args = {
+            "code": solution,
+            "language": language,
+            "stdin_text": stdin_text,
+            "expected_output": expected,
+        }
         try:
-            exec_result = execute_code.invoke({
-                "code": solution,
-                "language": language,
-                "stdin_text": stdin_text,
-                "expected_output": expected,
-            })
+            if agent and state:
+                tool_call = {"name": "execute_code", "args": tool_args, "id": str(uuid4())}
+                tool_msgs = agent._run_tools([tool_call], GENERATOR_TOOLS, state)
+                raw = tool_msgs[0].content if tool_msgs else "{}"
+                import json as _json
+                try:
+                    exec_result = _json.loads(raw)
+                except (ValueError, TypeError):
+                    exec_result = {"status": "AC" if "AC" in raw else "UNKNOWN", "stdout": raw, "stderr": ""}
+            else:
+                exec_result = execute_code.invoke(tool_args)
         except Exception as e:
             logger.warning("Validation execution failed for test case %d: %s", i, e)
             exec_result = {"status": "SYSTEM_ERROR", "stdout": "", "stderr": str(e)}
@@ -90,38 +108,31 @@ class GeneratorAgent(BaseAgent):
         return "\n".join(parts)
 
     def invoke(self, state: AgentState) -> AgentState:
-        llm = AIConfig.get_llm()
         context = state.get("context", {})
         language = context.get("language", "python")
-
         system_ctx = self._build_system_context(state)
-        messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
 
         question_data = None
-        response_text = ""
 
         for round_num in range(MAX_VALIDATION_ROUNDS + 1):
             try:
-                response = self._llm_invoke(llm, messages)
+                state = self._invoke_with_tools(state, GENERATOR_TOOLS, system_ctx)
             except LLMError:
                 if round_num == 0:
                     raise
                 break
 
-            messages.append(response)
-            response_text = response.content or ""
-
+            response_text = state.get("final_response", "")
             question_data = _extract_json(response_text)
+
             if not question_data:
                 if round_num < MAX_VALIDATION_ROUNDS:
-                    messages.append(HumanMessage(
+                    state["messages"].append(HumanMessage(
                         content="I could not parse valid JSON from your response. "
                                 "Please output the question as a single JSON object inside ```json fences."
                     ))
                     continue
                 else:
-                    state["messages"] = messages
-                    state["final_response"] = response_text
                     return state
 
             solution = question_data.get("solution", "")
@@ -129,7 +140,7 @@ class GeneratorAgent(BaseAgent):
 
             if not solution or not test_cases:
                 if round_num < MAX_VALIDATION_ROUNDS:
-                    messages.append(HumanMessage(
+                    state["messages"].append(HumanMessage(
                         content="The JSON is missing 'solution' or 'test_cases'. "
                                 "Please include both and try again."
                     ))
@@ -137,7 +148,8 @@ class GeneratorAgent(BaseAgent):
                 break
 
             lang = question_data.get("programming_language", language)
-            validation = _validate_solution(solution, lang, test_cases)
+            validation = _validate_solution(solution, lang, test_cases,
+                                            agent=self, state=state)
             failures = [r for r in validation if not r["passed"]]
 
             if not failures:
@@ -152,7 +164,7 @@ class GeneratorAgent(BaseAgent):
                     f"actual={f['actual']!r}, error={f['error']!r}"
                     for f in failures
                 )
-                messages.append(HumanMessage(
+                state["messages"].append(HumanMessage(
                     content=f"Verification failed for {len(failures)}/{len(test_cases)} test cases:\n"
                             f"{failure_report}\n\n"
                             "Please fix the reference solution or the test cases and output the "
@@ -166,10 +178,7 @@ class GeneratorAgent(BaseAgent):
             state["context"]["generated_question"] = question_data
             wrapped = json.dumps({"question": question_data}, ensure_ascii=False, indent=2)
             state["final_response"] = wrapped
-        else:
-            state["final_response"] = response_text
 
-        state["messages"] = messages
         return state
 
     def stream(self, state: AgentState):

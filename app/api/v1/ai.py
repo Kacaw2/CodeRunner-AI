@@ -346,6 +346,7 @@ def chat_stream():
     def generate():
         from langchain_core.messages import HumanMessage
         from app.agents.agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
+        from app.agents.orchestrator import _classify_intent
 
         _AGENT_MAP = {
             "tutor": TutorAgent,
@@ -353,8 +354,6 @@ def chat_stream():
             "generator": GeneratorAgent,
             "analytics": AnalyticsAgent,
         }
-
-        yield f"data: {json.dumps({'type': 'start', 'conversation_id': conv_id, 'agent_type': agent_type})}\n\n"
 
         state = {
             "messages": history + [HumanMessage(content=message)],
@@ -366,7 +365,17 @@ def chat_stream():
             "final_response": "",
         }
 
-        agent_cls = _AGENT_MAP.get(agent_type, TutorAgent)
+        resolved_agent_type = agent_type
+        if not agent_type or agent_type == "auto":
+            state = _classify_intent(state)
+            resolved_agent_type = state.get("agent_type", "tutor")
+
+        yield f"data: {json.dumps({'type': 'start', 'conversation_id': conv_id, 'agent_type': resolved_agent_type})}\n\n"
+
+        if resolved_agent_type != agent_type:
+            yield f"data: {json.dumps({'type': 'route', 'agent_type': resolved_agent_type})}\n\n"
+
+        agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
         agent = agent_cls()
         full_response = ""
         try:
@@ -378,7 +387,8 @@ def chat_stream():
             if not full_response:
                 full_response = state.get("final_response", "")
 
-            assistant_msg = AIMessage(conversation_id=conv_id, role="assistant", content=full_response)
+            filtered_response = filter_output(full_response, resolved_agent_type, user_role)
+            assistant_msg = AIMessage(conversation_id=conv_id, role="assistant", content=filtered_response)
             db.session.add(assistant_msg)
             _conv = AIConversation.query.get(conv_id)
             if _conv and not _conv.title:

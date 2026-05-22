@@ -184,6 +184,7 @@ class TestGeneratorAgent:
 }
 ```'''
             mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
             mock_llm.invoke.return_value = _make_llm_response(question_json)
             mock_get_llm.return_value = mock_llm
 
@@ -224,12 +225,13 @@ class TestGeneratorAgent:
 }
 ```'''
             mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
             mock_llm.invoke.return_value = _make_llm_response(question_json)
             mock_get_llm.return_value = mock_llm
 
             call_count = 0
 
-            def validation_side_effect(*args):
+            def validation_side_effect(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
                 if call_count == 1:
