@@ -325,4 +325,58 @@
   };
 </script>
 <script src="{{ url_for('static', filename='js/embedded_tutor.js') }}"></script>
+<script>
+(function() {
+  var dc = document.querySelector('.description-content');
+  if (!dc) return;
+  var html = dc.innerHTML.trim();
+  if (!html) return;
+
+  var sectionDefs = [
+    { pattern: /(?:<(?:p|div|h\d)[^>]*>)?\s*(?:<(?:strong|b)>)?\s*(?:Input|输入)\s*[:：]?\s*(?:<\/(?:strong|b)>)?\s*(?:<\/(?:p|div|h\d)>)?/i, type: 'input', icon: 'bi-box-arrow-in-right', label: 'Input' },
+    { pattern: /(?:<(?:p|div|h\d)[^>]*>)?\s*(?:<(?:strong|b)>)?\s*(?:Output|输出)\s*[:：]?\s*(?:<\/(?:strong|b)>)?\s*(?:<\/(?:p|div|h\d)>)?/i, type: 'output', icon: 'bi-box-arrow-right', label: 'Output' },
+    { pattern: /(?:<(?:p|div|h\d)[^>]*>)?\s*(?:<(?:strong|b)>)?\s*(?:Example|Sample|示例|样例)\s*\d*\s*[:：]?\s*(?:<\/(?:strong|b)>)?\s*(?:<\/(?:p|div|h\d)>)?/i, type: 'example', icon: 'bi-journal-code', label: 'Example' },
+    { pattern: /(?:<(?:p|div|h\d)[^>]*>)?\s*(?:<(?:strong|b)>)?\s*(?:Constraint|Note|Hint|限制|约束|提示|说明)\s*s?\s*[:：]?\s*(?:<\/(?:strong|b)>)?\s*(?:<\/(?:p|div|h\d)>)?/i, type: 'constraint', icon: 'bi-exclamation-circle', label: 'Constraints' },
+  ];
+
+  var found = [];
+  sectionDefs.forEach(function(def) {
+    var matches = [];
+    var re = new RegExp(def.pattern.source, 'gi');
+    var m;
+    while ((m = re.exec(html)) !== null) {
+      matches.push({ index: m.index, length: m[0].length, def: def });
+    }
+    found = found.concat(matches);
+  });
+
+  if (found.length === 0) return;
+
+  found.sort(function(a, b) { return a.index - b.index; });
+
+  var parts = [];
+  if (found[0].index > 0) {
+    parts.push({ type: 'text', content: html.substring(0, found[0].index).trim() });
+  }
+  for (var i = 0; i < found.length; i++) {
+    var start = found[i].index + found[i].length;
+    var end = i + 1 < found.length ? found[i + 1].index : html.length;
+    parts.push({ type: found[i].def.type, icon: found[i].def.icon, label: found[i].def.label, content: html.substring(start, end).trim() });
+  }
+
+  var out = '';
+  parts.forEach(function(p) {
+    if (p.type === 'text') {
+      out += '<div class="desc-section text-section"><div class="desc-section-body">' + p.content + '</div></div>';
+    } else {
+      out += '<div class="desc-section ' + p.type + '-section">';
+      out += '<div class="desc-section-label"><i class="bi ' + p.icon + '"></i> ' + p.label + '</div>';
+      out += '<div class="desc-section-body">' + p.content + '</div>';
+      out += '</div>';
+    }
+  });
+
+  dc.innerHTML = out;
+})();
+</script>
 {% endblock %}

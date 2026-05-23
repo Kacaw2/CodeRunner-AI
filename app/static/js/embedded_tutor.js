@@ -97,13 +97,33 @@
     statusEl.textContent = 'Thinking...';
     statusEl.classList.add('streaming');
 
-    // Add typing indicator
-    const typingEl = document.createElement('div');
-    typingEl.className = 'typing-indicator';
-    typingEl.innerHTML = '<span></span><span></span><span></span>';
-    messagesDiv.appendChild(typingEl);
+    // Add thinking label
+    const thinkingEl = document.createElement('div');
+    thinkingEl.className = 'thinking-label';
+    thinkingEl.innerHTML = '<span class="thinking-dot"></span> Thinking...';
+    messagesDiv.appendChild(thinkingEl);
     scrollToBottom();
 
+    // SSE events container (collapsible)
+    const sseContainer = document.createElement('div');
+    sseContainer.className = 'sse-events-container';
+    sseContainer.style.display = 'none';
+
+    const sseToggle = document.createElement('button');
+    sseToggle.className = 'sse-events-toggle';
+    sseToggle.innerHTML = '<span class="toggle-icon"><i class="bi bi-chevron-right"></i></span> <span class="toggle-text">Process details</span> <span class="sse-count"></span>';
+    sseToggle.addEventListener('click', () => {
+      sseToggle.classList.toggle('expanded');
+      sseList.classList.toggle('show');
+    });
+
+    const sseList = document.createElement('div');
+    sseList.className = 'sse-events-list';
+
+    sseContainer.appendChild(sseToggle);
+    sseContainer.appendChild(sseList);
+
+    let sseEventCount = 0;
     let assistantBubble = null;
     let fullContent = '';
 
@@ -154,29 +174,50 @@
         });
       }
 
+      function addSseEvent(type, text) {
+        sseEventCount++;
+        const item = document.createElement('div');
+        item.className = 'sse-event-item ' + type;
+        item.textContent = text;
+        sseList.appendChild(item);
+        sseContainer.style.display = '';
+        sseToggle.querySelector('.sse-count').textContent = '(' + sseEventCount + ')';
+        if (!sseContainer.parentNode) {
+          messagesDiv.appendChild(sseContainer);
+        }
+        scrollToBottom();
+      }
+
       function handleEvent(event) {
         if (event.type === 'start') {
           conversationId = event.conversation_id;
+          addSseEvent('start', 'Connected to ' + (event.agent_type || 'agent'));
         } else if (event.type === 'token') {
-          // Remove typing indicator on first token
-          if (typingEl.parentNode) typingEl.remove();
+          if (thinkingEl.parentNode) thinkingEl.remove();
 
           if (!assistantBubble) {
             assistantBubble = document.createElement('div');
             assistantBubble.className = 'tutor-msg assistant';
-            messagesDiv.appendChild(assistantBubble);
+            if (sseContainer.parentNode) {
+              messagesDiv.insertBefore(assistantBubble, sseContainer);
+            } else {
+              messagesDiv.appendChild(assistantBubble);
+            }
           }
 
           fullContent += event.content;
           assistantBubble.innerHTML = renderMarkdown(fullContent);
           scrollToBottom();
         } else if (event.type === 'tool_call') {
-          if (typingEl.parentNode) typingEl.remove();
-          appendMessage('tool-event', `🔧 Using: ${event.tool}`);
+          if (thinkingEl.parentNode) {
+            thinkingEl.innerHTML = '<span class="thinking-dot"></span> Working...';
+          }
+          addSseEvent('tool-call', 'Calling: ' + event.tool);
         } else if (event.type === 'tool_result') {
-          appendMessage('tool-event', `✓ ${event.summary}`);
+          addSseEvent('tool-result', 'Done: ' + (event.summary || event.tool));
         } else if (event.type === 'error') {
-          if (typingEl.parentNode) typingEl.remove();
+          if (thinkingEl.parentNode) thinkingEl.remove();
+          addSseEvent('error', event.message || 'An error occurred.');
           appendMessage('error', event.message || 'An error occurred.');
         } else if (event.type === 'done') {
           // handled by finishStream
@@ -185,13 +226,13 @@
 
       processStream();
     }).catch(err => {
-      if (typingEl.parentNode) typingEl.remove();
+      if (thinkingEl.parentNode) thinkingEl.remove();
       appendMessage('error', 'Failed to connect to AI service. Please try again.');
       finishStream();
     });
 
     function finishStream() {
-      if (typingEl.parentNode) typingEl.remove();
+      if (thinkingEl.parentNode) thinkingEl.remove();
       isStreaming = false;
       sendBtn.disabled = false;
       statusEl.textContent = 'Ready';

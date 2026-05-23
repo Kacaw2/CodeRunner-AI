@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+import time
 from flask import Blueprint, request, jsonify, Response, stream_with_context, current_app
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
@@ -292,6 +293,7 @@ def chat():
 
     try:
         conv = _get_or_create_conversation(user.id, agent_type, data.get("conversation_id"), context)
+        context["conversation_id"] = conv.id
         history = _load_history(conv.id) if data.get("conversation_id") else []
 
         user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
@@ -390,6 +392,7 @@ def chat_stream():
     conv_id = conv.id
     user_id = user.id
     user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    context["conversation_id"] = conv_id
 
     def generate():
         from langchain_core.messages import HumanMessage
@@ -426,11 +429,16 @@ def chat_stream():
         agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
         agent = agent_cls()
         full_response = ""
+        last_event_time = time.monotonic()
         try:
             for event in agent.stream(state):
                 if event["type"] == "token":
                     full_response += event["content"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                now = time.monotonic()
+                if now - last_event_time > 10:
+                    yield ": heartbeat\n\n"
+                last_event_time = now
 
             if not full_response:
                 full_response = state.get("final_response", "")
@@ -485,6 +493,7 @@ def chat_stream():
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
             **rl_headers,
         },
     )

@@ -238,8 +238,37 @@
     appendMessage("user", text);
     const assistantEl = appendMessage("assistant", "");
     const bodyEl = assistantEl.querySelector(".msg-body");
-    bodyEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+    bodyEl.innerHTML = '<div class="thinking-label"><span class="thinking-dot"></span> Thinking...</div>';
     scrollToBottom();
+
+    // SSE events container
+    const sseContainer = document.createElement("div");
+    sseContainer.className = "sse-events-container";
+    sseContainer.style.display = "none";
+    const sseToggle = document.createElement("button");
+    sseToggle.className = "sse-events-toggle";
+    sseToggle.innerHTML = '<span class="toggle-icon"><i class="bi bi-chevron-right"></i></span> <span>Process details</span> <span class="sse-count"></span>';
+    sseToggle.addEventListener("click", function () {
+      sseToggle.classList.toggle("expanded");
+      sseListEl.classList.toggle("show");
+    });
+    const sseListEl = document.createElement("div");
+    sseListEl.className = "sse-events-list";
+    sseContainer.appendChild(sseToggle);
+    sseContainer.appendChild(sseListEl);
+    let sseEventCount = 0;
+
+    function addSseEvent(type, text) {
+      sseEventCount++;
+      const item = document.createElement("div");
+      item.className = "sse-event-item " + type;
+      item.textContent = text;
+      sseListEl.appendChild(item);
+      sseContainer.style.display = "";
+      sseToggle.querySelector(".sse-count").textContent = "(" + sseEventCount + ")";
+      if (!sseContainer.parentNode) bodyEl.appendChild(sseContainer);
+      scrollToBottom();
+    }
 
     const payload = {
       message: text,
@@ -290,23 +319,23 @@
 
           if (event.type === "start") {
             conversationId = event.conversation_id;
+            addSseEvent("start", "Connected to " + (event.agent_type || "agent"));
           } else if (event.type === "token") {
+            const thinkingEl = bodyEl.querySelector(".thinking-label");
+            if (thinkingEl) thinkingEl.remove();
             fullText += event.content;
             bodyEl.innerHTML = renderMarkdown(fullText);
+            if (sseContainer.parentNode !== bodyEl && sseEventCount > 0) {
+              sseContainer.style.display = "";
+              bodyEl.appendChild(sseContainer);
+            }
             scrollToBottom();
           } else if (event.type === "tool_call") {
-            const indicator = document.createElement("div");
-            indicator.className = "tool-indicator";
-            indicator.innerHTML = '<i class="bi bi-gear-fill"></i> Calling ' + escapeHtml(event.tool) + "...";
-            bodyEl.appendChild(indicator);
-            scrollToBottom();
+            const thinkingEl = bodyEl.querySelector(".thinking-label");
+            if (thinkingEl) thinkingEl.innerHTML = '<span class="thinking-dot"></span> Working...';
+            addSseEvent("tool-call", "Calling: " + (event.tool || ""));
           } else if (event.type === "tool_result") {
-            const indicators = bodyEl.querySelectorAll(".tool-indicator");
-            if (indicators.length > 0) {
-              const last = indicators[indicators.length - 1];
-              last.innerHTML = '<i class="bi bi-check-circle"></i> ' + escapeHtml(event.summary || event.tool);
-              last.querySelector("i").style.animation = "none";
-            }
+            addSseEvent("tool-result", "Done: " + (event.summary || event.tool || ""));
           } else if (event.type === "done") {
             if (event.draft_id) {
               const banner = document.createElement("div");
@@ -320,7 +349,11 @@
               scrollToBottom();
             }
           } else if (event.type === "error") {
+            const thinkingEl = bodyEl.querySelector(".thinking-label");
+            if (thinkingEl) thinkingEl.remove();
+            addSseEvent("error", event.message || "Unknown error");
             bodyEl.textContent = "Error: " + (event.message || "Unknown error");
+            if (sseEventCount > 0) bodyEl.appendChild(sseContainer);
           }
         }
       }
@@ -329,9 +362,12 @@
         bodyEl.textContent = "(No response)";
       }
 
-      // Re-render final markdown to clean up any tool indicators mixed in
+      // Re-render final markdown, preserving the SSE events container
       if (fullText) {
         bodyEl.innerHTML = renderMarkdown(fullText);
+        if (sseEventCount > 0) {
+          bodyEl.appendChild(sseContainer);
+        }
       }
 
       loadConversations();

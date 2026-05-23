@@ -432,6 +432,85 @@
   }
 }
 
+/* Thinking indicator */
+.thinking-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: #3b82f6;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.thinking-label .thinking-dot {
+  width: 8px;
+  height: 8px;
+  background: #3b82f6;
+  border-radius: 50%;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* Collapsible SSE events log */
+.sse-events-container {
+  margin: 6px 0;
+}
+
+.sse-events-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sse-events-toggle:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.sse-events-toggle .toggle-icon {
+  transition: transform 0.2s;
+  font-size: 0.65rem;
+}
+
+.sse-events-toggle.expanded .toggle-icon {
+  transform: rotate(90deg);
+}
+
+.sse-events-list {
+  display: none;
+  padding: 6px 0 0;
+}
+
+.sse-events-list.show {
+  display: block;
+}
+
+.sse-event-item {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  color: #64748b;
+  border-left: 2px solid #e2e8f0;
+  margin-left: 8px;
+  margin-bottom: 2px;
+}
+
+.sse-event-item.tool-call { border-left-color: #f59e0b; }
+.sse-event-item.tool-result { border-left-color: #10b981; }
+.sse-event-item.error { border-left-color: #ef4444; color: #dc2626; }
+
 /* Draft saved banner */
 .draft-saved-banner {
   margin-top: 12px;
