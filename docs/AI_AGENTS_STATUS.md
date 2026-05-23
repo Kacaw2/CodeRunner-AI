@@ -1,6 +1,6 @@
 # AI Agents 模块能力总览
 
-> 最后更新: 2026-05-23 (Phase A 安全修复完成后)
+> 最后更新: 2026-05-24 (Phase A/B/C 全部完成)
 
 ---
 
@@ -60,9 +60,10 @@ CodeRunner-AI 的 AI 模块基于 **Flask + LangGraph + LangChain + DeepSeek API
 | 能力 | 状态 | 说明 |
 |------|------|------|
 | **AgentRun 记录** | ✅ 已接入 | 每次 invoke/stream 调用写入 `agent_runs` 表 |
+| **AgentRunStep 记录** | ✅ 已接入 | 每个 LLM/工具调用步骤写入 `agent_run_steps` 表 (Phase B4) |
 | **LLM 调用计时** | ✅ 已接入 | `trace_llm_call()` 记录每次 LLM 调用耗时 |
 | **工具调用计时** | ✅ 已接入 | `trace_tool_call()` 记录每次工具调用耗时和成功/失败 |
-| **Token 采集 (流式)** | ✅ 已接入 | 从 stream chunk 的 `usage_metadata` 提取 token 数 |
+| **Token 采集 (流式+同步)** | ✅ 已接入 | 从 response 的 `response_metadata` / `usage_metadata` 提取 token 数 (Phase B5) |
 | **Trace API** | ✅ 已接入 | `GET /api/v1/ai/traces` 和 `GET /api/v1/ai/traces/<run_id>` |
 
 ### 2.5 API 端点
@@ -95,7 +96,24 @@ CodeRunner-AI 的 AI 模块基于 **Flask + LangGraph + LangChain + DeepSeek API
 | `/api/v1/ai/evals/run` | POST | ✅ | 运行评估套件 |
 | `/api/v1/ai/evals/history` | GET | ✅ | 评估历史 |
 
-### 2.6 其他已接入能力
+### 2.6 消息处理 (Phase B)
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| **长对话压缩** | ✅ 已接入 | `compact_messages()` 在 `_invoke_with_tools` / `_stream_with_tools` 中自动压缩超过 20 条的消息 (Phase B1) |
+| **对话摘要生成** | ✅ 已接入 | 消息数 ≥10 时异步生成摘要，存入 `AIConversation.summary` (Phase B2) |
+| **Schema 输出校验** | ✅ 已接入 | orchestrator `_respond` 节点校验 generator/reviewer/analytics 输出，失败自动重试 (Phase B3) |
+
+### 2.7 启动集成 & 自动化 (Phase C)
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| **孤儿任务恢复** | ✅ 已接入 | `create_app()` 启动时同步调用 `recover_orphaned_tasks()`，将 executing 状态任务重置为 pending (C1) |
+| **知识库自动索引** | ✅ 已接入 | `create_app()` 启动后台线程异步执行 `index_all_questions()`，不阻塞启动 (C2) |
+| **学生画像自动更新** | ✅ 已接入 | 提交判题后异步调用 `update_student_profile()`，60 秒每学生节流 (C3) |
+| **新题增量索引** | ✅ 已接入 | 题目发布为正式 Problem 时自动调用 `kb.index_question()` (C4) |
+
+### 2.8 其他已接入能力
 
 | 能力 | 说明 |
 |------|------|
@@ -112,26 +130,7 @@ CodeRunner-AI 的 AI 模块基于 **Flask + LangGraph + LangChain + DeepSeek API
 
 ## 三、已定义但未接入的能力 (待实现)
 
-### 3.1 Phase B — 死代码激活 (优先级: 高)
-
-| 能力 | 文件 | 现状 | 计划 |
-|------|------|------|------|
-| **长对话压缩** | `memory.py:compact_messages()` | 函数已定义，从未调用 | 在 `_invoke_with_tools` 和 `_stream_with_tools` 中，LLM 调用前压缩消息列表（阈值 20 条） |
-| **对话摘要生成** | `memory.py:generate_conversation_summary()` | 函数已定义，仅手动端点可触发 | 对话消息数 ≥10 时异步自动生成摘要，存入 `AIConversation.summary` |
-| **Schema 校验** | `schemas.py:validate_agent_output()` | 函数已定义，从未调用 | 在 orchestrator 的 `_respond` 节点中校验 generator/reviewer/analytics 输出，失败则自动重试 |
-| **TraceStep 写入** | `tracing.py:save()` | 仅写入 `AgentRun`，不写 `AgentRunStep` | 遍历 `self.steps` 列表，为每个 step 写入 `AgentRunStep` 记录 |
-| **Token 采集 (同步)** | `base.py:_invoke_with_tools` | 同步路径未从 response metadata 提取 token | 从 LLM response 的 `response_metadata` 或 `usage_metadata` 提取 |
-
-### 3.2 Phase C — 启动集成 & 自动化 (优先级: 中)
-
-| 能力 | 文件 | 现状 | 计划 |
-|------|------|------|------|
-| **孤儿任务恢复** | `recovery.py:recover_orphaned_tasks()` | 函数已定义，启动时不调用 | 在 `create_app()` 中同步调用，将 `executing` 状态任务重置为 `pending` |
-| **知识库自动索引** | `knowledge_base.py:index_all_questions()` | 仅手动端点可触发 | 在 `create_app()` 中启动后台线程异步索引 |
-| **学生画像自动更新** | `memory.py:update_student_profile()` | 仅手动端点可触发 | 提交判题后异步调用，60 秒节流 |
-| **新题增量索引** | `knowledge_base.py:index_question()` | 函数存在，发布时未调用 | 题目发布为正式 Problem 时调用增量索引 |
-
-### 3.3 Phase D — RAG 与知识库深度集成 (优先级: 低)
+### 3.1 Phase D — RAG 与知识库深度集成 (优先级: 低)
 
 | 能力 | 文件 | 现状 | 计划 |
 |------|------|------|------|
@@ -139,7 +138,7 @@ CodeRunner-AI 的 AI 模块基于 **Flask + LangGraph + LangChain + DeepSeek API
 | **知识点种子数据** | 待新建 `scripts/seed_knowledge.py` | knowledge_points 集合为空 | 按课程大纲填充数据结构/算法/编程基础知识点 |
 | **教师知识库管理 API** | 待添加到 `ai.py` | 无管理接口 | 添加知识点的增删查 API + 前端管理页面 |
 
-### 3.4 Generator 流式路径 (Phase A5 遗留)
+### 3.2 Generator 流式路径 (Phase A5 遗留)
 
 GeneratorAgent 的 `stream()` 方法仍使用直接 LLM 调用，未通过 `_invoke_with_tools` / `_run_tools` 管道。这意味着：
 - 流式路径的验证执行无权限检查
@@ -160,18 +159,18 @@ Phase A (安全修复)     ████████░░  ~85%
   A5 generator 统一管道      ⚠️ invoke 完成, stream 待补
   A6 注入检测增强            ✅ 完成
 
-Phase B (死代码激活)   █░░░░░░░░░  ~10%
-  B1 长对话压缩             ❌ 未开始
-  B2 对话摘要               ❌ 未开始
-  B3 schema 校验            ❌ 未开始
-  B4 TraceStep 写入         ❌ 未开始
-  B5 token 采集 (同步)      ⚠️ 流式已完成
+Phase B (死代码激活)   ██████████  100%
+  B1 长对话压缩             ✅ 完成
+  B2 对话摘要               ✅ 完成
+  B3 schema 校验            ✅ 完成
+  B4 TraceStep 写入         ✅ 完成
+  B5 token 采集             ✅ 完成 (流式+同步)
 
-Phase C (启动集成)     █░░░░░░░░░  ~15%
-  C1 孤儿任务恢复           ❌ 未开始
-  C2 知识库自动索引         ❌ 未开始
-  C3 学生画像自动更新       ⚠️ 手动可用, 自动未接入
-  C4 新题增量索引           ❌ 未开始
+Phase C (启动集成)     ██████████  100%
+  C1 孤儿任务恢复           ✅ 完成
+  C2 知识库自动索引         ✅ 完成
+  C3 学生画像自动更新       ✅ 完成
+  C4 新题增量索引           ✅ 完成
 
 Phase D (RAG 深度集成)  ░░░░░░░░░░  ~0%
   D1 error_patterns 种子    ❌ 未开始
