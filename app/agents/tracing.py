@@ -62,6 +62,10 @@ class TraceCollector:
             from app.models.agent_trace import AgentRun, AgentRunStep
 
             total_ms = int((time.monotonic() - self.start_time) * 1000)
+
+            safe_steps = _make_json_safe(self.steps)
+            safe_context = _make_json_safe(self.input_context)
+
             run = AgentRun(
                 id=self.run_id,
                 conversation_id=self.conversation_id,
@@ -69,7 +73,7 @@ class TraceCollector:
                 agent_type=self.agent_type,
                 status=status,
                 input_message=self.input_message[:2000] if self.input_message else None,
-                input_context=self.input_context,
+                input_context=safe_context,
                 output_response=response[:2000] if response else None,
                 total_latency_ms=total_ms,
                 llm_latency_ms=self.llm_total_ms,
@@ -77,17 +81,17 @@ class TraceCollector:
                 tokens_input=self.total_input_tokens,
                 tokens_output=self.total_output_tokens,
                 tool_call_count=self.tool_call_count,
-                tool_calls_json=self.steps,
+                tool_calls_json=safe_steps,
                 error_type=type(error).__name__ if error else None,
                 error_message=str(error)[:500] if error else None,
             )
             db.session.add(run)
 
-            for step in self.steps:
+            for step in safe_steps if isinstance(safe_steps, list) else []:
                 db_step = AgentRunStep(
                     run_id=self.run_id,
-                    step_index=step["step_index"],
-                    step_type=step["step_type"],
+                    step_index=step.get("step_index", 0),
+                    step_type=step.get("step_type"),
                     tool_name=step.get("tool_name"),
                     tool_input=step.get("tool_input"),
                     tool_output_preview=str(step.get("tool_output", ""))[:500],
@@ -100,5 +104,22 @@ class TraceCollector:
                 db.session.add(db_step)
 
             db.session.commit()
+            logger.debug("Trace saved: run_id=%s status=%s", self.run_id, status)
         except Exception as e:
-            logger.warning("Failed to save trace: %s", e)
+            logger.error("Failed to save trace (run_id=%s): %s", self.run_id, e, exc_info=True)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+
+def _make_json_safe(obj):
+    """Ensure an object is JSON-serializable for DB storage."""
+    if obj is None:
+        return None
+    try:
+        import json
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError, OverflowError):
+        return json.loads(json.dumps(obj, default=str))

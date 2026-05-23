@@ -241,6 +241,7 @@ class BaseAgent(ABC):
         except Exception as e:
             logger.warning("Message compaction failed (stream): %s", e)
 
+        trace_saved = False
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 collected_content = ""
@@ -276,6 +277,7 @@ class BaseAgent(ABC):
                     if iteration == 0:
                         yield {"type": "error", "message": e.user_message}
                         trace.save(status="failed", error=e)
+                        trace_saved = True
                         return
                     break
 
@@ -316,6 +318,14 @@ class BaseAgent(ABC):
                        "reason": state.get("handoff_reason", "")}
 
             trace.save(status="completed", response=state.get("final_response", ""))
+            trace_saved = True
+        except GeneratorExit:
+            if not trace_saved:
+                trace.save(status="interrupted")
         except Exception as e:
-            trace.save(status="failed", error=e)
+            if not trace_saved:
+                trace.save(status="failed", error=e)
             raise
+        finally:
+            if not trace_saved:
+                trace.save(status="unknown")

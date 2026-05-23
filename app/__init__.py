@@ -26,12 +26,26 @@ def create_app(config_name=None):
     # 4. Register blueprints
     register_blueprints(app)
 
-    # 5. Startup tasks
+    # 5. Ensure all model tables exist (idempotent, safe with migrations)
+    with app.app_context():
+        _ensure_tables(app)
+
+    # 6. Startup tasks
     with app.app_context():
         _recover_orphaned_tasks(app)
         _async_index_knowledge_base(app)
 
     return app
+
+
+def _ensure_tables(app):
+    """Create any missing tables. Idempotent — only adds tables not yet in the DB."""
+    try:
+        from app.core.extensions import db
+        db.create_all()
+        app.logger.info("Startup: table check complete")
+    except Exception as e:
+        app.logger.warning("Startup: table creation skipped: %s", e)
 
 
 def _recover_orphaned_tasks(app):
