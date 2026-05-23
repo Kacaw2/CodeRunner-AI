@@ -322,10 +322,9 @@ class BaseAgent(ABC):
         except GeneratorExit:
             if not trace_saved:
                 trace.save(status="interrupted")
+                trace_saved = True
         except Exception as e:
             if not trace_saved:
                 trace.save(status="failed", error=e)
+                trace_saved = True
             raise
-        finally:
-            if not trace_saved:
-                trace.save(status="unknown")

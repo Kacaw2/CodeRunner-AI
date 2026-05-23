@@ -42,10 +42,21 @@ def _ensure_tables(app):
     """Create any missing tables. Idempotent — only adds tables not yet in the DB."""
     try:
         from app.core.extensions import db
-        db.create_all()
-        app.logger.info("Startup: table check complete")
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        existing = set(inspector.get_table_names())
+        needed = {"agent_runs", "agent_run_steps", "ai_audit_logs", "agent_tasks"}
+        missing = needed - existing
+        if missing:
+            app.logger.warning("Startup: missing tables %s — creating now", missing)
+            db.create_all()
+            app.logger.info("Startup: tables created successfully")
+        else:
+            app.logger.info("Startup: all agent tables exist")
+        count = db.session.execute(text("SELECT COUNT(*) FROM agent_runs")).scalar()
+        app.logger.info("Startup: agent_runs has %d records", count)
     except Exception as e:
-        app.logger.warning("Startup: table creation skipped: %s", e)
+        app.logger.error("Startup: table check FAILED: %s", e, exc_info=True)
 
 
 def _recover_orphaned_tasks(app):

@@ -104,9 +104,11 @@ class TraceCollector:
                 db.session.add(db_step)
 
             db.session.commit()
-            logger.debug("Trace saved: run_id=%s status=%s", self.run_id, status)
+            logger.info("TRACE_SAVE_OK: run_id=%s agent=%s user=%d status=%s conv=%s",
+                        self.run_id, self.agent_type, self.user_id, status, self.conversation_id)
         except Exception as e:
-            logger.error("Failed to save trace (run_id=%s): %s", self.run_id, e, exc_info=True)
+            logger.error("TRACE_SAVE_FAIL: run_id=%s agent=%s user=%d error=%s",
+                         self.run_id, self.agent_type, self.user_id, e, exc_info=True)
             try:
                 db.session.rollback()
             except Exception:
