@@ -15,7 +15,7 @@ def recover_orphaned_tasks():
     ).all()
 
     if not orphaned:
-        return
+        return 0
 
     for task in orphaned:
         logger.warning("Recovering orphaned task %s (was %s)", task.id, task.status)
@@ -30,3 +30,4 @@ def recover_orphaned_tasks():
 
     db.session.commit()
     logger.info("Recovered %d orphaned tasks", len(orphaned))
+    return len(orphaned)

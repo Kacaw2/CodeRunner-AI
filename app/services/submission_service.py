@@ -2,6 +2,9 @@
 """
 Submission business logic service
 """
+import logging
+import threading
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from flask_smorest import abort
@@ -11,6 +14,11 @@ from app.core.extensions import db
 from app.models.question import Question, TestCase
 from app.models.submission import Submission, TestResult
 from app.services.executor_service import ExecutorService
+
+logger = logging.getLogger(__name__)
+
+_profile_update_timestamps: Dict[int, float] = {}
+_PROFILE_UPDATE_COOLDOWN = 60
 
 
 class SubmissionService:
@@ -148,7 +156,9 @@ class SubmissionService:
         submission.score = round(100.0 * earned_weight / total_weight, 2) if not has_error else 0.0
         submission.status = "error" if has_error else "completed"
         db.session.commit()
-        
+
+        SubmissionService._maybe_update_student_profile(student_id)
+
         # Build response payload
         cases_output = []
         for idx, (test_result, test_case, exec_result) in enumerate(test_results, start=1):
@@ -319,6 +329,27 @@ class SubmissionService:
             "submission_count": count
         }
     
+    @staticmethod
+    def _maybe_update_student_profile(student_id: int):
+        """Async profile rebuild with 60s per-student throttle."""
+        now = time.time()
+        if _profile_update_timestamps.get(student_id, 0) + _PROFILE_UPDATE_COOLDOWN > now:
+            return
+        _profile_update_timestamps[student_id] = now
+
+        from flask import current_app
+        app = current_app._get_current_object()
+
+        def _do_update():
+            with app.app_context():
+                try:
+                    from app.agents.memory import MemoryService
+                    MemoryService.update_student_profile(student_id)
+                except Exception as e:
+                    logger.warning("Profile update failed for student %d: %s", student_id, e)
+
+        threading.Thread(target=_do_update, daemon=True).start()
+
     @staticmethod
     def _format_case_result(
         index: int,

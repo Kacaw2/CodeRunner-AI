@@ -46,6 +46,7 @@
         <select class="form-select form-select-sm" id="agentType">
           <option value="tutor">Tutor</option>
           <option value="reviewer">Code Review</option>
+          <option value="generator">AI Generate</option>
           <option value="analytics">Analytics</option>
         </select>
       </div>
@@ -71,6 +72,17 @@
         <div class="quick-prompts">
           <button class="quick-prompt" data-prompt="Review my code for bugs and improvements">Review my code</button>
           <button class="quick-prompt" data-prompt="Check the time complexity of my solution">Check complexity</button>
+        </div>
+      </div>
+      <!-- Generator welcome (teacher only) -->
+      <div class="welcome-message" id="welcomeGenerator" style="display:none">
+        <div class="welcome-icon"><i class="bi bi-magic"></i></div>
+        <h4>AI Question Generator</h4>
+        <p>Describe the problem you want to create and I'll generate a complete question with solution, test cases, and starter code. The result is auto-saved as a draft for your review.</p>
+        <div class="quick-prompts">
+          <button class="quick-prompt" data-prompt="Generate an easy Python problem about arrays and loops">Easy array problem</button>
+          <button class="quick-prompt" data-prompt="Generate a medium difficulty problem about linked list operations in C">Medium linked list (C)</button>
+          <button class="quick-prompt" data-prompt="Generate a hard dynamic programming problem about longest common subsequence">Hard DP problem</button>
         </div>
       </div>
       <!-- Analytics welcome -->

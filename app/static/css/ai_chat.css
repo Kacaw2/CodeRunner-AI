@@ -431,3 +431,26 @@
     display: none;
   }
 }
+
+/* Draft saved banner */
+.draft-saved-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #2e7d32;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.draft-saved-banner i {
+  font-size: 1.1rem;
+}
+.draft-saved-banner a {
+  color: #1565c0;
+  font-weight: 500;
+  text-decoration: underline;
+}

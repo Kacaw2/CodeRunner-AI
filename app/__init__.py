@@ -1,5 +1,6 @@
 # app/__init__.py
 import os
+import threading
 from flask import Flask
 from app.core.config import config
 from app.core.extensions import init_extensions
@@ -25,7 +26,39 @@ def create_app(config_name=None):
     # 4. Register blueprints
     register_blueprints(app)
 
+    # 5. Startup tasks
+    with app.app_context():
+        _recover_orphaned_tasks(app)
+        _async_index_knowledge_base(app)
+
     return app
+
+
+def _recover_orphaned_tasks(app):
+    """C1: Resume tasks that were running when the server last crashed."""
+    try:
+        from app.agents.recovery import recover_orphaned_tasks
+        recovered = recover_orphaned_tasks()
+        if recovered:
+            app.logger.info("Startup: recovered %d orphaned tasks", recovered)
+        else:
+            app.logger.info("Startup: no orphaned tasks found")
+    except Exception as e:
+        app.logger.warning("Startup: orphan recovery skipped: %s", e)
+
+
+def _async_index_knowledge_base(app):
+    """C2: Index all questions into the vector knowledge base (background thread)."""
+    def _do_index():
+        with app.app_context():
+            try:
+                from app.agents.knowledge_base import index_all_questions
+                count = index_all_questions()
+                app.logger.info("Knowledge base indexing complete: %d questions", count)
+            except Exception as e:
+                app.logger.warning("Knowledge base indexing skipped: %s", e)
+
+    threading.Thread(target=_do_index, daemon=True).start()
 
 
 def register_blueprints(app):

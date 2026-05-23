@@ -92,6 +92,21 @@ def _log_audit(user_id: int, agent_type: str, action: str, message: str,
         logger.warning("Failed to write audit log: %s", e)
 
 
+# ── Incremental Knowledge Base Indexing ──────────────────────
+
+def _maybe_index_question(question):
+    """Index a newly published question into the knowledge base (best-effort)."""
+    if not question:
+        return
+    try:
+        from app.agents.knowledge_base import get_knowledge_base
+        kb = get_knowledge_base()
+        kb.index_question(question)
+    except Exception as e:
+        logger.warning("Incremental KB indexing skipped for question %s: %s",
+                       getattr(question, "id", "?"), e)
+
+
 # ── Async Summary ────────────────────────────────────────────
 
 def _maybe_generate_summary(conv_id: int):
@@ -238,6 +253,8 @@ def _publish_question_data_as_problem(question_data: dict, created_by: int):
             is_hidden=tc_data.get("is_hidden", False),
             weight=tc_data.get("weight", 1.0),
         ))
+
+    _maybe_index_question(first_variant)
 
     return problem, first_variant
 
@@ -428,7 +445,31 @@ def chat_stream():
 
             _maybe_generate_summary(conv_id)
 
-            yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id})}\n\n"
+            done_payload = {'type': 'done', 'message_id': assistant_msg.id}
+
+            # Auto-save draft when generator produces a valid question
+            if resolved_agent_type == "generator":
+                question_data = state.get("context", {}).get("generated_question")
+                if not question_data:
+                    question_data = _try_parse_review_json(full_response)
+                if question_data:
+                    try:
+                        from app.models.generated_question_draft import GeneratedQuestionDraft
+                        draft = GeneratedQuestionDraft(
+                            teacher_id=user_id,
+                            conversation_id=conv_id,
+                            question_data=question_data,
+                            validation_status="passed" if question_data.get("verified") else "unverified",
+                            status="pending_review",
+                        )
+                        db.session.add(draft)
+                        db.session.commit()
+                        done_payload["draft_id"] = draft.id
+                        done_payload["draft_status"] = draft.validation_status
+                    except Exception as e:
+                        logger.warning("Auto-save draft failed: %s", e)
+
+            yield f"data: {json.dumps(done_payload)}\n\n"
         except Exception as e:
             db.session.rollback()
             logger.exception("AI stream error")

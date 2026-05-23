@@ -303,10 +303,10 @@ if msg_count >= 10 and not conv.summary:
 
 **文件：** `app/__init__.py`, `app/agents/recovery.py`
 
-- [ ] 在 `create_app()` 中注册一个 `before_first_request` 钩子（或在 `app_context` 初始化后直接调用）
-- [ ] 调用 `recover_orphaned_tasks()`
-- [ ] 包裹 try/except：表不存在时（如首次部署、测试环境）静默跳过
-- [ ] 添加启动日志：`"Recovered N orphaned tasks"` 或 `"No orphaned tasks found"`
+- [x] 在 `create_app()` 中注册一个 `before_first_request` 钩子（或在 `app_context` 初始化后直接调用）
+- [x] 调用 `recover_orphaned_tasks()`
+- [x] 包裹 try/except：表不存在时（如首次部署、测试环境）静默跳过
+- [x] 添加启动日志：`"Recovered N orphaned tasks"` 或 `"No orphaned tasks found"`
 
 **实现要点：**
 ```python
@@ -328,10 +328,10 @@ with app.app_context():
 
 **文件：** `app/__init__.py`, `app/agents/knowledge_base.py`
 
-- [ ] 在 `create_app()` 中，启动后台线程执行 `index_all_questions()`
-- [ ] 不阻塞应用启动（索引可能需要几十秒）
-- [ ] 添加降级保护：ChromaDB 或 sentence-transformers 未安装时静默跳过
-- [ ] 添加启动日志
+- [x] 在 `create_app()` 中，启动后台线程执行 `index_all_questions()`
+- [x] 不阻塞应用启动（索引可能需要几十秒）
+- [x] 添加降级保护：ChromaDB 或 sentence-transformers 未安装时静默跳过
+- [x] 添加启动日志
 
 **实现要点：**
 ```python
@@ -357,10 +357,10 @@ threading.Thread(target=_async_index, daemon=True).start()
 
 **文件：** `app/services/submission_service.py` 或 `app/api/v1/submissions.py`
 
-- [ ] 在提交判题结果写入 DB 后，异步调用 `MemoryService.update_student_profile(student_id)`
-- [ ] 使用 `threading.Thread` 异步执行，不阻塞判题响应
-- [ ] 添加降级保护：profile 更新失败仅记录 warning
-- [ ] 添加节流：同一学生 60 秒内最多触发 1 次更新（避免连续提交时重复计算）
+- [x] 在提交判题结果写入 DB 后，异步调用 `MemoryService.update_student_profile(student_id)`
+- [x] 使用 `threading.Thread` 异步执行，不阻塞判题响应
+- [x] 添加降级保护：profile 更新失败仅记录 warning
+- [x] 添加节流：同一学生 60 秒内最多触发 1 次更新（避免连续提交时重复计算）
 
 **实现要点：**
 ```python
@@ -393,9 +393,9 @@ def _maybe_update_profile(app, student_id):
 
 **文件：** `app/api/v1/ai.py`（题目发布端点）, `app/agents/knowledge_base.py`
 
-- [ ] 在 `GeneratedQuestionDraft` 发布为正式 `Question`/`Problem` 时，调用 `kb.index_question(question)`
-- [ ] 在教师手动创建题目时，同样调用增量索引
-- [ ] 添加降级保护：知识库不可用时不影响题目创建
+- [x] 在 `GeneratedQuestionDraft` 发布为正式 `Question`/`Problem` 时，调用 `kb.index_question(question)`
+- [x] 在教师手动创建题目时，同样调用增量索引
+- [x] 添加降级保护：知识库不可用时不影响题目创建
 
 ---
 

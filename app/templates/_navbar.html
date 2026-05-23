@@ -57,6 +57,12 @@
           <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.questions_create') }}">
             <i class="bi bi-plus-circle"></i> Create
           </a>
+          <a class="site-nav__link site-nav__link--pill" href="{{ url_for('ai_chat.chat_page', agent_type='generator') }}">
+            <i class="bi bi-magic"></i> AI Generate
+          </a>
+          <a class="site-nav__link site-nav__link--pill" href="{{ url_for('ai_chat.review_queue_page') }}">
+            <i class="bi bi-clipboard-check"></i> Review Queue
+          </a>
           <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.classrooms') }}">
             <i class="bi bi-door-open"></i> Classrooms
           </a>
@@ -126,6 +132,12 @@
           <div id="nav-teacher-tools-mobile" class="site-nav__menu-subgroup is-hidden">
             <a class="site-nav__menu-link" href="{{ url_for('teacher.questions_create') }}">
               Create Questions
+            </a>
+            <a class="site-nav__menu-link" href="{{ url_for('ai_chat.chat_page', agent_type='generator') }}">
+              <i class="bi bi-magic"></i> AI Generate
+            </a>
+            <a class="site-nav__menu-link" href="{{ url_for('ai_chat.review_queue_page') }}">
+              <i class="bi bi-clipboard-check"></i> Review Queue
             </a>
             <a class="site-nav__menu-link" href="{{ url_for('teacher.classrooms') }}">
               Classrooms

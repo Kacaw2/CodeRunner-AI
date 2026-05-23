@@ -25,6 +25,7 @@
   const welcomePanels = {
     tutor: document.getElementById("welcomeTutor"),
     reviewer: document.getElementById("welcomeReviewer"),
+    generator: document.getElementById("welcomeGenerator"),
     analytics: document.getElementById("welcomeAnalytics"),
   };
 
@@ -38,6 +39,7 @@
   const placeholders = {
     tutor: "Ask me about your code...",
     reviewer: "Paste code or ask for a review...",
+    generator: "Describe the problem you want to generate...",
     analytics: "Ask about your learning progress...",
   };
 
@@ -306,7 +308,17 @@
               last.querySelector("i").style.animation = "none";
             }
           } else if (event.type === "done") {
-            // done
+            if (event.draft_id) {
+              const banner = document.createElement("div");
+              banner.className = "draft-saved-banner";
+              banner.innerHTML =
+                '<i class="bi bi-check-circle-fill"></i> ' +
+                'Draft saved ' +
+                (event.draft_status === "passed" ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-warning text-dark">Unverified</span>') +
+                ' — <a href="/ai/review-queue">Go to Review Queue</a>';
+              bodyEl.appendChild(banner);
+              scrollToBottom();
+            }
           } else if (event.type === "error") {
             bodyEl.textContent = "Error: " + (event.message || "Unknown error");
           }
