@@ -1,22 +1,32 @@
 # AI Agents 设计文档
 
-本文档描述 CodeRunner-AI 的 AI Agent 模块设计。该模块在现有评测平台基础上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。
+本文档描述 CodeRunner-AI 的 AI Agent 模块设计与实现现状。该模块在现有评测平台基础上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。
+
+> 最后更新: 2026-05-24 · Phase A/B/C 已完成，Phase D 待实现
 
 ---
 
 ## 一、架构概览
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                Flask Web App                          │
-│  /api/v1/ai/*  端点                                   │
-└────────────────────┬─────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                   Flask Web App                          │
+│  /api/v1/ai/*  端点                                      │
+└────────────────────┬─────────────────────────────────────┘
+                     │
+    ┌────────────────▼────────────────────┐
+    │        安全层 (security.py)          │
+    │  注入检测 · 输入消毒 · 动态安全警告    │
+    │  限流 (Redis) · 审计日志              │
+    └────────────────┬────────────────────┘
                      │
          ┌───────────▼────────────┐
          │  AgentOrchestrator     │
          │  (LangGraph StateGraph)│
          │                       │
          │  route → agent → respond
+         │  (意图分类 · Schema 校验 │
+         │   Handoff 检测)         │
          └──┬──────┬──────┬──────┘
             │      │      │
      ┌──────▼┐ ┌──▼───┐ ┌▼────────┐ ┌──────────┐
@@ -25,9 +35,18 @@
      └──┬────┘ └──┬───┘ └──┬──────┘ └──┬───────┘
         │         │        │           │
      ┌──▼─────────▼────────▼───────────▼──┐
+     │        BaseAgent 管道               │
+     │  _invoke_with_tools (同步)          │
+     │  _stream_with_tools (SSE)           │
+     │  TraceCollector · 消息压缩           │
+     │  权限检查 · 安全参数注入             │
+     └────────────────┬───────────────────┘
+                      │
+     ┌────────────────▼───────────────────┐
      │          Tool Layer                 │
-     │ ExecutorTool · QuestionQueryTool    │
-     │ SubmissionQueryTool · StatsQueryTool│
+     │ execute_code · question_query       │
+     │ submission_query · analytics_query  │
+     │ knowledge_tools (RAG)               │
      └────────────────┬───────────────────┘
                       │
      ┌────────────────▼───────────────────┐
@@ -41,9 +60,10 @@
 
 1. **Agent 不直接访问数据库**，一律通过现有 Service 层的 Tool 封装
 2. **LangGraph 管理状态流转**，每个 Agent 是图中的一个节点
-3. **对话历史持久化到 MySQL**，运行时状态缓存到 Redis
+3. **对话历史持久化到数据库**，运行时状态缓存到 Redis
 4. **SSE 流式输出**，兼容现有 Jinja2 前端
 5. **Orchestrator 统一入口**，前端可指定 agent_type 或由 LLM 自动路由
+6. **Graceful Degradation**，所有新功能失败时不影响现有聊天能力
 
 ---
 
@@ -54,17 +74,21 @@
 | LLM | DeepSeek API (deepseek-chat)，兼容 OpenAI 协议 | Agent 推理引擎 |
 | Agent 编排 | LangGraph | 状态图驱动的多 Agent 流转 |
 | LLM 集成 | langchain-openai + langchain-core | Tool Calling 标准抽象（通过 OpenAI 兼容接口） |
+| 向量数据库 | ChromaDB | 知识库语义搜索 (RAG) |
+| 嵌入模型 | sentence-transformers (all-MiniLM-L6-v2) | 文本向量化 |
 | 状态缓存 | Redis 7 | 对话上下文缓存、rate limiting |
-| 对话存储 | MySQL (现有) | 对话历史持久化 |
+| 对话存储 | SQLite/MySQL (现有) | 对话历史持久化 |
 | 流式输出 | Flask SSE (stream_with_context) | 实时响应 |
 
-### 新增依赖
+### 依赖
 
 ```
 langgraph>=0.4.0
 langchain-openai>=0.3.0
 langchain-core>=0.3.0
 redis>=5.0.0
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
 ```
 
 ---
@@ -74,27 +98,43 @@ redis>=5.0.0
 ```
 app/agents/
 ├── __init__.py              # 暴露 AgentOrchestrator
-├── orchestrator.py          # LangGraph 主编排器
+├── orchestrator.py          # LangGraph 主编排器 (意图分类 · handoff · schema 校验)
 ├── state.py                 # AgentState TypedDict
-├── config.py                # AI 相关配置读取
+├── config.py                # AIConfig + 限流参数 + 模型配置
+├── exceptions.py            # AIError / LLMError / RateLimitError / ConfigError
+├── security.py              # 注入检测 · 输入消毒 · 输出过滤 · 动态安全 prompt
+├── handoff.py               # Agent 间交接检测与 prompt 附录
+├── tracing.py               # TraceCollector (AgentRun + AgentRunStep 写入)
+├── memory.py                # MemoryService (记忆上下文 · 消息压缩 · 摘要 · 画像更新)
+├── knowledge_base.py        # KnowledgeBase (ChromaDB 向量搜索)
+├── schemas.py               # Agent 输出 JSON Schema 定义与校验
+├── recovery.py              # 孤儿任务恢复 (启动时调用)
+├── batch_runner.py          # 批量题目生成任务运行器
+├── generation_pipeline.py   # 多阶段生成管线 (生成→验证→去重→质量审查)
+├── preference_learner.py    # 教师偏好自动学习
+├── task_state.py            # 任务状态常量
 ├── agents/
-│   ├── __init__.py
-│   ├── base.py              # BaseAgent 抽象基类
-│   ├── tutor.py             # 智能辅导
-│   ├── reviewer.py          # 代码审查
-│   ├── generator.py         # 自动出题
-│   └── analytics.py         # 学习分析
+│   ├── __init__.py          # 导出四个 Agent 类
+│   ├── base.py              # BaseAgent 抽象基类 (统一调用管道)
+│   ├── tutor.py             # TutorAgent — 智能辅导
+│   ├── reviewer.py          # ReviewerAgent — 代码审查
+│   ├── generator.py         # GeneratorAgent — 自动出题 (含自验证循环)
+│   └── analytics.py         # AnalyticsAgent — 学习分析
 ├── tools/
 │   ├── __init__.py
-│   ├── code_executor.py     # 包装 ExecutorService.run_code()
-│   ├── question_query.py    # 查询题目 + 测试用例
-│   ├── submission_query.py  # 查询提交历史 + 测试结果
-│   └── stats_query.py       # 查询学习统计数据
+│   ├── code_executor.py     # execute_code — 沙箱执行
+│   ├── question_query.py    # get_question_detail — 题目查询
+│   ├── submission_query.py  # get_student_submissions / get_submission_detail
+│   ├── analytics_query.py   # get_student_activity / get_class_statistics / ...
+│   ├── stats_query.py       # get_student_stats
+│   ├── knowledge_tools.py   # search_similar_questions / search_knowledge / search_error_patterns
+│   └── permissions.py       # check_tool_permission — 工具权限矩阵
 └── prompts/
     ├── __init__.py
     ├── tutor.py
     ├── reviewer.py
-    └── generator.py
+    ├── generator.py
+    └── analytics.py
 ```
 
 ---
@@ -107,20 +147,30 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]   # LangGraph 消息累加
     agent_type: Literal["tutor", "reviewer", "generator", "analytics"]
     user_id: int
-    user_role: str                            # student / teacher
+    user_role: str                            # student / teacher / admin
     context: dict                             # 请求上下文（见下表）
     tool_results: list
     final_response: str
+    validation_passed: bool                   # schema 校验结果
+    attempt: int                              # 当前重试轮次
+    task_id: str                              # 关联的 AgentTask ID
+    trace_id: str                             # TraceCollector run_id
+    parsed_output: dict                       # LLM 输出解析结果
+    previous_agents: list                     # handoff 历史
+    auto_routed: bool                         # 是否经过 LLM 自动路由
+    handoff_to: str                           # handoff 目标 agent
+    handoff_reason: str                       # handoff 原因
 ```
 
 ### context 字段说明
 
 | 场景 | context 包含 |
 |------|-------------|
-| Tutor 辅导 | `question_id`, `submission_id`, `code`, `error_status` |
-| Code Review | `question_id`, `code` |
-| 自动出题 | `topic`, `difficulty`, `language`, `quiz_id`(可选) |
-| 学习分析 | `target_student_id`, `question_id`(可选) |
+| Tutor 辅导 | `question_id`, `submission_id`, `code`, `error_status`, `language` |
+| Code Review | `question_id`, `code`, `language` |
+| 自动出题 | `topic`, `difficulty`, `language`, `quiz_id`(可选), `test_case_count`, `prompt` |
+| 学习分析 | `target_student_id`, `question_id`(可选), `period` |
+| 通用 | `conversation_id`(内部设置) |
 
 ---
 
@@ -137,20 +187,33 @@ class AgentState(TypedDict):
       └─────┴───┬───┴──────┘
                 ▼
            ┌─────────┐
-           │ respond  │  统一格式化 + 安全过滤
+           │ respond  │  Schema 校验 + Handoff 检测
            └────┬────┘
-                ▼
-               END
+                │
+         ┌──────┴──────┐
+     校验失败 &&       校验通过 /
+     attempt < 2       tutor 类型
+         │                │
+    重新执行 agent         ▼
+                        END
 ```
 
 ### 路由规则
 
 1. 前端在请求中指定 `agent_type` → 直接路由
-2. 未指定时 → `route` 节点用 Claude 做 few-shot 意图分类：
-   - 包含"帮我看看""哪里错了""怎么改" → tutor
-   - 包含"审查""review""代码质量" → reviewer
-   - 包含"出题""生成""创建题目" → generator
-   - 包含"分析""报告""薄弱" → analytics
+2. `agent_type` 为 `"auto"` 或空 → `route` 节点用 LLM 做 few-shot 意图分类
+3. `/chat/stream` 和 `/chat` 端点均支持自动路由
+
+### Handoff 机制
+
+- Agent 可在响应中请求交接到另一个 Agent（如 tutor → reviewer）
+- 最多 2 次 handoff，防止循环
+- 学生角色不允许 handoff 到 generator
+
+### Schema 校验 (Phase B3)
+
+- orchestrator `_respond` 节点对 generator/reviewer/analytics 输出做 JSON Schema 校验
+- 校验失败时自动重试（最多 2 次），耗尽后 graceful degradation
 
 ---
 
@@ -162,7 +225,7 @@ class AgentState(TypedDict):
 |------|------|
 | 面向角色 | Student |
 | 触发方式 | 提交代码后遇到 WA/RE/TLE，点击 "Ask AI" |
-| 可用工具 | ExecutorTool, QuestionQueryTool, SubmissionQueryTool |
+| 可用工具 | execute_code, get_question_detail, get_student_submissions, get_submission_detail, search_knowledge, search_error_patterns |
 
 **核心策略**：苏格拉底式教学，分级提示，绝不直接给代码。
 
@@ -185,7 +248,7 @@ class AgentState(TypedDict):
 |------|------|
 | 面向角色 | Student（提交后可选）、Teacher（查看学生代码时） |
 | 触发方式 | 点击 "AI Review" 或教师主动调用 |
-| 可用工具 | ExecutorTool, QuestionQueryTool |
+| 可用工具 | execute_code, get_question_detail |
 
 **审查维度**（按优先级）：
 1. 正确性 — 逻辑错误、边界条件
@@ -194,7 +257,7 @@ class AgentState(TypedDict):
 4. 安全性 — 缓冲区溢出、未初始化变量（C）
 5. 最佳实践 — 语言惯用法
 
-**输出格式**：结构化 JSON
+**输出格式**：结构化 JSON（经 Schema 校验）
 
 ```json
 {
@@ -217,8 +280,8 @@ class AgentState(TypedDict):
 | 属性 | 说明 |
 |------|------|
 | 面向角色 | Teacher |
-| 触发方式 | 教师在出题页面点击 "AI 生成" |
-| 可用工具 | ExecutorTool |
+| 触发方式 | 教师在出题页面点击 "AI Generate" 或通过 API |
+| 可用工具 | execute_code, search_similar_questions |
 
 **自验证流程**（关键设计）：
 
@@ -226,7 +289,7 @@ class AgentState(TypedDict):
 LLM 生成题目 + 测试用例 + 参考答案
             │
             ▼
-  ExecutorTool 运行参考答案 × 所有测试用例
+  execute_code 运行参考答案 × 所有测试用例
             │
        全部 AC? ─── No ──→ LLM 修正（最多 3 轮）
             │
@@ -236,7 +299,13 @@ LLM 生成题目 + 测试用例 + 参考答案
     返回验证通过的完整题目数据
 ```
 
-生成的数据结构直接对齐 `Question` + `TestCase` 模型，教师确认后可一键入库。
+生成的数据结构直接对齐 `Problem` + `Question` + `TestCase` 模型。
+
+**生成工作流**：
+- **单题生成**：`/api/v1/ai/generate` → GeneratorAgent → 自动保存草稿
+- **批量生成**：`/api/v1/ai/generate/batch` → BatchTaskRunner → 多个子任务
+- **多阶段管线**：`/api/v1/ai/generate/pipeline` → 生成 → 验证 → 去重 → 质量审查
+- **草稿审批**：教师审核 → 批准发布 / 请求修订 / 拒绝
 
 ### 6.4 Analytics Agent（学习分析）
 
@@ -244,7 +313,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 |------|------|
 | 面向角色 | Teacher、Student |
 | 触发方式 | 查看学习报告页面 |
-| 可用工具 | SubmissionQueryTool, StatsQueryTool, QuestionQueryTool |
+| 可用工具 | get_question_detail, get_student_submissions, get_submission_detail, get_student_stats, get_student_activity, get_class_statistics, get_question_difficulty_stats |
 
 **分析能力**：
 - 错误模式识别：统计 WA/RE/TLE 分布，找出高频错误类型
@@ -254,31 +323,161 @@ LLM 生成题目 + 测试用例 + 参考答案
 
 ---
 
-## 七、Tool 层设计
+## 七、BaseAgent 统一管道
+
+所有 Agent 继承 `BaseAgent`，共享以下能力：
+
+### 7.1 调用管道
+
+| 方法 | 用途 |
+|------|------|
+| `_invoke_with_tools(state, tools, system_ctx)` | 同步调用：LLM + 多轮工具调用循环（最多 5 轮） |
+| `_stream_with_tools(state, tools, system_ctx)` | SSE 流式调用：逐 token 推送 + 工具调用 |
+| `_run_tools(tool_calls, tools, state)` | 执行工具调用，含权限检查和重试 |
+| `_llm_invoke(llm, messages)` | LLM 调用，自动重试 2 次（指数退避） |
+| `_llm_stream(llm, messages)` | LLM 流式调用，自动重试 |
+
+### 7.2 安全机制
+
+| 机制 | 说明 |
+|------|------|
+| **工具权限检查** | `check_tool_permission(tool_name, agent_type, user_role)` 按矩阵控制 |
+| **安全参数注入** | `_inject_security()` 覆盖工具参数中的 user_id/student_id，防止越权 |
+| **动态安全警告** | `_maybe_inject_security_alert()` 注入检测命中时在 system prompt 追加警告 |
+
+### 7.3 消息处理 (Phase B)
+
+| 机制 | 说明 |
+|------|------|
+| **长对话压缩** | `compact_messages(messages, max_messages=20)` — 超过阈值时 LLM 压缩早期消息，失败时降级为截断 |
+| **对话摘要** | 消息数 ≥10 时异步生成对话摘要，存入 `AIConversation.summary` |
+
+### 7.4 追踪 (Tracing)
+
+| 机制 | 说明 |
+|------|------|
+| **TraceCollector** | 管理整个 invoke/stream 生命周期的追踪数据 |
+| **AgentRun** | 每次调用写入一条 run 记录（状态、耗时、token 数） |
+| **AgentRunStep** | 每个 LLM/工具调用步骤写入一条 step 记录 |
+| **Token 采集** | 从 LLM response 的 `response_metadata` / `usage_metadata` 提取 |
+
+---
+
+## 八、Tool 层设计
 
 每个 Tool 使用 `@tool` 装饰器，包装现有 Service 方法。
 
 | Tool | 包装的 Service | Agent 使用 |
 |------|---------------|-----------|
-| `execute_code` | `ExecutorService.run_code()` | Tutor, Review, Generator |
-| `get_question_detail` | `Question.query` + `TestCase.query` | Tutor, Review, Generator, Analytics |
+| `execute_code` | `ExecutorService.run_code()` | Tutor, Reviewer, Generator |
+| `get_question_detail` | `Question.query` + `TestCase.query` | Tutor, Reviewer, Analytics |
 | `get_student_submissions` | `SubmissionService.get_student_submissions()` | Tutor, Analytics |
-| `get_submission_detail` | `SubmissionService.get_submission_detail()` | Tutor, Review |
+| `get_submission_detail` | `SubmissionService.get_submission_detail()` | Tutor, Analytics |
 | `get_student_stats` | `TeacherStatsService` 相关方法 | Analytics |
+| `get_student_activity` | 按天聚合提交记录 | Analytics |
+| `get_class_statistics` | 教师班级统计 | Analytics |
+| `get_question_difficulty_stats` | 题目难度分布统计 | Analytics |
+| `search_similar_questions` | `KnowledgeBase.search_similar_questions()` | Generator |
+| `search_knowledge` | `KnowledgeBase.search_knowledge()` | Tutor |
+| `search_error_patterns` | `KnowledgeBase.search_error_patterns()` | Tutor |
 
 ### 安全约束
 
 - Tool 输出截断：stdout ≤ 2000 字符，stderr ≤ 1000 字符，防止 token 爆炸
-- 权限继承：Tool 内部复用调用者的 user_id 和 role 做权限检查
+- 权限继承：`_inject_security()` 强制覆盖 user_id/student_id，防止越权访问
 - 只读原则：除 Generator 生成题目入库外，所有 Tool 均为只读操作
+- 权限矩阵：`permissions.py` 定义 agent_type × user_role 的工具访问矩阵
 
 ---
 
-## 八、数据模型扩展
+## 九、安全体系
 
-新增两张表用于对话持久化：
+### 9.1 输入安全
 
-### ai_conversations
+| 层级 | 机制 | 文件 |
+|------|------|------|
+| 注入检测 | 12 种 regex 模式检测 prompt injection | `security.py:detect_injection()` |
+| 输入消毒 | 移除 `<system>` 标签和 `system:` 前缀 | `security.py:sanitize_user_input()` |
+| 动态警告 | 检测到注入时在 system prompt 追加安全提示（不阻断） | `base.py:_maybe_inject_security_alert()` |
+| 审计日志 | 注入命中时写入 `AIAuditLog` | `ai.py:_log_audit()` |
+| 限流 | Redis 实现每用户每分钟请求限制 | `ai.py:_check_rate_limit()` |
+
+### 9.2 输出安全
+
+| 层级 | 机制 | 文件 |
+|------|------|------|
+| 输出过滤 | 对学生隐藏 `is_hidden: true` 测试用例 | `security.py:filter_output()` |
+| 代码截断 | 超长代码块 (>8 行) 截断，防泄露完整解答 | `security.py:filter_output()` |
+| Schema 校验 | generator/reviewer/analytics 输出必须符合 JSON Schema | `schemas.py:validate_agent_output()` |
+
+### 9.3 限流参数
+
+| Agent | 请求数/分钟 |
+|-------|-----------|
+| tutor | 20 |
+| reviewer | 10 |
+| generator | 5 |
+| analytics | 10 |
+
+---
+
+## 十、记忆与知识系统
+
+### 10.1 记忆上下文 (`memory.py`)
+
+| 能力 | 说明 |
+|------|------|
+| **学生画像注入** | 将 `StudentProfile` 中的错误模式、薄弱知识点、提示历史注入到 system prompt |
+| **教师偏好注入** | 将 `TeacherPreference` 中的风格偏好、班级薄弱点注入到 system prompt |
+| **长对话压缩** | 超过 20 条消息时 LLM 压缩早期消息为摘要，失败时降级截断 |
+| **对话摘要** | 对话消息数 ≥10 时异步生成摘要存入数据库 |
+| **画像更新** | 提交判题后异步更新学生画像（60 秒节流） |
+
+### 10.2 知识库 (`knowledge_base.py`)
+
+基于 ChromaDB 的向量搜索，包含三个 collection：
+
+| Collection | 用途 | 数据来源 |
+|------------|------|---------|
+| `questions` | 题目相似度搜索 | 启动时自动全量索引 + 新题发布时增量索引 |
+| `knowledge_points` | 知识点搜索 (RAG) | Phase D 待填充 |
+| `error_patterns` | 错误模式搜索 | Phase D 待填充 |
+
+### 10.3 教师偏好学习 (`preference_learner.py`)
+
+- 成功生成题目后自动调用 `learn_from_generation()` 更新偏好
+- 支持手动刷新风格摘要和班级薄弱点分析
+
+---
+
+## 十一、启动集成 (Phase C)
+
+在 `create_app()` 中自动执行：
+
+| 任务 | 执行方式 | 说明 |
+|------|---------|------|
+| 孤儿任务恢复 | 同步 | 将上次崩溃时 `executing` 状态的 AgentTask 重置为 `pending` |
+| 知识库索引 | 后台线程 | 异步执行 `index_all_questions()`，不阻塞启动 |
+
+在提交判题后自动执行：
+
+| 任务 | 执行方式 | 说明 |
+|------|---------|------|
+| 学生画像更新 | 后台线程 | 异步调用 `update_student_profile()`，60 秒每学生节流 |
+
+在题目发布时自动执行：
+
+| 任务 | 执行方式 | 说明 |
+|------|---------|------|
+| 增量知识库索引 | 同步 | 调用 `kb.index_question()` 索引新发布的题目 |
+
+---
+
+## 十二、数据模型
+
+### 对话存储
+
+#### ai_conversations
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -288,10 +487,10 @@ LLM 生成题目 + 测试用例 + 参考答案
 | context_type | VARCHAR(20) | question / submission / quiz |
 | context_id | INT | 关联的业务实体 ID |
 | title | VARCHAR(200) | 对话标题（自动生成） |
-| created_at | DATETIME | |
-| updated_at | DATETIME | |
+| summary | TEXT | 对话摘要（异步生成） |
+| created_at / updated_at | DATETIME | |
 
-### ai_messages
+#### ai_messages
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -299,67 +498,202 @@ LLM 生成题目 + 测试用例 + 参考答案
 | conversation_id | INT FK→ai_conversations | |
 | role | VARCHAR(10) | user / assistant / system |
 | content | TEXT | 消息内容 |
-| tool_calls | JSON | Agent 工具调用记录（可选） |
+| tool_calls | JSON | Agent 工具调用记录 |
 | tokens_used | INT | 本次消息消耗的 token 数 |
 | created_at | DATETIME | |
 
+### 追踪
+
+#### agent_runs
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(36) PK | UUID |
+| conversation_id | INT FK | |
+| user_id | INT FK | |
+| agent_type | VARCHAR(20) | |
+| status | VARCHAR(20) | running / completed / failed |
+| tokens_input / tokens_output | INT | LLM token 消耗 |
+| total_latency_ms / llm_latency_ms / tool_latency_ms | INT | 耗时统计 |
+| tool_call_count | INT | 工具调用次数 |
+| tool_calls_json | JSON | 工具调用详情 |
+| error_type / error_message | | 错误信息 |
+| llm_retries / tool_retries | INT | 重试次数 |
+
+#### agent_run_steps
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT PK | |
+| run_id | VARCHAR(36) FK→agent_runs | |
+| step_index | INT | 步骤序号 |
+| step_type | VARCHAR(20) | llm_call / tool_call |
+| tool_name / tool_input / tool_output_preview | | 工具调用详情 |
+| llm_prompt_tokens / llm_completion_tokens | INT | 该步骤 token |
+| latency_ms | INT | 该步骤耗时 |
+| error | TEXT | |
+
+### 任务管理
+
+#### agent_tasks
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(36) PK | UUID |
+| user_id | INT FK | |
+| task_type | VARCHAR(30) | generate_batch 等 |
+| status | VARCHAR(20) | pending / executing / completed / failed |
+| agent_type | VARCHAR(20) | |
+| input_params | JSON | 输入参数 |
+| plan_steps | JSON | 分解的子步骤 |
+| current_step | INT | 当前执行到的步骤 |
+| result | JSON | 执行结果 |
+| attempt / max_attempts | INT | 重试机制 |
+
+#### generated_question_drafts
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT PK | |
+| teacher_id | INT FK | |
+| question_data | JSON | 题目完整数据 |
+| validation_status | VARCHAR(20) | passed / failed / unverified |
+| status | VARCHAR(20) | pending_review / published / rejected / revision_requested |
+| review_notes | TEXT | 教师审批备注 |
+| revision_count | INT | 修订次数 |
+| published_problem_id / published_question_id | INT FK | 发布后关联 |
+
+### 用户画像
+
+#### student_profiles
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| student_id | INT FK UNIQUE | |
+| error_patterns | JSON | WA/RE/CE/TLE/AC 统计 |
+| knowledge_map | JSON | 知识点掌握度 (0-1) |
+| recent_questions | JSON | 最近做过的题目 |
+| current_hint_level | JSON | 各题目的提示级别 |
+| learning_summary | TEXT | 学习总结 |
+| preferred_language | VARCHAR(20) | 偏好编程语言 |
+
+#### teacher_preferences
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| teacher_id | INT FK UNIQUE | |
+| preferred_difficulty / preferred_language | VARCHAR(20) | 出题偏好 |
+| preferred_topics | JSON | 偏好主题 |
+| style_notes | TEXT | AI 学习的风格摘要 |
+| class_weak_areas | JSON | 班级薄弱知识点 |
+| class_level | VARCHAR(20) | 班级水平 |
+
+### 其他
+
+#### ai_audit_logs — 安全审计日志
+#### eval_runs — 评估框架运行记录
+
 ---
 
-## 九、配置项
+## 十三、API 端点
 
-在 `app/core/config.py` 的 `Config` 类中新增：
+### 聊天
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/chat` | POST | 同步聊天，走 Orchestrator 完整管道 |
+| `/api/v1/ai/chat/stream` | POST | SSE 流式聊天，支持 auto-route + 草稿自动保存 |
+
+### 题目生成
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/generate` | POST | 单题生成（含自验证） |
+| `/api/v1/ai/generate/save` | POST | 保存生成题目到题库 |
+| `/api/v1/ai/generate/batch` | POST | 批量生成 |
+| `/api/v1/ai/generate/pipeline` | POST | 多阶段生成管线 |
+| `/api/v1/ai/generate/to-draft` | POST | 保存为草稿 |
+
+### 草稿管理
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/generate/drafts` | GET | 列出待审草稿 |
+| `/api/v1/ai/generate/drafts/<id>` | GET | 获取草稿详情 |
+| `/api/v1/ai/generate/drafts/<id>/review` | POST | 审批/拒绝/修订 |
+
+### 对话管理
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/conversations` | GET | 列出对话 |
+| `/api/v1/ai/conversations/<id>` | GET/DELETE | 获取/删除对话 |
+
+### 分析与画像
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/analytics/<student_id>` | GET | 学生学习分析报告 |
+| `/api/v1/ai/review` | POST | 结构化代码审查 |
+| `/api/v1/ai/profile` | GET/PUT | 学生画像 / 教师偏好 |
+| `/api/v1/ai/profile/refresh` | POST | 手动刷新学生画像 |
+| `/api/v1/ai/profile/refresh-style` | POST | 刷新教师风格摘要 |
+| `/api/v1/ai/profile/refresh-class-analysis` | POST | 班级薄弱点分析 |
+
+### 任务与追踪
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/tasks/<task_id>` | GET | 查询任务状态 |
+| `/api/v1/ai/tasks/<task_id>/retry` | POST | 重试失败任务 |
+| `/api/v1/ai/traces` | GET | Agent 运行追踪列表 |
+| `/api/v1/ai/traces/<run_id>` | GET | Agent 运行详情（含 steps） |
+
+### 知识库与评估
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/ai/knowledge/index` | POST | 手动触发知识库全量索引 |
+| `/api/v1/ai/evals/run` | POST | 运行评估套件 |
+| `/api/v1/ai/evals/history` | GET | 评估历史 |
+
+---
+
+## 十四、配置项
 
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
 | `DEEPSEEK_API_KEY` | (必填) | DeepSeek API 密钥 |
 | `AI_MODEL` | `deepseek-chat` | 使用的模型 |
-| `AI_MAX_TOKENS` | `4096` | 单次响应最大 token |
+| `AI_MAX_TOKENS` | `2048` | 单次响应最大 token |
 | `AI_TEMPERATURE` | `0.7` | 生成温度 |
 | `AI_RATE_LIMIT` | `20` | 每用户每分钟最大请求数 |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis 连接 |
 
 ---
 
-## 十、基础设施变更
+## 十五、开发阶段与进度
 
-### Docker Compose 新增 Redis
-
-```yaml
-redis:
-  image: redis:7-alpine
-  container_name: educode_redis
-  restart: unless-stopped
-  ports:
-    - "6379:6379"
-  volumes:
-    - redis_data:/data
-  networks:
-    - educode_network
-```
-
-### Flask App 变更
-
-- `app/__init__.py`：注册 `ai_bp` 蓝图
-- `app/core/extensions.py`：初始化 Redis 连接
-- `app/core/config.py`：新增 AI 相关配置项
-
----
-
-## 十一、开发阶段
-
-| 阶段 | 内容 | 产出 |
+| 阶段 | 内容 | 状态 |
 |------|------|------|
-| Phase 1 | 骨架搭建：agents 包结构、State 定义、Config、数据库迁移、Redis 容器 | 可运行的空 Agent 框架 |
-| Phase 2 | Tutor Agent 完整实现 + `/api/v1/ai/chat` + SSE 流式 + 前端聊天面板 | 学生可用的 AI 辅导功能 |
-| Phase 3 | Review Agent + Generator Agent（含自验证循环） | 代码审查 + AI 出题 |
-| Phase 4 | Analytics Agent + 对话历史 + 完整前端集成 | 学习分析报告 |
-| Phase 5 | Prompt 调优、错误处理、Rate Limiting、测试 | 生产就绪 |
+| Phase 1 | 骨架搭建：agents 包结构、State、Config、数据库迁移、Redis | ✅ 完成 |
+| Phase 2 | Tutor Agent + `/chat` + SSE 流式 + 前端聊天面板 | ✅ 完成 |
+| Phase 3 | Review + Generator + Analytics + 画像 + 知识库 + 评估框架 | ✅ 完成 |
+| Phase 4 | 生成管线 + 草稿工作流 + 批量生成 + 偏好学习 | ✅ 完成 |
+| Phase A | 安全修复：输出过滤、stream 追踪/handoff、Generator 统一管道、注入增强 | ✅ 完成 (A5 stream 路径待补) |
+| Phase B | 死代码激活：消息压缩、对话摘要、Schema 校验、TraceStep 写入、Token 采集 | ✅ 完成 |
+| Phase C | 启动集成：孤儿恢复、自动索引、画像自动更新、增量索引 | ✅ 完成 |
+| Phase D | RAG 深度集成：知识库种子数据、教师知识库管理 API | ❌ 未开始 |
 
 ---
 
-## 十二、相关文档
+## 十六、相关文档
 
 - AI API 端点参考：[AI_API.md](AI_API.md)
+- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](AI_AGENTS_STATUS.md)
+- Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](AGENT_ENHANCEMENT_GUIDE.md)
+- 模块审计报告：[ai-agents-module-audit.md](superpowers/plans/ai-agents-module-audit.md)
+- 集成修复计划：[2026-05-23-agent-module-integration.md](superpowers/plans/2026-05-23-agent-module-integration.md)
 - 系统架构总览：[ARCHITECTURE.md](ARCHITECTURE.md)
 - 现有 REST API：[API.md](API.md)
 - 代码沙箱：[EXECUTOR.md](EXECUTOR.md)
