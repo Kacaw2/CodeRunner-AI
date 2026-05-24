@@ -195,7 +195,7 @@
       data.messages.forEach((m) => {
         appendMessage(m.role, m.content);
       });
-      scrollToBottom();
+      scrollToBottom(true);
 
       // Highlight active conversation
       document.querySelectorAll(".conv-item").forEach((el) => el.classList.remove("active"));
@@ -239,7 +239,8 @@
     const assistantEl = appendMessage("assistant", "");
     const bodyEl = assistantEl.querySelector(".msg-body");
     bodyEl.innerHTML = '<div class="thinking-label"><span class="thinking-dot"></span> Thinking...</div>';
-    scrollToBottom();
+    userScrolledUp = false;  // Reset scroll tracking on new message
+    scrollToBottom(true);
 
     // SSE events container
     const sseContainer = document.createElement("div");
@@ -330,6 +331,29 @@
               bodyEl.appendChild(sseContainer);
             }
             scrollToBottom();
+          } else if (event.type === "replace") {
+            // Generator retries: replace all previous content with final result
+            fullText = event.content;
+            bodyEl.innerHTML = renderMarkdown(fullText);
+            if (sseContainer.parentNode !== bodyEl && sseEventCount > 0) {
+              sseContainer.style.display = "";
+              bodyEl.appendChild(sseContainer);
+            }
+            scrollToBottom();
+          } else if (event.type === "handoff" || event.type === "handoff_start") {
+            // Agent handoff: show indicator and prepare for new agent's response
+            const target = event.target || "";
+            const reason = event.reason || "";
+            addSseEvent("handoff", "Handing off to " + target + (reason ? ": " + reason : ""));
+            if (event.type === "handoff_start") {
+              // Add a visual separator for the new agent's response
+              fullText += "\n\n---\n\n";
+              bodyEl.innerHTML = renderMarkdown(fullText);
+              if (sseContainer.parentNode !== bodyEl && sseEventCount > 0) {
+                sseContainer.style.display = "";
+                bodyEl.appendChild(sseContainer);
+              }
+            }
           } else if (event.type === "tool_call") {
             const thinkingEl = bodyEl.querySelector(".thinking-label");
             if (thinkingEl) thinkingEl.innerHTML = '<span class="thinking-dot"></span> Working...';
@@ -401,8 +425,21 @@
     return div;
   }
 
-  function scrollToBottom() {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+  let userScrolledUp = false;
+
+  // Track if user has manually scrolled up during streaming
+  if (chatMessages) {
+    chatMessages.addEventListener("scroll", function () {
+      const threshold = 60;
+      const atBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < threshold;
+      userScrolledUp = !atBottom;
+    });
+  }
+
+  function scrollToBottom(force) {
+    if (force || !userScrolledUp) {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
   }
 
   function escapeHtml(s) {

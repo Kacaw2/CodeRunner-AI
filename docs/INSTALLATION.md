@@ -14,7 +14,7 @@
 
 ```bash
 docker --version
-docker-compose --version
+docker compose version
 docker ps
 ```
 
@@ -24,13 +24,13 @@ docker ps
 
 ```bash
 # 1. 启动所有服务（首次运行会构建镜像）
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose up -d --build
 
 # 2. 等待 30 秒服务初始化
 sleep 30
 
 # 3. 初始化数据库 + 注入示例数据
-docker-compose -f docker/docker-compose.yml exec web \
+docker compose exec web \
   python -m app.core.init_db --drop --seed
 ```
 
@@ -90,26 +90,26 @@ USE_DOCKER=false
 
 ```bash
 # 仅建表（空库）
-docker-compose -f docker/docker-compose.yml exec web python -m app.core.init_db
+docker compose exec web python -m app.core.init_db
 
 # 建表 + seed
-docker-compose -f docker/docker-compose.yml exec web python -m app.core.init_db --seed
+docker compose exec web python -m app.core.init_db --seed
 
 # 推荐：清库重建 + seed
-docker-compose -f docker/docker-compose.yml exec web python -m app.core.init_db --drop --seed
+docker compose exec web python -m app.core.init_db --drop --seed
 
 # 跳过确认
-docker-compose -f docker/docker-compose.yml exec web python -m app.core.init_db --drop --seed --force
+docker compose exec web python -m app.core.init_db --drop --seed --force
 ```
 
 迁移管理（Alembic）：
 
 ```bash
 # 生成迁移
-docker-compose exec web flask db migrate -m "add foo column"
+docker compose exec web flask db migrate -m "add foo column"
 
 # 应用迁移
-docker-compose exec web flask db upgrade
+docker compose exec web flask db upgrade
 ```
 
 ---
@@ -118,23 +118,23 @@ docker-compose exec web flask db upgrade
 
 ```bash
 # 查看日志
-docker-compose -f docker/docker-compose.yml logs -f web
-docker-compose -f docker/docker-compose.yml logs -f db
+docker compose logs -f web
+docker compose logs -f db
 
 # 重启服务
-docker-compose -f docker/docker-compose.yml restart web
+docker compose restart web
 
 # 停止（保留数据）
-docker-compose -f docker/docker-compose.yml stop
+docker compose stop
 
 # 停止 + 删除容器（保留 volume）
-docker-compose -f docker/docker-compose.yml down
+docker compose down
 
 # 完全清理（包括数据卷）
-docker-compose -f docker/docker-compose.yml down -v
+docker compose down -v
 
 # 重新构建（代码变更后）
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose up -d --build
 ```
 
 ### Makefile 快捷方式
@@ -188,9 +188,9 @@ lsof -i :9900       # 找出占用进程
 ### 容器起不来
 
 ```bash
-docker-compose -f docker/docker-compose.yml logs        # 看错误
-docker-compose -f docker/docker-compose.yml down -v      # 清理后重建
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose logs        # 看错误
+docker compose down -v      # 清理后重建
+docker compose up -d --build
 ```
 
 ### 数据库连接失败
@@ -198,16 +198,16 @@ docker-compose -f docker/docker-compose.yml up -d --build
 通常是初始化没完成。等 30 秒后再试：
 
 ```bash
-docker-compose -f docker/docker-compose.yml ps db
+docker compose ps db
 # STATE 应显示 healthy
 ```
 
-如仍失败，检查 `.env` 中 `MYSQL_*` 与 `docker-compose.yml` 是否一致。
+如仍失败，检查 `.env` 中 `MYSQL_*` 与 `compose.yaml` 是否一致。
 
 ### 验证数据库
 
 ```bash
-docker-compose -f docker/docker-compose.yml exec web python -c "
+docker compose exec web python -c "
 from app import create_app
 from app.models.user import User
 app = create_app()

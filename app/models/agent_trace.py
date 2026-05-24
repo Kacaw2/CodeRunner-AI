@@ -43,6 +43,8 @@ class AgentRun(db.Model):
             "user_id": self.user_id,
             "agent_type": self.agent_type,
             "status": self.status,
+            "input_message": self.input_message,
+            "output_response": self.output_response,
             "total_latency_ms": self.total_latency_ms,
             "llm_latency_ms": self.llm_latency_ms,
             "tool_latency_ms": self.tool_latency_ms,

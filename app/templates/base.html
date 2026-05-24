@@ -19,7 +19,7 @@
 
     {% include "_navbar.html" %}
 
-    <main class="container">
+    <main class="site-main">
         {% block content %}{% endblock %}
     </main>
     <script>
@@ -28,19 +28,19 @@
     <!-- <script src="{{ url_for('static', filename='js/app.js') }}"></script> -->
 
     <script>
-        (function() {
+        (function () {
             const token = localStorage.getItem('token');
             if (token) {
                 // stop all fetch 
                 const originalFetch = window.fetch;
-                window.fetch = function(url, options = {}) {
+                window.fetch = function (url, options = {}) {
                     options.headers = options.headers || {};
                     if (!options.headers['Authorization'] && token) {
                         options.headers['Authorization'] = `Bearer ${token}`;
                     }
                     return originalFetch(url, options);
                 };
-                
+
 
             }
         })();

@@ -274,6 +274,11 @@ def chat():
 
     agent_type = data.get("agent_type", "tutor")
 
+    # Restrict generator agent to teacher/admin only
+    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+    if agent_type == "generator" and user_role_str not in ("teacher", "admin"):
+        return _error_response("forbidden", "Only teachers can use the generator agent.", 403)
+
     is_suspicious, pattern = detect_injection(message)
     if is_suspicious:
         logger.warning("Potential injection from user %d: pattern=%s", user.id, pattern)
@@ -361,6 +366,11 @@ def chat_stream():
 
     agent_type = data.get("agent_type", "tutor")
 
+    # Restrict generator agent to teacher/admin only
+    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+    if agent_type == "generator" and user_role_str not in ("teacher", "admin"):
+        return _error_response("forbidden", "Only teachers can use the generator agent.", 403)
+
     is_suspicious, pattern = detect_injection(message)
     if is_suspicious:
         logger.warning("Potential injection from user %d (stream): pattern=%s", user.id, pattern)
@@ -397,7 +407,7 @@ def chat_stream():
     def generate():
         from langchain_core.messages import HumanMessage
         from app.agents.agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
-        from app.agents.orchestrator import _classify_intent
+        from app.agents.orchestrator import _classify_intent, MAX_HANDOFFS
 
         _AGENT_MAP = {
             "tutor": TutorAgent,
@@ -430,6 +440,8 @@ def chat_stream():
         agent = agent_cls()
         full_response = ""
         last_event_time = time.monotonic()
+        handoff_count = 0
+        previous_agents = []
         try:
             for event in agent.stream(state):
                 if event["type"] == "token":
@@ -439,6 +451,40 @@ def chat_stream():
                 if now - last_event_time > 10:
                     yield ": heartbeat\n\n"
                 last_event_time = now
+
+            # ── Handle handoff: invoke the target agent if requested ──
+            previous_agents.append(resolved_agent_type)
+            while (state.get("handoff_to")
+                   and handoff_count < MAX_HANDOFFS
+                   and state["handoff_to"] in _AGENT_MAP
+                   and state["handoff_to"] not in previous_agents):
+
+                target_type = state["handoff_to"]
+                handoff_reason = state.get("handoff_reason", "")
+                state["handoff_to"] = None
+                state["handoff_reason"] = None
+                state["agent_type"] = target_type
+
+                # Notify frontend of the handoff
+                yield f"data: {json.dumps({'type': 'handoff_start', 'target': target_type, 'reason': handoff_reason})}\n\n"
+
+                target_agent_cls = _AGENT_MAP.get(target_type, TutorAgent)
+                target_agent = target_agent_cls()
+
+                # Continue with accumulated messages from the previous agent
+                full_response = ""
+                for event in target_agent.stream(state):
+                    if event["type"] == "token":
+                        full_response += event["content"]
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    now = time.monotonic()
+                    if now - last_event_time > 10:
+                        yield ": heartbeat\n\n"
+                    last_event_time = now
+
+                previous_agents.append(target_type)
+                resolved_agent_type = target_type
+                handoff_count += 1
 
             if not full_response:
                 full_response = state.get("final_response", "")

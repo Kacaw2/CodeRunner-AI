@@ -1,0 +1,121 @@
+name: docker
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: educode_db
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+08:00
+      --max_connections=200
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educode_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: educode_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educode_network
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: educode_web
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      FLASK_APP: run.py
+      FLASK_ENV: ${FLASK_ENV:-production}
+      DEBUG: ${DEBUG:-False}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+
+      MYSQL_USER: ${MYSQL_USER:-educode}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
+
+      EXECUTOR_TMP_DIR: /tmp/executor
+      EXECUTOR_MAX_MEMORY_MB: 256
+      EXECUTOR_DEFAULT_TIMEOUT: 2.0
+      EXECUTOR_MAX_STDOUT: 10000
+      EXECUTOR_MAX_STDERR: 4000
+      USE_DOCKER: "false"
+
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2048}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20}
+      REDIS_URL: redis://redis:6379/0
+
+      MAX_CONTENT_LENGTH: 16777216
+      UPLOAD_FOLDER: /app/uploads
+    volumes:
+      - ./app:/app/app:ro
+      - ./scripts:/app/scripts:ro
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - executor_tmp:/tmp/executor
+      - kb_data:/app/data/knowledge_base
+    ports:
+      - "${WEB_PORT:-9900}:9900"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9900/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - educode_network
+    env_file:
+      - .env
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  executor_tmp:
+    driver: local
+  kb_data:
+    driver: local
+
+networks:
+  educode_network:
+    driver: bridge

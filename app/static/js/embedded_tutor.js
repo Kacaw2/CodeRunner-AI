@@ -94,6 +94,7 @@
   function streamResponse(payload) {
     isStreaming = true;
     sendBtn.disabled = true;
+    userScrolledUp = false;  // Reset scroll tracking on new message
     statusEl.textContent = 'Thinking...';
     statusEl.classList.add('streaming');
 
@@ -208,6 +209,14 @@
           fullContent += event.content;
           assistantBubble.innerHTML = renderMarkdown(fullContent);
           scrollToBottom();
+        } else if (event.type === 'handoff' || event.type === 'handoff_start') {
+          var target = event.target || '';
+          var reason = event.reason || '';
+          addSseEvent('handoff', 'Handing off to ' + target + (reason ? ': ' + reason : ''));
+          if (event.type === 'handoff_start' && assistantBubble) {
+            fullContent += '\n\n---\n\n';
+            assistantBubble.innerHTML = renderMarkdown(fullContent);
+          }
         } else if (event.type === 'tool_call') {
           if (thinkingEl.parentNode) {
             thinkingEl.innerHTML = '<span class="thinking-dot"></span> Working...';
@@ -255,8 +264,20 @@
     scrollToBottom();
   }
 
-  function scrollToBottom() {
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  let userScrolledUp = false;
+
+  if (messagesDiv) {
+    messagesDiv.addEventListener("scroll", function () {
+      const threshold = 60;
+      const atBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < threshold;
+      userScrolledUp = !atBottom;
+    });
+  }
+
+  function scrollToBottom(force) {
+    if (force || !userScrolledUp) {
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
   }
 
   function getEditorCode() {

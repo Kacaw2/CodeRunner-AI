@@ -22,7 +22,9 @@
         <option value="">All Types</option>
         <option value="tutor">Tutor</option>
         <option value="reviewer">Review</option>
+        {% if user_role in ('teacher', 'admin') %}
         <option value="generator">Generator</option>
+        {% endif %}
         <option value="analytics">Analytics</option>
       </select>
     </div>
@@ -46,7 +48,9 @@
         <select class="form-select form-select-sm" id="agentType">
           <option value="tutor">Tutor</option>
           <option value="reviewer">Code Review</option>
+          {% if user_role in ('teacher', 'admin') %}
           <option value="generator">AI Generate</option>
+          {% endif %}
           <option value="analytics">Analytics</option>
         </select>
       </div>

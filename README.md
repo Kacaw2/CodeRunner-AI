@@ -52,11 +52,11 @@
 
 ```bash
 # 1. 启动（首次会构建镜像）
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose up -d --build
 sleep 30
 
 # 2. 初始化数据库 + 注入示例数据
-docker-compose -f docker/docker-compose.yml exec web \
+docker compose exec web \
   python -m app.core.init_db --drop --seed
 
 # 3. 打开浏览器
@@ -92,6 +92,7 @@ open http://localhost:9900
 
 ```
 CodeRunner/
+├── compose.yaml
 ├── app/
 │   ├── __init__.py            # create_app() 工厂 + 17 蓝图注册
 │   ├── core/                  # config / extensions / executor / executor_client / init_db
@@ -112,7 +113,6 @@ CodeRunner/
 │   └── utils/                 # 通用工具（pagination 等）
 ├── docker/
 │   ├── Dockerfile
-│   ├── docker-compose.yml
 │   ├── entrypoint.sh
 │   └── init.sql
 ├── migrations/                # Alembic 迁移

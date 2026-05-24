@@ -36,8 +36,8 @@ tests/cypress/
 
 ```bash
 # 1. 后端跑在 http://localhost:9900
-docker-compose -f docker/docker-compose.yml up -d
-docker-compose exec web python -m app.core.init_db --drop --seed --force
+docker compose up -d
+docker compose exec web python -m app.core.init_db --drop --seed --force
 
 # 2. 安装 Node 依赖
 npm install

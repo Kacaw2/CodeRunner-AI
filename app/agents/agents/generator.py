@@ -260,7 +260,10 @@ class GeneratorAgent(BaseAgent):
                                 llm_step["completion_tokens"] = llm_step.get("completion_tokens", 0) + output_tokens
                             if chunk.content:
                                 collected += chunk.content
-                                yield {"type": "token", "content": chunk.content}
+                                # Only stream tokens to frontend on the first round;
+                                # retry rounds are internal self-validation, not user-facing.
+                                if round_num == 0:
+                                    yield {"type": "token", "content": chunk.content}
                 except LLMError as e:
                     if round_num == 0:
                         yield {"type": "error", "message": e.user_message}
@@ -331,6 +334,10 @@ class GeneratorAgent(BaseAgent):
                 state["context"]["generated_question"] = question_data
                 wrapped = json.dumps({"question": question_data}, ensure_ascii=False, indent=2)
                 state["final_response"] = wrapped
+                # If validation required retries, the frontend only saw the first (failed)
+                # round's tokens. Send a replace event with the final verified JSON.
+                if round_num > 0:
+                    yield {"type": "replace", "content": wrapped}
             else:
                 state["final_response"] = collected
 
