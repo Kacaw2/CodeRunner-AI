@@ -26,6 +26,10 @@ class TutorAgent(BaseAgent):
         if memory_ctx:
             parts.append(f"\n## Student Profile (from previous sessions)\n{memory_ctx}")
 
+        kb_context = self._get_kb_context(state)
+        if kb_context:
+            parts.append(kb_context)
+
         if state.get("user_id"):
             parts.append(f"\nCurrent student's user ID (use as student_id for tools): {state['user_id']}")
         if context.get("question_id"):
@@ -36,6 +40,40 @@ class TutorAgent(BaseAgent):
             parts.append(f"Error status: {context['error_status']}")
         if context.get("code"):
             parts.append(f"\nStudent's current code:\n```\n{context['code']}\n```")
+        return "\n".join(parts)
+
+    def _get_kb_context(self, state: dict) -> str:
+        """Retrieve relevant knowledge and error patterns from the KB based on context."""
+        try:
+            from app.agents.knowledge_base import get_knowledge_base
+            kb = get_knowledge_base()
+        except Exception:
+            return ""
+
+        parts = []
+        context = state.get("context", {})
+        messages = state.get("messages", [])
+        last_msg = messages[-1].content if messages else ""
+
+        error_status = context.get("error_status", "")
+        if error_status:
+            query = f"{error_status} {context.get('code', '')[:200]}"
+            patterns = kb.search_error_patterns(query, n=2)
+            if patterns:
+                parts.append("\n## Relevant Error Patterns (from knowledge base)")
+                for p in patterns:
+                    parts.append(f"- {p[:300]}")
+                parts.append("Use these patterns to guide your diagnosis — do NOT paste them verbatim to the student.")
+
+        topic_query = context.get("topic") or last_msg[:200]
+        if topic_query:
+            knowledge = kb.search_knowledge(topic_query, n=2)
+            if knowledge:
+                parts.append("\n## Relevant Knowledge Points (from knowledge base)")
+                for k in knowledge:
+                    parts.append(f"- {k[:300]}")
+                parts.append("Reference these for accuracy, but explain in your own words using Socratic method.")
+
         return "\n".join(parts)
 
     def invoke(self, state: AgentState) -> AgentState:

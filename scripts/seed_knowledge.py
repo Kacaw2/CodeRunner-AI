@@ -435,8 +435,21 @@ def register_cli(app):
             raise SystemExit(1)
 
         if force:
-            kb.error_patterns.delete(where={})
-            kb.knowledge.delete(where={})
+            ep_count = kb.error_patterns.count()
+            kp_count_existing = kb.knowledge.count()
+            if ep_count + kp_count_existing > 0:
+                if not click.confirm(
+                    f"This will delete {ep_count} error patterns and "
+                    f"{kp_count_existing} knowledge points. Continue?"
+                ):
+                    click.echo("Aborted.")
+                    return
+            all_ep_ids = kb.error_patterns.get()["ids"]
+            if all_ep_ids:
+                kb.error_patterns.delete(ids=all_ep_ids)
+            all_kp_ids = kb.knowledge.get()["ids"]
+            if all_kp_ids:
+                kb.knowledge.delete(ids=all_kp_ids)
             click.echo("Cleared existing collections.")
 
         err_count = seed_error_patterns(kb)

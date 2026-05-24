@@ -1,0 +1,244 @@
+<!-- app/templates/teacher/knowledge_manage.html -->
+{% extends "base.html" %}
+{% set page = 'knowledge' %}
+{% block title %}Knowledge Base Management · Teacher{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="mb-1"><i class="bi bi-book"></i> Knowledge Base Management</h2>
+      <p class="text-muted mb-0">Add, search, and manage knowledge points and error patterns</p>
+    </div>
+    <div>
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addKnowledgeModal">
+        <i class="bi bi-plus-circle"></i> Add Knowledge Point
+      </button>
+      <a href="{{ url_for('teacher.profile') }}" class="btn btn-outline-secondary ms-2">
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Search Knowledge Base</label>
+          <input type="text" class="form-control" id="searchQuery"
+                 placeholder="e.g. linked list, array out of bounds, recursion...">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Category</label>
+          <select class="form-select" id="searchCategory">
+            <option value="">All</option>
+            <option value="knowledge">Knowledge Points</option>
+            <option value="error_pattern">Error Patterns</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button class="btn btn-primary w-100" id="searchBtn">
+            <i class="bi bi-search"></i> Search
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search Results -->
+  <div id="searchResults" class="d-none">
+    <h5 class="mb-3">Search Results</h5>
+    <div id="knowledgeResults" class="mb-3"></div>
+    <div id="errorResults"></div>
+  </div>
+
+  <!-- Stats -->
+  <div class="row g-3 mb-4" id="statsRow">
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-primary" id="statKnowledge">-</h4>
+          <small class="text-muted">Knowledge Points</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-warning" id="statErrors">-</h4>
+          <small class="text-muted">Error Patterns</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-success" id="statQuestions">-</h4>
+          <small class="text-muted">Indexed Questions</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Knowledge Modal -->
+<div class="modal fade" id="addKnowledgeModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Knowledge Point</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="addKnowledgeForm">
+          <div class="mb-3">
+            <label class="form-label">Category <span class="text-danger">*</span></label>
+            <select class="form-select" id="addCategory" required>
+              <option value="concept">Concept</option>
+              <option value="data_structure">Data Structure</option>
+              <option value="algorithm">Algorithm</option>
+              <option value="programming_basics">Programming Basics</option>
+              <option value="error_pattern">Error Pattern</option>
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="errorTypeGroup">
+            <label class="form-label">Error Type</label>
+            <select class="form-select" id="addErrorType">
+              <option value="CE">CE (Compilation Error)</option>
+              <option value="RE">RE (Runtime Error)</option>
+              <option value="WA">WA (Wrong Answer)</option>
+              <option value="TLE">TLE (Time Limit Exceeded)</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Topic <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="addTopic" required
+                   placeholder="e.g. Binary Search, IndexError: list index out of range">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Content <span class="text-danger">*</span></label>
+            <textarea class="form-control" id="addContent" rows="6" required
+                      placeholder="Detailed explanation, common causes, fixes, examples..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveKnowledgeBtn">
+          <i class="bi bi-check-circle"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const API = window.API_BASE || '';
+
+  // Toggle error type selector
+  document.getElementById('addCategory').addEventListener('change', e => {
+    document.getElementById('errorTypeGroup').classList.toggle('d-none', e.target.value !== 'error_pattern');
+  });
+
+  // Search
+  document.getElementById('searchBtn').addEventListener('click', doSearch);
+  document.getElementById('searchQuery').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
+
+  async function doSearch() {
+    const query = document.getElementById('searchQuery').value.trim();
+    if (!query) return;
+    const category = document.getElementById('searchCategory').value;
+    const params = new URLSearchParams({ query, n: 10 });
+    if (category) params.set('category', category);
+
+    try {
+      const resp = await fetch(`${API}/api/v1/ai/knowledge/search?${params}`);
+      const data = await resp.json();
+      renderResults(data);
+    } catch (err) {
+      alert('Search failed: ' + err.message);
+    }
+  }
+
+  function renderResults(data) {
+    const container = document.getElementById('searchResults');
+    container.classList.remove('d-none');
+
+    const kpDiv = document.getElementById('knowledgeResults');
+    const epDiv = document.getElementById('errorResults');
+    kpDiv.innerHTML = '';
+    epDiv.innerHTML = '';
+
+    const kps = data.knowledge_points || [];
+    if (kps.length) {
+      kpDiv.innerHTML = '<h6 class="text-primary">Knowledge Points</h6>' +
+        kps.map((text, i) => `
+          <div class="card mb-2">
+            <div class="card-body py-2 px-3">
+              <small class="text-muted">#${i + 1}</small>
+              <p class="mb-0">${escapeHtml(text)}</p>
+            </div>
+          </div>`).join('');
+    }
+
+    const eps = data.error_patterns || [];
+    if (eps.length) {
+      epDiv.innerHTML = '<h6 class="text-warning">Error Patterns</h6>' +
+        eps.map((text, i) => `
+          <div class="card mb-2 border-warning">
+            <div class="card-body py-2 px-3">
+              <small class="text-muted">#${i + 1}</small>
+              <p class="mb-0">${escapeHtml(text)}</p>
+            </div>
+          </div>`).join('');
+    }
+
+    if (!kps.length && !eps.length) {
+      kpDiv.innerHTML = '<p class="text-muted">No results found.</p>';
+    }
+  }
+
+  // Add knowledge point
+  document.getElementById('saveKnowledgeBtn').addEventListener('click', async () => {
+    const topic = document.getElementById('addTopic').value.trim();
+    const content = document.getElementById('addContent').value.trim();
+    const category = document.getElementById('addCategory').value;
+    if (!topic || !content) { alert('Topic and content are required.'); return; }
+
+    const body = { topic, content, category };
+    if (category === 'error_pattern') {
+      body.error_type = document.getElementById('addErrorType').value;
+    }
+
+    try {
+      const resp = await fetch(`${API}/api/v1/ai/knowledge/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        alert('Knowledge point added successfully!');
+        bootstrap.Modal.getInstance(document.getElementById('addKnowledgeModal')).hide();
+        document.getElementById('addKnowledgeForm').reset();
+      } else {
+        alert('Error: ' + (data.message || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Save failed: ' + err.message);
+    }
+  });
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+});
+</script>
+{% endblock %}

@@ -97,6 +97,10 @@ class GeneratorAgent(BaseAgent):
         if memory_ctx:
             parts.append(f"\n## Teacher Preferences (from profile)\n{memory_ctx}")
 
+        similar = self._get_similar_questions(state)
+        if similar:
+            parts.append(similar)
+
         if context.get("language"):
             parts.append(f"\nTarget programming language: {context['language']}")
         if context.get("difficulty"):
@@ -106,6 +110,36 @@ class GeneratorAgent(BaseAgent):
         test_count = context.get("test_case_count", 5)
         parts.append(f"Required test cases: at least {test_count} (mix of visible and hidden)")
         return "\n".join(parts)
+
+    def _get_similar_questions(self, state: dict) -> str:
+        """Pre-fetch similar questions from KB for dedup awareness."""
+        try:
+            from app.agents.knowledge_base import get_knowledge_base
+            kb = get_knowledge_base()
+        except Exception:
+            return ""
+
+        context = state.get("context", {})
+        messages = state.get("messages", [])
+        query = context.get("topic", "")
+        if not query and messages:
+            query = messages[-1].content[:200]
+        if not query:
+            return ""
+
+        language = context.get("language", "python")
+        results = kb.search_similar_questions(query, n=3, language=language)
+        if not results:
+            return ""
+
+        lines = ["\n## Existing Similar Questions (avoid duplication)"]
+        for r in results:
+            sim = r.get("similarity", 0)
+            title = r.get("title", "untitled")
+            preview = r.get("text_preview", "")[:100]
+            lines.append(f"- [{sim:.0%} similar] {title}: {preview}...")
+        lines.append("Generate a question that is distinct from the above. Vary the scenario, constraints, or algorithm.")
+        return "\n".join(lines)
 
     def invoke(self, state: AgentState) -> AgentState:
         context = state.get("context", {})

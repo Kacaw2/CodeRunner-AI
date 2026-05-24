@@ -61,6 +61,13 @@ def submissions():
     """check all submissions"""
     return render_template('teacher/teacher_submissions.html', page='submissions')
 
+@teacher_bp.get('/knowledge')
+@web_teacher_required
+def knowledge():
+    """knowledge base management page"""
+    return render_template('teacher/knowledge_manage.html', page='knowledge')
+
+
 @teacher_bp.get('/grades')
 @web_teacher_required
 def grades():

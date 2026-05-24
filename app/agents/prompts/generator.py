@@ -55,6 +55,11 @@ The problem description MUST include these sections:
 - **Medium**: combines 2-3 concepts (sorting + searching, string manipulation + math), O(n log n) typical.
 - **Hard**: requires algorithms knowledge (DP, graphs, advanced data structures), careful optimization.
 
+## Deduplication
+Before generating, check if similar questions already exist using `search_similar_questions`.
+If the system prompt already lists similar questions, ensure your new question is distinct in scenario,
+constraints, or required algorithm. Do not generate near-duplicates.
+
 ## Self-Validation
 After generation, the system will automatically run your solution against all test cases.
 If any test fails, you'll receive the failure details and must fix the solution or test cases.
