@@ -18,7 +18,8 @@ def search_similar_questions(query: str, language: str = "python", limit: int = 
 @tool
 def search_knowledge(query: str) -> dict:
     """Search course knowledge base for relevant concepts, patterns, or explanations.
-    Use this to provide accurate, curriculum-aligned explanations to students."""
+    Use this to provide accurate, curriculum-aligned explanations to students.
+    Returns structured results with topic, category, content, and relevance score."""
     from app.agents.knowledge_base import get_knowledge_base
 
     try:
@@ -32,7 +33,7 @@ def search_knowledge(query: str) -> dict:
 @tool
 def search_error_patterns(query: str) -> dict:
     """Search for common error patterns similar to the student's issue.
-    Returns explanations and typical fixes for similar errors."""
+    Returns structured results with error_type, content, and relevance score."""
     from app.agents.knowledge_base import get_knowledge_base
 
     try:

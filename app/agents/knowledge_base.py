@@ -20,12 +20,18 @@ class KnowledgeBase:
         self.client = chromadb.PersistentClient(path=persist_dir)
         self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-        self.questions = self.client.get_or_create_collection("questions")
-        self.knowledge = self.client.get_or_create_collection("knowledge_points")
-        self.error_patterns = self.client.get_or_create_collection("error_patterns")
+        self.questions = self.client.get_or_create_collection(
+            "questions", metadata={"hnsw:space": "cosine"},
+        )
+        self.knowledge = self.client.get_or_create_collection(
+            "knowledge_points", metadata={"hnsw:space": "cosine"},
+        )
+        self.error_patterns = self.client.get_or_create_collection(
+            "error_patterns", metadata={"hnsw:space": "cosine"},
+        )
 
     def index_question(self, question):
-        """Add a question to the vector store for similarity search."""
+        """Add a question to the vector store for similarity search (legacy, per-variant)."""
         text = f"{question.title}\n{question.description}"
         embedding = self.embedder.encode(text).tolist()
         self.questions.upsert(
@@ -36,6 +42,23 @@ class KnowledgeBase:
                 "question_id": question.id,
                 "language": question.programming_language or "python",
                 "title": question.title or "",
+            }],
+        )
+
+    def index_problem(self, problem):
+        """Index a problem (not per-variant) into the vector store."""
+        text = f"{problem.title}\n{problem.description}"
+        embedding = self.embedder.encode(text).tolist()
+        languages = [v.programming_language for v in problem.variants] if problem.variants else []
+        self.questions.upsert(
+            ids=[f"problem_{problem.id}"],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{
+                "problem_id": problem.id,
+                "languages": ",".join(languages),
+                "title": problem.title or "",
+                "difficulty": problem.difficulty or "easy",
             }],
         )
 
@@ -65,7 +88,7 @@ class KnowledgeBase:
             {
                 "question_id": meta.get("question_id"),
                 "title": meta.get("title", ""),
-                "similarity": round(1 - dist, 3) if dist else 0,
+                "similarity": round(max(0, 1 - dist), 4) if dist is not None else 0,
                 "text_preview": doc[:200],
             }
             for meta, doc, dist in zip(
@@ -75,27 +98,59 @@ class KnowledgeBase:
             )
         ]
 
-    def add_knowledge_point(self, topic: str, content: str, category: str = "concept"):
-        """Add a course knowledge point."""
+    def add_knowledge_point(self, topic: str, content: str, category: str = "concept",
+                            scope: str = "global", owner_id: int = None):
+        """Add a course knowledge point with optional scope isolation."""
         embedding = self.embedder.encode(f"{topic}: {content}").tolist()
+        metadata = {
+            "topic": topic,
+            "category": category,
+            "scope": scope,
+            "owner_id": owner_id or 0,
+        }
         self.knowledge.upsert(
             ids=[f"{category}_{topic}"],
             embeddings=[embedding],
             documents=[content],
-            metadatas=[{"topic": topic, "category": category}],
+            metadatas=[metadata],
         )
 
-    def search_knowledge(self, query: str, n: int = 3) -> list:
-        """Search course knowledge for relevant context."""
+    def search_knowledge(self, query: str, n: int = 3, scope_filter: dict = None) -> list:
+        """Search course knowledge for relevant context. Returns structured results."""
         if self.knowledge.count() == 0:
             return []
 
         embedding = self.embedder.encode(query).tolist()
+        where = None
+        if scope_filter and scope_filter.get("owner_id"):
+            where = {"$or": [
+                {"scope": "global"},
+                {"owner_id": scope_filter["owner_id"]},
+            ]}
+
         results = self.knowledge.query(
             query_embeddings=[embedding],
             n_results=min(n, self.knowledge.count()),
+            include=["documents", "metadatas", "distances"],
+            where=where,
         )
-        return results["documents"][0] if results["documents"] else []
+        if not results["documents"] or not results["documents"][0]:
+            return []
+
+        return [
+            {
+                "topic": meta.get("topic", ""),
+                "category": meta.get("category", ""),
+                "content": doc,
+                "distance": round(dist, 4),
+                "score": round(max(0, 1 - dist), 4),
+            }
+            for doc, meta, dist in zip(
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0],
+            )
+        ]
 
     def add_error_pattern(self, error_type: str, description: str, explanation: str):
         """Add a common error pattern for tutoring reference."""
@@ -105,11 +160,11 @@ class KnowledgeBase:
             ids=[f"err_{error_type}_{hash(description) % 10000}"],
             embeddings=[embedding],
             documents=[text],
-            metadatas=[{"error_type": error_type}],
+            metadatas=[{"error_type": error_type, "description": description}],
         )
 
     def search_error_patterns(self, query: str, n: int = 3) -> list:
-        """Search for similar error patterns."""
+        """Search for similar error patterns. Returns structured results."""
         if self.error_patterns.count() == 0:
             return []
 
@@ -117,8 +172,24 @@ class KnowledgeBase:
         results = self.error_patterns.query(
             query_embeddings=[embedding],
             n_results=min(n, self.error_patterns.count()),
+            include=["documents", "metadatas", "distances"],
         )
-        return results["documents"][0] if results["documents"] else []
+        if not results["documents"] or not results["documents"][0]:
+            return []
+
+        return [
+            {
+                "error_type": meta.get("error_type", ""),
+                "content": doc,
+                "distance": round(dist, 4),
+                "score": round(max(0, 1 - dist), 4),
+            }
+            for doc, meta, dist in zip(
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0],
+            )
+        ]
 
 
 def get_knowledge_base() -> KnowledgeBase:
@@ -133,16 +204,21 @@ def get_knowledge_base() -> KnowledgeBase:
     return _kb_instance
 
 
-def index_all_questions():
-    """Index all existing questions into the vector store."""
-    from app.models.question import Question
+def index_all_problems():
+    """Index all problems (not per-variant) into the vector store."""
+    from app.models.problem import Problem
 
     kb = get_knowledge_base()
-    questions = Question.query.all()
-    for q in questions:
+    problems = Problem.query.all()
+    for p in problems:
         try:
-            kb.index_question(q)
+            kb.index_problem(p)
         except Exception as e:
-            logger.warning("Failed to index question %d: %s", q.id, e)
-    logger.info("Indexed %d questions", len(questions))
-    return len(questions)
+            logger.warning("Failed to index problem %d: %s", p.id, e)
+    logger.info("Indexed %d problems", len(problems))
+    return len(problems)
+
+
+def index_all_questions():
+    """Legacy alias — delegates to index_all_problems."""
+    return index_all_problems()

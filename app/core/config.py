@@ -64,6 +64,7 @@ class DevelopmentConfig(Config):
     """Development environment configuration"""
     DEBUG = True
     SQLALCHEMY_ECHO = True  # Show SQL statements in development
+    ENABLE_KB_STARTUP_INDEX = True
 
 
 class ProductionConfig(Config):
@@ -72,6 +73,7 @@ class ProductionConfig(Config):
     SQLALCHEMY_ECHO = False
     SESSION_COOKIE_SECURE = True
     AUTH_COOKIE_SECURE = True
+    ENABLE_KB_STARTUP_INDEX = False
 
 
 class TestingConfig(Config):

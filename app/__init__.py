@@ -33,7 +33,8 @@ def create_app(config_name=None):
     # 6. Startup tasks
     with app.app_context():
         _recover_orphaned_tasks(app)
-        _async_index_knowledge_base(app)
+        if app.config.get("ENABLE_KB_STARTUP_INDEX", False):
+            _async_index_knowledge_base(app)
 
     # 7. Register CLI commands
     _register_cli_commands(app)
@@ -80,8 +81,8 @@ def _async_index_knowledge_base(app):
     def _do_index():
         with app.app_context():
             try:
-                from app.agents.knowledge_base import index_all_questions
-                count = index_all_questions()
+                from app.agents.knowledge_base import index_all_problems
+                count = index_all_problems()
                 app.logger.info("Knowledge base indexing complete: %d questions", count)
             except Exception as e:
                 app.logger.warning("Knowledge base indexing skipped: %s", e)
@@ -105,6 +106,11 @@ def _register_cli_commands(app):
         register_cli(app)
     except Exception as e:
         app.logger.debug("CLI command registration skipped: %s", e)
+    try:
+        from scripts.migrate_kb import register_cli as register_migrate_cli
+        register_migrate_cli(app)
+    except Exception as e:
+        app.logger.debug("KB migrate CLI registration skipped: %s", e)
 
 
 def register_blueprints(app):

@@ -1480,13 +1480,13 @@ def refresh_class_analysis():
 def index_questions():
     """Index all questions into the knowledge base vector store. Teacher/admin only."""
     try:
-        from app.agents.knowledge_base import index_all_questions
+        from app.agents.knowledge_base import index_all_problems
     except ImportError:
         return _error_response("kb_unavailable",
                                "Knowledge base is unavailable. Please install chromadb and sentence-transformers.", 503)
     try:
-        count = index_all_questions()
-        return jsonify({"message": f"Indexed {count} questions into the knowledge base."})
+        count = index_all_problems()
+        return jsonify({"message": f"Indexed {count} problems into the knowledge base."})
     except Exception as e:
         logger.exception("Knowledge base indexing error")
         return _error_response("ai_service_error", f"Failed to index questions: {e}", 500)
@@ -1605,9 +1605,15 @@ def search_knowledge():
         return err
 
     try:
+        user = get_current_user_or_401()
+        user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+        scope_filter = None
+        if user_role_str not in ("admin",):
+            scope_filter = {"owner_id": user.id}
+
         results = {}
         if category in (None, "knowledge"):
-            results["knowledge_points"] = kb.search_knowledge(query, n=n)
+            results["knowledge_points"] = kb.search_knowledge(query, n=n, scope_filter=scope_filter)
         if category in (None, "error_pattern"):
             results["error_patterns"] = kb.search_error_patterns(query, n=n)
 

@@ -42,6 +42,8 @@ class TutorAgent(BaseAgent):
             parts.append(f"\nStudent's current code:\n```\n{context['code']}\n```")
         return "\n".join(parts)
 
+    MIN_KNOWLEDGE_SCORE = 0.3
+
     def _get_kb_context(self, state: dict) -> str:
         """Retrieve relevant knowledge and error patterns from the KB based on context."""
         try:
@@ -59,19 +61,21 @@ class TutorAgent(BaseAgent):
         if error_status:
             query = f"{error_status} {context.get('code', '')[:200]}"
             patterns = kb.search_error_patterns(query, n=2)
+            patterns = [p for p in patterns if p.get("score", 0) >= self.MIN_KNOWLEDGE_SCORE]
             if patterns:
                 parts.append("\n## Relevant Error Patterns (from knowledge base)")
                 for p in patterns:
-                    parts.append(f"- {p[:300]}")
+                    parts.append(f"- [{p.get('error_type', '')}] {p['content'][:300]}")
                 parts.append("Use these patterns to guide your diagnosis — do NOT paste them verbatim to the student.")
 
         topic_query = context.get("topic") or last_msg[:200]
         if topic_query:
             knowledge = kb.search_knowledge(topic_query, n=2)
+            knowledge = [k for k in knowledge if k.get("score", 0) >= self.MIN_KNOWLEDGE_SCORE]
             if knowledge:
                 parts.append("\n## Relevant Knowledge Points (from knowledge base)")
                 for k in knowledge:
-                    parts.append(f"- {k[:300]}")
+                    parts.append(f"- [{k.get('topic', '')}] {k['content'][:300]}")
                 parts.append("Reference these for accuracy, but explain in your own words using Socratic method.")
 
         return "\n".join(parts)
