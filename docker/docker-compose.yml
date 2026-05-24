@@ -92,10 +92,12 @@ services:
       MAX_CONTENT_LENGTH: 16777216
       UPLOAD_FOLDER: /app/uploads
     volumes:
-      - ../app:/app/app:ro         
-      - ../uploads:/app/uploads    
-      - ../logs:/app/logs        
+      - ../app:/app/app:ro
+      - ../scripts:/app/scripts:ro
+      - ../uploads:/app/uploads
+      - ../logs:/app/logs
       - executor_tmp:/tmp/executor
+      - kb_data:/app/data/knowledge_base
     ports:
       - "${WEB_PORT:-9900}:9900"
     depends_on:
@@ -120,6 +122,8 @@ volumes:
   redis_data:
     driver: local
   executor_tmp:
+    driver: local
+  kb_data:
     driver: local
 
 networks:
