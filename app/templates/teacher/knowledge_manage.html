@@ -21,6 +21,61 @@
     </div>
   </div>
 
+  <!-- Empty State Banner (hidden by default) -->
+  <div id="emptyBanner" class="alert alert-warning d-none">
+    <div class="d-flex align-items-center justify-content-between">
+      <div>
+        <i class="bi bi-exclamation-triangle"></i>
+        <strong>Knowledge base is empty.</strong>
+        Click "Seed" to populate with built-in error patterns and knowledge points.
+      </div>
+      <button class="btn btn-warning btn-sm" id="seedBtn">
+        <i class="bi bi-lightning-charge"></i> Seed Knowledge Base
+      </button>
+    </div>
+  </div>
+
+  <!-- KB Unavailable Banner (hidden by default) -->
+  <div id="unavailableBanner" class="alert alert-danger d-none">
+    <i class="bi bi-x-circle"></i>
+    <strong>Knowledge base unavailable.</strong>
+    <span id="unavailableMsg"></span>
+  </div>
+
+  <!-- Stats -->
+  <div class="row g-3 mb-4" id="statsRow">
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-primary" id="statKnowledge">
+            <span class="spinner-border spinner-border-sm"></span>
+          </h4>
+          <small class="text-muted">Knowledge Points</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-warning" id="statErrors">
+            <span class="spinner-border spinner-border-sm"></span>
+          </h4>
+          <small class="text-muted">Error Patterns</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-success" id="statQuestions">
+            <span class="spinner-border spinner-border-sm"></span>
+          </h4>
+          <small class="text-muted">Indexed Questions</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Search -->
   <div class="card mb-4">
     <div class="card-body">
@@ -52,34 +107,6 @@
     <h5 class="mb-3">Search Results</h5>
     <div id="knowledgeResults" class="mb-3"></div>
     <div id="errorResults"></div>
-  </div>
-
-  <!-- Stats -->
-  <div class="row g-3 mb-4" id="statsRow">
-    <div class="col-md-4">
-      <div class="card text-center">
-        <div class="card-body">
-          <h4 class="text-primary" id="statKnowledge">-</h4>
-          <small class="text-muted">Knowledge Points</small>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4">
-      <div class="card text-center">
-        <div class="card-body">
-          <h4 class="text-warning" id="statErrors">-</h4>
-          <small class="text-muted">Error Patterns</small>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4">
-      <div class="card text-center">
-        <div class="card-body">
-          <h4 class="text-success" id="statQuestions">-</h4>
-          <small class="text-muted">Indexed Questions</small>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -138,12 +165,65 @@
 document.addEventListener('DOMContentLoaded', () => {
   const API = window.API_BASE || '';
 
-  // Toggle error type selector
+  // ── Page Load: fetch stats ──────────────────────────────
+  loadStats();
+
+  async function loadStats() {
+    try {
+      const resp = await fetch(`${API}/api/v1/ai/knowledge/stats`);
+      const data = await resp.json();
+      if (!resp.ok) {
+        document.getElementById('unavailableBanner').classList.remove('d-none');
+        document.getElementById('unavailableMsg').textContent = data.message || 'Unknown error';
+        document.getElementById('statKnowledge').textContent = '-';
+        document.getElementById('statErrors').textContent = '-';
+        document.getElementById('statQuestions').textContent = '-';
+        return;
+      }
+      document.getElementById('statKnowledge').textContent = data.knowledge_points;
+      document.getElementById('statErrors').textContent = data.error_patterns;
+      document.getElementById('statQuestions').textContent = data.questions;
+
+      if (data.knowledge_points === 0 && data.error_patterns === 0) {
+        document.getElementById('emptyBanner').classList.remove('d-none');
+      }
+    } catch (err) {
+      document.getElementById('statKnowledge').textContent = '!';
+      document.getElementById('statErrors').textContent = '!';
+      document.getElementById('statQuestions').textContent = '!';
+      showAlert('Failed to load knowledge base stats: ' + err.message, 'danger');
+    }
+  }
+
+  // ── Seed button ─────────────────────────────────────────
+  document.getElementById('seedBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('seedBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Seeding...';
+    try {
+      const resp = await fetch(`${API}/api/v1/ai/knowledge/seed`, { method: 'POST' });
+      const data = await resp.json();
+      if (resp.ok) {
+        showAlert(data.message, 'success');
+        document.getElementById('emptyBanner').classList.add('d-none');
+        loadStats();
+      } else {
+        showAlert(data.message || 'Seed failed', 'danger');
+      }
+    } catch (err) {
+      showAlert('Seed failed: ' + err.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-lightning-charge"></i> Seed Knowledge Base';
+    }
+  });
+
+  // ── Toggle error type selector ──────────────────────────
   document.getElementById('addCategory').addEventListener('change', e => {
     document.getElementById('errorTypeGroup').classList.toggle('d-none', e.target.value !== 'error_pattern');
   });
 
-  // Search
+  // ── Search ──────────────────────────────────────────────
   document.getElementById('searchBtn').addEventListener('click', doSearch);
   document.getElementById('searchQuery').addEventListener('keydown', e => {
     if (e.key === 'Enter') doSearch();
@@ -156,6 +236,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams({ query, n: 10 });
     if (category) params.set('category', category);
 
+    const btn = document.getElementById('searchBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
     try {
       const resp = await fetch(`${API}/api/v1/ai/knowledge/search?${params}`);
       const data = await resp.json();
@@ -166,6 +250,9 @@ document.addEventListener('DOMContentLoaded', () => {
       renderResults(data);
     } catch (err) {
       showAlert('Search failed: ' + err.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-search"></i> Search';
     }
   }
 
@@ -180,44 +267,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const kps = data.knowledge_points || [];
     if (kps.length) {
-      kpDiv.innerHTML = '<h6 class="text-primary">Knowledge Points</h6>' +
+      kpDiv.innerHTML = '<h6 class="text-primary"><i class="bi bi-lightbulb"></i> Knowledge Points (' + kps.length + ')</h6>' +
         kps.map((text, i) => `
           <div class="card mb-2">
             <div class="card-body py-2 px-3">
               <small class="text-muted">#${i + 1}</small>
-              <p class="mb-0">${escapeHtml(text)}</p>
+              <p class="mb-0" style="white-space:pre-wrap">${escapeHtml(text)}</p>
             </div>
           </div>`).join('');
     }
 
     const eps = data.error_patterns || [];
     if (eps.length) {
-      epDiv.innerHTML = '<h6 class="text-warning">Error Patterns</h6>' +
+      epDiv.innerHTML = '<h6 class="text-warning"><i class="bi bi-bug"></i> Error Patterns (' + eps.length + ')</h6>' +
         eps.map((text, i) => `
           <div class="card mb-2 border-warning">
             <div class="card-body py-2 px-3">
               <small class="text-muted">#${i + 1}</small>
-              <p class="mb-0">${escapeHtml(text)}</p>
+              <p class="mb-0" style="white-space:pre-wrap">${escapeHtml(text)}</p>
             </div>
           </div>`).join('');
     }
 
     if (!kps.length && !eps.length) {
-      kpDiv.innerHTML = '<p class="text-muted">No results found.</p>';
+      kpDiv.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-search" style="font-size:2rem"></i><p class="mt-2">No results found. Try a different query.</p></div>';
     }
   }
 
-  // Add knowledge point
+  // ── Add knowledge point ─────────────────────────────────
   document.getElementById('saveKnowledgeBtn').addEventListener('click', async () => {
     const topic = document.getElementById('addTopic').value.trim();
     const content = document.getElementById('addContent').value.trim();
     const category = document.getElementById('addCategory').value;
-    if (!topic || !content) { alert('Topic and content are required.'); return; }
+    if (!topic || !content) { showAlert('Topic and content are required.', 'warning'); return; }
 
     const body = { topic, content, category };
     if (category === 'error_pattern') {
       body.error_type = document.getElementById('addErrorType').value;
     }
+
+    const btn = document.getElementById('saveKnowledgeBtn');
+    btn.disabled = true;
 
     try {
       const resp = await fetch(`${API}/api/v1/ai/knowledge/add`, {
@@ -230,14 +320,18 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert('Knowledge point added successfully!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('addKnowledgeModal')).hide();
         document.getElementById('addKnowledgeForm').reset();
+        loadStats();
       } else {
         showAlert(data.message || 'Unknown error', 'danger');
       }
     } catch (err) {
       showAlert('Save failed: ' + err.message, 'danger');
+    } finally {
+      btn.disabled = false;
     }
   });
 
+  // ── Helpers ─────────────────────────────────────────────
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;

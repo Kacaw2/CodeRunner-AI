@@ -1467,6 +1467,45 @@ def _get_kb_or_503():
                                      f"Knowledge base initialization failed: {e}", 503)
 
 
+@bp.route("/knowledge/stats", methods=["GET"])
+@require_auth
+def knowledge_stats():
+    """Get knowledge base collection counts."""
+    kb, err = _get_kb_or_503()
+    if err:
+        return err
+    try:
+        return jsonify({
+            "knowledge_points": kb.knowledge.count(),
+            "error_patterns": kb.error_patterns.count(),
+            "questions": kb.questions.count(),
+        })
+    except Exception as e:
+        logger.warning("Knowledge stats error: %s", e)
+        return _error_response("ai_service_error", f"Failed to get stats: {e}", 500)
+
+
+@bp.route("/knowledge/seed", methods=["POST"])
+@require_teacher
+def seed_knowledge():
+    """Seed the knowledge base with built-in error patterns and knowledge points."""
+    kb, err = _get_kb_or_503()
+    if err:
+        return err
+    try:
+        from scripts.seed_knowledge import seed_error_patterns, seed_knowledge_points
+        err_count = seed_error_patterns(kb)
+        kp_count = seed_knowledge_points(kb)
+        return jsonify({
+            "message": f"Seeded {err_count} error patterns, {kp_count} knowledge points.",
+            "error_patterns_added": err_count,
+            "knowledge_points_added": kp_count,
+        })
+    except Exception as e:
+        logger.exception("Knowledge seed error")
+        return _error_response("ai_service_error", f"Failed to seed knowledge base: {e}", 500)
+
+
 # ── POST /api/v1/ai/knowledge/add ────────────────────────
 # Phase D: Knowledge base management API
 
