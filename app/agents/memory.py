@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from app.core.timezone import now_china
 
 from langchain_core.messages import HumanMessage
 
@@ -66,7 +66,7 @@ class MemoryService:
 
         profile.error_patterns = error_counts
         profile.recent_questions = [s.question_id for s in recent[:10]]
-        profile.updated_at = datetime.utcnow()
+        profile.updated_at = now_china()
         db.session.commit()
 
     @staticmethod

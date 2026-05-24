@@ -1,7 +1,7 @@
 # app/models/quiz.py
 """Quiz related database models"""
 from app.core.extensions import db
-from datetime import datetime
+from app.core.timezone import now_china
 
 
 class Quiz(db.Model):
@@ -22,8 +22,8 @@ class Quiz(db.Model):
     is_published = db.Column(db.Boolean, default=False)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
     
     # Relationships - Fixed: using back_populates instead of backref
     creator = db.relationship('User', back_populates='created_quizzes')
@@ -68,7 +68,7 @@ class QuizProblem(db.Model):
     problem_id = db.Column(db.Integer, db.ForeignKey('problems.id'), nullable=False)
     order = db.Column(db.Integer, nullable=False, default=0)
     points = db.Column(db.Integer, default=10)
-    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+    added_at = db.Column(db.DateTime, default=now_china)
 
     quiz = db.relationship('Quiz', back_populates='quiz_problems')
     problem = db.relationship('Problem', back_populates='quiz_associations')
@@ -93,7 +93,7 @@ class ClassroomQuiz(db.Model):
     quiz_id = db.Column(db.Integer, db.ForeignKey('quizzes.id'), nullable=False)
     
     # Assignment time and due date
-    assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    assigned_at = db.Column(db.DateTime, default=now_china)
     due_date = db.Column(db.DateTime)  # Due date
     
     # Whether late submission is allowed
@@ -123,7 +123,7 @@ class ClassroomQuiz(db.Model):
         """Check if quiz is overdue"""
         if not self.due_date:
             return False
-        return datetime.utcnow() > self.due_date
+        return now_china() > self.due_date
 
 
 class QuizAttempt(db.Model):
@@ -138,7 +138,7 @@ class QuizAttempt(db.Model):
     classroom_quiz_id = db.Column(db.Integer, db.ForeignKey('classroom_quizzes.id'))
     
     # Start and end times
-    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, default=now_china)
     completed_at = db.Column(db.DateTime)
     
     # Status

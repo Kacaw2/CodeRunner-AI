@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from flask import jsonify
 from sqlalchemy import func, distinct
 from app.api.public import public_bp
+from app.core.timezone import now_china
 from app.models import User, Quiz, Problem, Question, Submission
 
 @public_bp.route('/metrics/overview', methods=['GET'])
@@ -29,7 +30,7 @@ def get_overview():
         total_questions = Problem.query.count()
         
         #  Submissions in the past 24 hours 
-        now = datetime.now()
+        now = now_china()
         yesterday = now - timedelta(days=1)
         submissions_24h = Submission.query.filter(
             Submission.submitted_at >= yesterday
@@ -127,7 +128,7 @@ def get_submissions_7d():
         
         # Count submissions per day over the last 7 days
         for i in range(6, -1, -1):
-            date = datetime.utcnow().date() - timedelta(days=i)
+            date = now_china().date() - timedelta(days=i)
             start_time = datetime.combine(date, datetime.min.time())
             end_time = datetime.combine(date, datetime.max.time())
             

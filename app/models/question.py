@@ -1,5 +1,5 @@
 from app.core.extensions import db
-from datetime import datetime
+from app.core.timezone import now_china
 
 class Question(db.Model):
     """Language-specific executable variant for a parent Problem."""
@@ -12,8 +12,8 @@ class Question(db.Model):
     starter_code = db.Column(db.Text)
     solution = db.Column(db.Text)
     solution_explanation = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
 
     problem = db.relationship('Problem', back_populates='variants')
     submissions = db.relationship('Submission', back_populates='question', lazy=True)

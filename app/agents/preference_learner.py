@@ -8,7 +8,7 @@ time so the Generator agent can produce better-aligned questions.
 
 import logging
 from collections import Counter
-from datetime import datetime
+from app.core.timezone import now_china
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def learn_from_generation(teacher_id: int, request_params: dict, generated_quest
                 current_topics = current_topics[-20:]
             pref.preferred_topics = current_topics
 
-        pref.updated_at = datetime.utcnow()
+        pref.updated_at = now_china()
         db.session.commit()
 
     except Exception as e:
@@ -123,7 +123,7 @@ def refresh_teacher_style_summary(teacher_id: int):
                 pref = TeacherPreference(teacher_id=teacher_id)
                 db.session.add(pref)
             pref.style_notes = summary
-            pref.updated_at = datetime.utcnow()
+            pref.updated_at = now_china()
             db.session.commit()
             logger.info("Updated style summary for teacher %d", teacher_id)
 
@@ -185,7 +185,7 @@ def analyze_class_weak_areas(teacher_id: int):
             pref = TeacherPreference(teacher_id=teacher_id)
             db.session.add(pref)
         pref.class_weak_areas = weak_areas
-        pref.updated_at = datetime.utcnow()
+        pref.updated_at = now_china()
         db.session.commit()
         logger.info("Updated class weak areas for teacher %d: %s", teacher_id, weak_areas)
 

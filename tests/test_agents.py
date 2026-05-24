@@ -256,6 +256,63 @@ class TestGeneratorAgent:
             assert call_count == 2
             assert result["context"]["generated_question"]["verified"] is True
 
+    @patch("app.agents.config.AIConfig.validate")
+    @patch("app.agents.agents.generator.AIConfig.get_llm")
+    def test_stream_persists_trace(self, mock_get_llm, mock_validate, app, db_session, teacher_user):
+        with app.app_context():
+            from langchain_core.messages import HumanMessage
+            from app.agents.agents.generator import GeneratorAgent
+            from app.models.agent_trace import AgentRun, AgentRunStep
+
+            class Chunk:
+                def __init__(self, content, usage_metadata=None):
+                    self.content = content
+                    self.usage_metadata = usage_metadata or {}
+
+            question_json = '''```json
+{
+  "title": "Add Two Numbers",
+  "description": "Given two integers, print their sum.",
+  "programming_language": "python",
+  "difficulty": "easy",
+  "solution": "a, b = map(int, input().split())\\nprint(a + b)",
+  "solution_explanation": "Read two ints and print sum",
+  "test_cases": [
+    {"input": "1 2", "expected_output": "3", "is_hidden": false, "weight": 1.0}
+  ]
+}
+```'''
+
+            mock_llm = MagicMock()
+            mock_llm.stream.return_value = [
+                Chunk(question_json, {"input_tokens": 10, "output_tokens": 20}),
+            ]
+            mock_get_llm.return_value = mock_llm
+
+            with patch("app.agents.agents.generator._validate_solution") as mock_val:
+                mock_val.return_value = [
+                    {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
+                ]
+
+                state = {
+                    "messages": [HumanMessage(content="Create a simple addition problem")],
+                    "agent_type": "generator",
+                    "user_id": teacher_user.id,
+                    "user_role": "teacher",
+                    "context": {"conversation_id": 123, "language": "python", "difficulty": "easy"},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                events = list(GeneratorAgent().stream(state))
+
+            assert any(event["type"] == "token" for event in events)
+            run = AgentRun.query.filter_by(agent_type="generator").one()
+            assert run.conversation_id == 123
+            assert run.status == "completed"
+            assert run.tokens_input == 10
+            assert run.tokens_output == 20
+            assert AgentRunStep.query.filter_by(run_id=run.id).count() >= 2
+
 
 class TestAnalyticsAgent:
     @patch("app.agents.agents.base.AIConfig")

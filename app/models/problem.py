@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class Problem(db.Model):
@@ -16,8 +15,8 @@ class Problem(db.Model):
     points = db.Column(db.Integer, default=10)
     order = db.Column(db.Integer, default=0)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
 
     variants = db.relationship(
         "Question",

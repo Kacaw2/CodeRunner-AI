@@ -1,5 +1,5 @@
-from datetime import datetime
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class AIConversation(db.Model):
@@ -12,8 +12,8 @@ class AIConversation(db.Model):
     context_id = db.Column(db.Integer, nullable=True)
     title = db.Column(db.String(200), nullable=True)
     summary = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
 
     messages = db.relationship("AIMessage", back_populates="conversation", lazy=True, cascade="all, delete-orphan")
     user = db.relationship("User", backref=db.backref("ai_conversations", lazy=True))
@@ -31,7 +31,7 @@ class AIMessage(db.Model):
     content = db.Column(db.Text, nullable=False)
     tool_calls = db.Column(db.JSON, nullable=True)
     tokens_used = db.Column(db.Integer, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
 
     conversation = db.relationship("AIConversation", back_populates="messages")
 

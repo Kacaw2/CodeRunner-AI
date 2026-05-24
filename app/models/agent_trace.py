@@ -1,7 +1,7 @@
-from datetime import datetime
 from uuid import uuid4
 
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class AgentRun(db.Model):
@@ -34,7 +34,7 @@ class AgentRun(db.Model):
     llm_retries = db.Column(db.Integer, default=0)
     tool_retries = db.Column(db.Integer, default=0)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
 
     def to_dict(self):
         return {
@@ -74,7 +74,7 @@ class AgentRunStep(db.Model):
 
     latency_ms = db.Column(db.Integer)
     error = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
 
     run = db.relationship("AgentRun", backref=db.backref("steps", lazy=True, order_by="AgentRunStep.step_index"))
 

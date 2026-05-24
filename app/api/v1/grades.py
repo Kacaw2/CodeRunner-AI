@@ -1,7 +1,5 @@
 # app/api/v1/grades.py
 """Grade Report API - Fixed Version"""
-from datetime import datetime
-
 from flask import g, request, make_response
 from flask_smorest import Blueprint, abort
 from sqlalchemy import func, case, and_, desc, select
@@ -11,6 +9,7 @@ import io
 
 from app.auth import require_teacher
 from app.core.extensions import db
+from app.core.timezone import now_china
 from app.models.submission import Submission
 from app.models.problem import Problem
 from app.models.question import Question
@@ -312,6 +311,6 @@ def export_csv():
     output.seek(0)
     response = make_response(output.getvalue())
     response.headers['Content-Type'] = 'text/csv'
-    response.headers['Content-Disposition'] = f'attachment; filename=grade_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+    response.headers['Content-Disposition'] = f'attachment; filename=grade_report_{now_china().strftime("%Y%m%d_%H%M%S")}.csv'
     
     return response

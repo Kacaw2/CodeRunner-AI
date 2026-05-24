@@ -183,96 +183,133 @@ class GeneratorAgent(BaseAgent):
 
     def stream(self, state: AgentState):
         """Streaming generator: yields tokens for each LLM round, plus validation events."""
+        from app.agents.tracing import TraceCollector
+
         llm = AIConfig.get_llm()
         context = state.get("context", {})
         language = context.get("language", "python")
 
         system_ctx = self._build_system_context(state)
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
+        trace = TraceCollector(
+            agent_type=state.get("agent_type", self.name),
+            user_id=state["user_id"],
+            conversation_id=context.get("conversation_id"),
+        )
+        if state.get("messages"):
+            last_msg = state["messages"][-1]
+            trace.input_message = getattr(last_msg, "content", "")
+        trace.input_context = context
 
         question_data = None
         collected = ""
+        trace_saved = False
 
-        for round_num in range(MAX_VALIDATION_ROUNDS + 1):
-            if round_num > 0:
-                yield {"type": "tool_call", "tool": "self_validate",
-                       "input": f"Round {round_num + 1}: fixing based on test failures"}
+        try:
+            for round_num in range(MAX_VALIDATION_ROUNDS + 1):
+                if round_num > 0:
+                    yield {"type": "tool_call", "tool": "self_validate",
+                           "input": f"Round {round_num + 1}: fixing based on test failures"}
 
-            collected = ""
-            try:
-                stream = self._llm_stream(llm, messages)
-                for chunk in stream:
-                    if chunk.content:
-                        collected += chunk.content
-                        yield {"type": "token", "content": chunk.content}
-            except LLMError as e:
-                if round_num == 0:
-                    yield {"type": "error", "message": e.user_message}
-                    return
-                break
+                collected = ""
+                try:
+                    with trace.trace_llm_call() as llm_step:
+                        stream = self._llm_stream(llm, messages)
+                        for chunk in stream:
+                            usage = getattr(chunk, "usage_metadata", None)
+                            if usage:
+                                input_tokens = usage.get("input_tokens", 0)
+                                output_tokens = usage.get("output_tokens", 0)
+                                trace.total_input_tokens += input_tokens
+                                trace.total_output_tokens += output_tokens
+                                llm_step["prompt_tokens"] = llm_step.get("prompt_tokens", 0) + input_tokens
+                                llm_step["completion_tokens"] = llm_step.get("completion_tokens", 0) + output_tokens
+                            if chunk.content:
+                                collected += chunk.content
+                                yield {"type": "token", "content": chunk.content}
+                except LLMError as e:
+                    if round_num == 0:
+                        yield {"type": "error", "message": e.user_message}
+                        trace.save(status="failed", error=e)
+                        trace_saved = True
+                        return
+                    break
 
-            messages.append(AIMessage(content=collected))
+                messages.append(AIMessage(content=collected))
 
-            question_data = _extract_json(collected)
-            if not question_data:
+                question_data = _extract_json(collected)
+                if not question_data:
+                    if round_num < MAX_VALIDATION_ROUNDS:
+                        fix_msg = ("I could not parse valid JSON from your response. "
+                                   "Please output the question as a single JSON object inside ```json fences.")
+                        messages.append(HumanMessage(content=fix_msg))
+                        continue
+                    break
+
+                solution = question_data.get("solution", "")
+                test_cases = question_data.get("test_cases", [])
+
+                if not solution or not test_cases:
+                    if round_num < MAX_VALIDATION_ROUNDS:
+                        messages.append(HumanMessage(
+                            content="The JSON is missing 'solution' or 'test_cases'. "
+                                    "Please include both and try again."
+                        ))
+                        continue
+                    break
+
+                yield {"type": "tool_call", "tool": "execute_code",
+                       "input": f"Validating solution against {len(test_cases)} test cases"}
+
+                lang = question_data.get("programming_language", language)
+                with trace.trace_tool_call("execute_code", {
+                    "language": lang,
+                    "test_case_count": len(test_cases),
+                }):
+                    validation = _validate_solution(solution, lang, test_cases)
+                failures = [r for r in validation if not r["passed"]]
+                passed_count = len(test_cases) - len(failures)
+
+                yield {"type": "tool_result", "tool": "execute_code",
+                       "summary": f"Passed {passed_count}/{len(test_cases)} test cases"}
+
+                if not failures:
+                    question_data["verified"] = True
+                    break
+
                 if round_num < MAX_VALIDATION_ROUNDS:
-                    fix_msg = ("I could not parse valid JSON from your response. "
-                               "Please output the question as a single JSON object inside ```json fences.")
-                    messages.append(HumanMessage(content=fix_msg))
-                    continue
-                else:
-                    state["final_response"] = collected
-                    state["messages"] = messages
-                    return
-
-            solution = question_data.get("solution", "")
-            test_cases = question_data.get("test_cases", [])
-
-            if not solution or not test_cases:
-                if round_num < MAX_VALIDATION_ROUNDS:
+                    failure_report = "\n".join(
+                        f"- Test case {f['index']}: status={f['status']}, "
+                        f"input={f['input']!r}, expected={f['expected']!r}, "
+                        f"actual={f['actual']!r}, error={f['error']!r}"
+                        for f in failures
+                    )
                     messages.append(HumanMessage(
-                        content="The JSON is missing 'solution' or 'test_cases'. "
-                                "Please include both and try again."
+                        content=f"Verification failed for {len(failures)}/{len(test_cases)} test cases:\n"
+                                f"{failure_report}\n\n"
+                                "Please fix the reference solution or the test cases and output the "
+                                "complete question JSON again."
                     ))
-                    continue
-                break
+                else:
+                    question_data["verified"] = False
 
-            yield {"type": "tool_call", "tool": "execute_code",
-                   "input": f"Validating solution against {len(test_cases)} test cases"}
-
-            lang = question_data.get("programming_language", language)
-            validation = _validate_solution(solution, lang, test_cases)
-            failures = [r for r in validation if not r["passed"]]
-            passed_count = len(test_cases) - len(failures)
-
-            yield {"type": "tool_result", "tool": "execute_code",
-                   "summary": f"Passed {passed_count}/{len(test_cases)} test cases"}
-
-            if not failures:
-                question_data["verified"] = True
-                break
-
-            if round_num < MAX_VALIDATION_ROUNDS:
-                failure_report = "\n".join(
-                    f"- Test case {f['index']}: status={f['status']}, "
-                    f"input={f['input']!r}, expected={f['expected']!r}, "
-                    f"actual={f['actual']!r}, error={f['error']!r}"
-                    for f in failures
-                )
-                messages.append(HumanMessage(
-                    content=f"Verification failed for {len(failures)}/{len(test_cases)} test cases:\n"
-                            f"{failure_report}\n\n"
-                            "Please fix the reference solution or the test cases and output the "
-                            "complete question JSON again."
-                ))
+            if question_data:
+                state["context"]["generated_question"] = question_data
+                wrapped = json.dumps({"question": question_data}, ensure_ascii=False, indent=2)
+                state["final_response"] = wrapped
             else:
-                question_data["verified"] = False
+                state["final_response"] = collected
 
-        if question_data:
-            state["context"]["generated_question"] = question_data
-            wrapped = json.dumps({"question": question_data}, ensure_ascii=False, indent=2)
-            state["final_response"] = wrapped
-        else:
-            state["final_response"] = collected
-
-        state["messages"] = messages
+            state["messages"] = messages
+            state["trace_id"] = trace.run_id
+            trace.save(status="completed", response=state.get("final_response", ""))
+            trace_saved = True
+        except GeneratorExit:
+            if not trace_saved:
+                trace.save(status="interrupted")
+                trace_saved = True
+        except Exception as e:
+            if not trace_saved:
+                trace.save(status="failed", error=e)
+                trace_saved = True
+            raise

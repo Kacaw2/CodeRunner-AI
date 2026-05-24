@@ -1,6 +1,5 @@
 import json
 import logging
-from datetime import datetime
 
 from langchain_core.messages import HumanMessage
 
@@ -9,6 +8,7 @@ from app.agents.config import AIConfig
 from app.agents.exceptions import AIError
 from app.agents.task_state import TaskStatus, validate_transition
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class BatchTaskRunner:
         current = TaskStatus(self.task.status)
         if validate_transition(current, target):
             self.task.status = target.value
-            self.task.updated_at = datetime.utcnow()
+            self.task.updated_at = now_china()
             db.session.commit()
         else:
             logger.warning("Invalid transition %s -> %s for task %s", current, target, self.task.id)
@@ -60,7 +60,7 @@ class BatchTaskRunner:
             self._transition(TaskStatus.FAILED)
             self.task.error_detail = "All batch items failed"
 
-        self.task.completed_at = datetime.utcnow()
+        self.task.completed_at = now_china()
         db.session.commit()
 
     def _run_single_with_retry(self, step_params: dict, max_retries: int = 1) -> dict:

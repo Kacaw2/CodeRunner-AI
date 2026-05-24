@@ -7,12 +7,14 @@ services:
     container_name: educode_db
     restart: unless-stopped
     environment:
+      TZ: Asia/Shanghai
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
     command: >
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+08:00
       --max_connections=200
     volumes:
       - mysql_data:/var/lib/mysql
@@ -53,6 +55,7 @@ services:
     restart: unless-stopped
     environment:
       # Flask settings
+      TZ: Asia/Shanghai
       FLASK_APP: run.py
       FLASK_ENV: ${FLASK_ENV:-production}
       DEBUG: ${DEBUG:-False}

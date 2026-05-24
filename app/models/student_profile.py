@@ -1,5 +1,5 @@
-from datetime import datetime
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class StudentProfile(db.Model):
@@ -17,7 +17,7 @@ class StudentProfile(db.Model):
     learning_summary = db.Column(db.Text, nullable=True)
     preferred_language = db.Column(db.String(20), default="python")
 
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
 
     student = db.relationship("User", backref=db.backref("profile", uselist=False, lazy=True))
 
@@ -50,7 +50,7 @@ class TeacherPreference(db.Model):
     class_weak_areas = db.Column(db.JSON, default=list)
     class_level = db.Column(db.String(20), default="intermediate")
 
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
 
     teacher = db.relationship("User", backref=db.backref("preference", uselist=False, lazy=True))
 

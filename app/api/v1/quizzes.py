@@ -7,6 +7,7 @@ from sqlalchemy import desc, select
 
 from app.auth import require_auth, require_teacher
 from app.core.extensions import db
+from app.core.timezone import CHINA_TZ
 from app.models.problem import Problem
 from app.models.question import Question
 from app.models.quiz import ClassroomQuiz
@@ -400,6 +401,8 @@ def assign_quiz_to_classroom(quiz_id):
     if data.get("due_date"):
         try:
             due_date = datetime.fromisoformat(data["due_date"].replace("Z", "+00:00"))
+            if due_date.tzinfo is not None:
+                due_date = due_date.astimezone(CHINA_TZ).replace(tzinfo=None)
         except (ValueError, AttributeError):
             abort(400, message="Invalid due_date format. Use ISO format.")
     classroom_quiz = QuizService.assign_quiz_to_classroom(

@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime
 
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def recover_orphaned_tasks():
         else:
             task.status = "failed"
             task.error_detail = "Server restart during execution; max retries exhausted"
-        task.updated_at = datetime.utcnow()
+        task.updated_at = now_china()
 
     db.session.commit()
     logger.info("Recovered %d orphaned tasks", len(orphaned))

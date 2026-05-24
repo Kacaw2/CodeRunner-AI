@@ -6,11 +6,11 @@ import logging
 import threading
 import time
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 from flask_smorest import abort
 from sqlalchemy import select, func
 
 from app.core.extensions import db
+from app.core.timezone import now_china
 from app.models.question import Question, TestCase
 from app.models.submission import Submission, TestResult
 from app.services.executor_service import ExecutorService
@@ -82,7 +82,7 @@ class SubmissionService:
             question_id=question_id,
             code=code,
             status="running",
-            submitted_at=datetime.utcnow(),
+            submitted_at=now_china(),
         )
         db.session.add(submission)
         db.session.flush()  # Get submission.id

@@ -1,6 +1,6 @@
 # app/models/submission.py
 from app.core.extensions import db
-from datetime import datetime
+from app.core.timezone import now_china
 
 class Submission(db.Model):
     """Submission record model"""
@@ -13,7 +13,7 @@ class Submission(db.Model):
     score = db.Column(db.Float, default=0)
     status = db.Column(db.String(20), default='pending')  # pending, running, completed, error
     error_message = db.Column(db.Text)
-    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    submitted_at = db.Column(db.DateTime, default=now_china)
     execution_time = db.Column(db.Float)  # Execution time in seconds
     memory_used = db.Column(db.Integer)  # Memory usage in KB
     

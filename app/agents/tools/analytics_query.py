@@ -21,8 +21,9 @@ def get_student_activity(student_id: int, days: int = 30) -> dict:
     from sqlalchemy import func
     from app.models.submission import Submission
     from app.core.extensions import db
+    from app.core.timezone import now_china
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = now_china() - timedelta(days=days)
 
     try:
         submissions = (
@@ -65,7 +66,7 @@ def get_student_activity(student_id: int, days: int = 30) -> dict:
 
         current_streak = 0
         if activity_timeline:
-            today = datetime.utcnow().date()
+            today = now_china().date()
             for i in range(len(activity_timeline) - 1, -1, -1):
                 entry_date = datetime.strptime(activity_timeline[i]["date"], "%Y-%m-%d").date()
                 expected = today - timedelta(days=len(activity_timeline) - 1 - i)

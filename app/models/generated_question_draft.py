@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class GeneratedQuestionDraft(db.Model):
@@ -23,8 +22,8 @@ class GeneratedQuestionDraft(db.Model):
     published_question_id = db.Column(db.Integer, db.ForeignKey("questions.id"), nullable=True)
     published_problem_id = db.Column(db.Integer, db.ForeignKey("problems.id"), nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
 
     teacher = db.relationship("User", foreign_keys=[teacher_id])
     published_question = db.relationship("Question", foreign_keys=[published_question_id])

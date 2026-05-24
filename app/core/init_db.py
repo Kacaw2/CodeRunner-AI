@@ -11,13 +11,14 @@ import sys
 import os
 import argparse
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 # Add project root directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from app import create_app
 from app.core.extensions import db
+from app.core.timezone import now_china
 from app.models.user import User, UserRole
 from app.models.classroom import Classroom, Enrollment
 from app.models.problem import Problem
@@ -279,10 +280,10 @@ def seed_data():
         print("\nAssigning quizzes to classrooms...")
         
         assignments = [
-            (classrooms[0], quizzes[0], teachers[0], datetime.utcnow() + timedelta(days=7)),
-            (classrooms[1], quizzes[1], teachers[0], datetime.utcnow() + timedelta(days=14)),
-            (classrooms[2], quizzes[2], teachers[1], datetime.utcnow() + timedelta(days=7)),
-            (classrooms[3], quizzes[3], teachers[1], datetime.utcnow() + timedelta(days=14)),
+            (classrooms[0], quizzes[0], teachers[0], now_china() + timedelta(days=7)),
+            (classrooms[1], quizzes[1], teachers[0], now_china() + timedelta(days=14)),
+            (classrooms[2], quizzes[2], teachers[1], now_china() + timedelta(days=7)),
+            (classrooms[3], quizzes[3], teachers[1], now_china() + timedelta(days=14)),
         ]
         
         for classroom, quiz, teacher, due_date in assignments:

@@ -2,8 +2,9 @@
 """Authentication utility functions"""
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
-from datetime import datetime, timedelta
+from datetime import timedelta
 from flask import current_app
+from app.core.timezone import aware_now_china
 
 
 def hash_password(password):
@@ -44,12 +45,13 @@ def generate_auth_token(user, expires_in=3600):
     Returns:
         str: JWT token
     """
+    now = aware_now_china()
     payload = {
         'user_id': user.id,
         'username': user.username,
         'role': user.role.value if hasattr(user.role, 'value') else user.role,
-        'exp': datetime.utcnow() + timedelta(seconds=expires_in),
-        'iat': datetime.utcnow()
+        'exp': now + timedelta(seconds=expires_in),
+        'iat': now
     }
     secret_key = current_app.config.get('SECRET_KEY')
     token = jwt.encode(payload, secret_key, algorithm='HS256')

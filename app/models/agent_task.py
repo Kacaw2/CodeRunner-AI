@@ -1,7 +1,7 @@
-from datetime import datetime
 from uuid import uuid4
 
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class AgentTask(db.Model):
@@ -28,8 +28,8 @@ class AgentTask(db.Model):
     reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
     completed_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship("User", foreign_keys=[user_id], backref=db.backref("agent_tasks", lazy=True))

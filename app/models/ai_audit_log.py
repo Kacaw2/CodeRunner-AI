@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class AIAuditLog(db.Model):
@@ -14,4 +13,4 @@ class AIAuditLog(db.Model):
     injection_detected = db.Column(db.Boolean, default=False)
     injection_pattern = db.Column(db.String(100), nullable=True)
     ip_address = db.Column(db.String(45), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)

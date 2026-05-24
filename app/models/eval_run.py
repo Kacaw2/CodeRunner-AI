@@ -1,5 +1,5 @@
-from datetime import datetime
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class EvalRun(db.Model):
@@ -8,7 +8,7 @@ class EvalRun(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     suite_name = db.Column(db.String(50), nullable=False)
-    run_at = db.Column(db.DateTime, default=datetime.utcnow)
+    run_at = db.Column(db.DateTime, default=now_china)
     model_name = db.Column(db.String(50))
     total_cases = db.Column(db.Integer)
     passed_cases = db.Column(db.Integer)

@@ -1,6 +1,6 @@
 # app/models/user.py
 from app.core.extensions import db
-from datetime import datetime
+from app.core.timezone import now_china
 from enum import Enum
 
 class UserRole(Enum):
@@ -18,8 +18,8 @@ class User(db.Model):
     password = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=True)
     role = db.Column(db.Enum(UserRole), default=UserRole.STUDENT, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
     
     # Relationships - using back_populates instead of backref
     # Classrooms taught by teacher

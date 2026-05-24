@@ -1,7 +1,7 @@
 # app/models/classroom.py
 """Classroom and enrollment related models"""
-from datetime import datetime
 from app.core.extensions import db
+from app.core.timezone import now_china
 
 
 class Classroom(db.Model):
@@ -17,8 +17,8 @@ class Classroom(db.Model):
     teacher_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_china)
+    updated_at = db.Column(db.DateTime, default=now_china, onupdate=now_china)
     
     # Relationships - Fixed: using back_populates instead of backref
     teacher = db.relationship('User', back_populates='taught_classrooms')
@@ -44,7 +44,7 @@ class Enrollment(db.Model):
     classroom_id = db.Column(db.Integer, db.ForeignKey('classrooms.id'), nullable=False)
     
     # Enrollment time
-    enrolled_at = db.Column(db.DateTime, default=datetime.utcnow)
+    enrolled_at = db.Column(db.DateTime, default=now_china)
     
     # Relationships - Fixed: using back_populates instead of backref
     student = db.relationship('User', back_populates='enrollments')

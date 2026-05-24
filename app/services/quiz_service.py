@@ -6,7 +6,7 @@ from app.models.problem import Problem
 from app.models.question import Question
 from app.models.classroom import Classroom, Enrollment
 from app.models.user import User
-from datetime import datetime
+from app.core.timezone import now_china
 from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 
@@ -123,7 +123,7 @@ class QuizService:
             if hasattr(quiz, key):
                 setattr(quiz, key, value)
         
-        quiz.updated_at = datetime.utcnow()
+        quiz.updated_at = now_china()
         db.session.commit()
         
         return quiz
@@ -404,7 +404,7 @@ class QuizService:
         if not attempt:
             return None
         
-        attempt.completed_at = datetime.utcnow()
+        attempt.completed_at = now_china()
         attempt.status = 'completed'
         attempt.score = score
         

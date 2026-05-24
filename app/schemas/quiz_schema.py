@@ -1,7 +1,7 @@
 # app/schemas/quiz_schema.py
 """Quiz evaluation schema"""
 from marshmallow import Schema, fields, validate, validates, ValidationError
-from datetime import datetime
+from app.core.timezone import now_china
 from app.schemas.questions_schema import QuestionOut as QuestionSchema
 
 
@@ -82,7 +82,7 @@ class ClassroomQuizCreateSchema(Schema):
     
     @validates('due_date')
     def validate_due_date(self, value):
-        if value and value < datetime.utcnow():
+        if value and value < now_china():
             raise ValidationError('Due date must be in the future')
 
 
