@@ -1435,11 +1435,36 @@ def index_questions():
     """Index all questions into the knowledge base vector store. Teacher/admin only."""
     try:
         from app.agents.knowledge_base import index_all_questions
+    except ImportError:
+        return _error_response("kb_unavailable",
+                               "Knowledge base is unavailable. Please install chromadb and sentence-transformers.", 503)
+    try:
         count = index_all_questions()
         return jsonify({"message": f"Indexed {count} questions into the knowledge base."})
     except Exception as e:
         logger.exception("Knowledge base indexing error")
         return _error_response("ai_service_error", f"Failed to index questions: {e}", 500)
+
+
+# ── Knowledge Base helpers ───────────────────────────────
+
+_KB_UNAVAILABLE_MSG = (
+    "Knowledge base is unavailable. Please install chromadb and sentence-transformers: "
+    "pip install chromadb sentence-transformers"
+)
+
+
+def _get_kb_or_503():
+    """Get the KnowledgeBase singleton, or return a 503 error response."""
+    try:
+        from app.agents.knowledge_base import get_knowledge_base
+        return get_knowledge_base(), None
+    except ImportError:
+        return None, _error_response("kb_unavailable", _KB_UNAVAILABLE_MSG, 503)
+    except Exception as e:
+        logger.warning("Knowledge base init failed: %s", e)
+        return None, _error_response("kb_unavailable",
+                                     f"Knowledge base initialization failed: {e}", 503)
 
 
 # ── POST /api/v1/ai/knowledge/add ────────────────────────
@@ -1457,10 +1482,11 @@ def add_knowledge():
     if not topic or not content:
         return _error_response("invalid_request", "topic and content are required", 400)
 
-    try:
-        from app.agents.knowledge_base import get_knowledge_base
-        kb = get_knowledge_base()
+    kb, err = _get_kb_or_503()
+    if err:
+        return err
 
+    try:
         if category == "error_pattern":
             error_type = data.get("error_type", "CE")
             kb.add_error_pattern(error_type, topic, content)
@@ -1489,10 +1515,11 @@ def search_knowledge():
     n = min(int(request.args.get("n", 5)), 20)
     category = request.args.get("category")
 
-    try:
-        from app.agents.knowledge_base import get_knowledge_base
-        kb = get_knowledge_base()
+    kb, err = _get_kb_or_503()
+    if err:
+        return err
 
+    try:
         results = {}
         if category in (None, "knowledge"):
             results["knowledge_points"] = kb.search_knowledge(query, n=n)
@@ -1509,21 +1536,17 @@ def search_knowledge():
 @require_teacher
 def delete_knowledge(knowledge_id):
     """Delete a knowledge point by its ID. Teacher/admin only."""
-    try:
-        from app.agents.knowledge_base import get_knowledge_base
-        kb = get_knowledge_base()
+    kb, err = _get_kb_or_503()
+    if err:
+        return err
 
-        deleted = False
+    try:
         if knowledge_id.startswith("err_"):
             kb.error_patterns.delete(ids=[knowledge_id])
-            deleted = True
         else:
             kb.knowledge.delete(ids=[knowledge_id])
-            deleted = True
 
-        if deleted:
-            return jsonify({"message": f"Knowledge point '{knowledge_id}' deleted."})
-        return _error_response("not_found", "Knowledge point not found", 404)
+        return jsonify({"message": f"Knowledge point '{knowledge_id}' deleted."})
     except Exception as e:
         logger.exception("Knowledge base delete error")
         return _error_response("ai_service_error", f"Failed to delete knowledge point: {e}", 500)

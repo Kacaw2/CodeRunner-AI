@@ -159,9 +159,13 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const resp = await fetch(`${API}/api/v1/ai/knowledge/search?${params}`);
       const data = await resp.json();
+      if (!resp.ok) {
+        showAlert(data.message || 'Search failed', 'danger');
+        return;
+      }
       renderResults(data);
     } catch (err) {
-      alert('Search failed: ' + err.message);
+      showAlert('Search failed: ' + err.message, 'danger');
     }
   }
 
@@ -223,14 +227,14 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await resp.json();
       if (resp.ok) {
-        alert('Knowledge point added successfully!');
+        showAlert('Knowledge point added successfully!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('addKnowledgeModal')).hide();
         document.getElementById('addKnowledgeForm').reset();
       } else {
-        alert('Error: ' + (data.message || 'Unknown error'));
+        showAlert(data.message || 'Unknown error', 'danger');
       }
     } catch (err) {
-      alert('Save failed: ' + err.message);
+      showAlert('Save failed: ' + err.message, 'danger');
     }
   });
 
@@ -238,6 +242,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  function showAlert(message, type = 'info') {
+    const container = document.querySelector('.container-fluid');
+    const existing = container.querySelector('.alert-auto');
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.className = `alert alert-${type} alert-dismissible fade show alert-auto`;
+    div.innerHTML = `${escapeHtml(message)}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    container.insertBefore(div, container.children[1]);
+    if (type === 'success') setTimeout(() => div.remove(), 3000);
   }
 });
 </script>

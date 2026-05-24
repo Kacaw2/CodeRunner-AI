@@ -72,6 +72,10 @@
           <a class="site-nav__link site-nav__link--pill" href="{{ url_for('teacher.grades') }}">
             <i class="bi bi-file-earmark-spreadsheet"></i> Grades
           </a>
+          <a class="site-nav__link site-nav__link--pill {{ 'site-nav__link--active' if page == 'knowledge' else '' }}"
+             href="{{ url_for('teacher.knowledge') }}">
+            <i class="bi bi-book"></i> Knowledge
+          </a>
         </div>
 
         <!-- Sign out -->
@@ -147,6 +151,9 @@
             </a>
             <a class="site-nav__menu-link" href="{{ url_for('teacher.grades') }}">
               Grades
+            </a>
+            <a class="site-nav__menu-link" href="{{ url_for('teacher.knowledge') }}">
+              <i class="bi bi-book"></i> Knowledge
             </a>
           </div>
 
