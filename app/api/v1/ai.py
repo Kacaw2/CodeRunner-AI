@@ -1442,6 +1442,93 @@ def index_questions():
         return _error_response("ai_service_error", f"Failed to index questions: {e}", 500)
 
 
+# ── POST /api/v1/ai/knowledge/add ────────────────────────
+# Phase D: Knowledge base management API
+
+@bp.route("/knowledge/add", methods=["POST"])
+@require_teacher
+def add_knowledge():
+    """Add a knowledge point or error pattern. Teacher/admin only."""
+    data = request.get_json(silent=True) or {}
+    topic = (data.get("topic") or "").strip()
+    content = (data.get("content") or "").strip()
+    category = (data.get("category") or "concept").strip()
+
+    if not topic or not content:
+        return _error_response("invalid_request", "topic and content are required", 400)
+
+    try:
+        from app.agents.knowledge_base import get_knowledge_base
+        kb = get_knowledge_base()
+
+        if category == "error_pattern":
+            error_type = data.get("error_type", "CE")
+            kb.add_error_pattern(error_type, topic, content)
+        else:
+            kb.add_knowledge_point(topic, content, category)
+
+        return jsonify({
+            "message": "Knowledge point added successfully.",
+            "id": f"{category}_{topic}",
+            "topic": topic,
+            "category": category,
+        }), 201
+    except Exception as e:
+        logger.exception("Knowledge base add error")
+        return _error_response("ai_service_error", f"Failed to add knowledge point: {e}", 500)
+
+
+@bp.route("/knowledge/search", methods=["GET"])
+@require_auth
+def search_knowledge():
+    """Search the knowledge base. Returns relevant knowledge points and/or error patterns."""
+    query = (request.args.get("query") or "").strip()
+    if not query:
+        return _error_response("invalid_request", "query parameter is required", 400)
+
+    n = min(int(request.args.get("n", 5)), 20)
+    category = request.args.get("category")
+
+    try:
+        from app.agents.knowledge_base import get_knowledge_base
+        kb = get_knowledge_base()
+
+        results = {}
+        if category in (None, "knowledge"):
+            results["knowledge_points"] = kb.search_knowledge(query, n=n)
+        if category in (None, "error_pattern"):
+            results["error_patterns"] = kb.search_error_patterns(query, n=n)
+
+        return jsonify(results)
+    except Exception as e:
+        logger.exception("Knowledge base search error")
+        return _error_response("ai_service_error", f"Knowledge search failed: {e}", 500)
+
+
+@bp.route("/knowledge/<path:knowledge_id>", methods=["DELETE"])
+@require_teacher
+def delete_knowledge(knowledge_id):
+    """Delete a knowledge point by its ID. Teacher/admin only."""
+    try:
+        from app.agents.knowledge_base import get_knowledge_base
+        kb = get_knowledge_base()
+
+        deleted = False
+        if knowledge_id.startswith("err_"):
+            kb.error_patterns.delete(ids=[knowledge_id])
+            deleted = True
+        else:
+            kb.knowledge.delete(ids=[knowledge_id])
+            deleted = True
+
+        if deleted:
+            return jsonify({"message": f"Knowledge point '{knowledge_id}' deleted."})
+        return _error_response("not_found", "Knowledge point not found", 404)
+    except Exception as e:
+        logger.exception("Knowledge base delete error")
+        return _error_response("ai_service_error", f"Failed to delete knowledge point: {e}", 500)
+
+
 # ── POST /api/v1/ai/evals/run ────────────────────────────
 # Phase 3: Eval framework endpoints
 

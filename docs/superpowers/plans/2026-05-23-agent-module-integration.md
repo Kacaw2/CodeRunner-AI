@@ -409,14 +409,14 @@ def _maybe_update_profile(app, student_id):
 
 **文件：** `app/agents/knowledge_base.py`, 新建 `scripts/seed_knowledge.py`
 
-- [ ] 编写种子脚本，预填充常见编程错误模式：
+- [x] 编写种子脚本，预填充常见编程错误模式：
   - **CE (Compilation Error)**：语法错误、缺少分号、类型不匹配、未声明变量等
   - **RE (Runtime Error)**：数组越界、空指针/None 引用、栈溢出、除零错误等
   - **WA (Wrong Answer)**：边界条件 off-by-one、整数溢出、浮点精度、排序不稳定等
   - **TLE (Time Limit Exceeded)**：O(n²) 用于大数据集、递归无记忆化、无效循环等
-- [ ] 每种错误模式包含：模式描述、常见原因、典型代码片段、修复建议
-- [ ] 按 Python 和 C 两种语言分别提供
-- [ ] 在 `create_app()` 中检查 collection 是否为空，为空则执行种子填充
+- [x] 每种错误模式包含：模式描述、常见原因、典型代码片段、修复建议
+- [x] 按 Python 和 C 两种语言分别提供
+- [x] 在 `create_app()` 中检查 collection 是否为空，为空则执行种子填充
 
 ---
 
@@ -424,12 +424,12 @@ def _maybe_update_profile(app, student_id):
 
 **文件：** `scripts/seed_knowledge.py`
 
-- [ ] 按课程大纲填充核心知识点：
+- [x] 按课程大纲填充核心知识点：
   - 数据结构：数组、链表、栈、队列、树、图、哈希表
   - 算法：排序、搜索、递归、动态规划、贪心、回溯
   - 编程基础：循环、条件、函数、指针（C）、类（Python）
-- [ ] 每个知识点包含：概念说明、复杂度分析、典型应用场景、常见陷阱
-- [ ] 提供 Flask CLI 命令：`flask seed-knowledge` 执行填充
+- [x] 每个知识点包含：概念说明、复杂度分析、典型应用场景、常见陷阱
+- [x] 提供 Flask CLI 命令：`flask seed-knowledge` 执行填充
 
 ---
 
@@ -437,12 +437,12 @@ def _maybe_update_profile(app, student_id):
 
 **文件：** `app/api/v1/ai.py`, 新建前端页面
 
-- [ ] 添加 API 端点 `POST /api/v1/ai/knowledge/add`（teacher/admin）
+- [x] 添加 API 端点 `POST /api/v1/ai/knowledge/add`（teacher/admin）
   - 接受 `topic`, `content`, `category` 参数
   - 调用 `kb.add_knowledge_point(topic, content, category)`
-- [ ] 添加 API 端点 `GET /api/v1/ai/knowledge/search`
+- [x] 添加 API 端点 `GET /api/v1/ai/knowledge/search`
   - 接受 `query` 参数，返回相关知识点（用于前端预览/验证）
-- [ ] 添加 API 端点 `DELETE /api/v1/ai/knowledge/<id>`
+- [x] 添加 API 端点 `DELETE /api/v1/ai/knowledge/<id>`
   - 删除指定知识点
 - [ ] （可选）前端管理页面：列表 + 添加 + 搜索测试
 

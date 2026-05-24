@@ -35,6 +35,9 @@ def create_app(config_name=None):
         _recover_orphaned_tasks(app)
         _async_index_knowledge_base(app)
 
+    # 7. Register CLI commands
+    _register_cli_commands(app)
+
     return app
 
 
@@ -73,7 +76,7 @@ def _recover_orphaned_tasks(app):
 
 
 def _async_index_knowledge_base(app):
-    """C2: Index all questions into the vector knowledge base (background thread)."""
+    """C2 + D1/D2: Index questions and seed knowledge base (background thread)."""
     def _do_index():
         with app.app_context():
             try:
@@ -83,7 +86,25 @@ def _async_index_knowledge_base(app):
             except Exception as e:
                 app.logger.warning("Knowledge base indexing skipped: %s", e)
 
+            try:
+                from scripts.seed_knowledge import seed_all
+                err_count, kp_count = seed_all()
+                if err_count or kp_count:
+                    app.logger.info("Knowledge base seeded: %d error patterns, %d knowledge points",
+                                    err_count, kp_count)
+            except Exception as e:
+                app.logger.warning("Knowledge base seeding skipped: %s", e)
+
     threading.Thread(target=_do_index, daemon=True).start()
+
+
+def _register_cli_commands(app):
+    """Register Flask CLI commands."""
+    try:
+        from scripts.seed_knowledge import register_cli
+        register_cli(app)
+    except Exception as e:
+        app.logger.debug("CLI command registration skipped: %s", e)
 
 
 def register_blueprints(app):
