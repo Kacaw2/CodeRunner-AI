@@ -1880,3 +1880,159 @@ def eval_history():
     total = query.count()
     runs = query.offset(offset).limit(limit).all()
     return jsonify({"runs": [r.to_dict() for r in runs], "total": total})
+
+
+# ── Phase 2: Supervisor Workflow Endpoints ──────────────────
+
+
+@bp.route("/workflows", methods=["POST"])
+@require_auth
+def create_workflow():
+    """Create and execute a multi-step workflow via the Supervisor agent."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+
+    goal = (data.get("goal") or data.get("message") or "").strip()
+    if not goal:
+        return _error_response("invalid_request", "goal is required", 400)
+
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    try:
+        rl_info = _rate_limit_or_abort(user.id, "generator")
+    except RateLimitError as e:
+        return _error_response("ai_rate_limit", e.user_message, 429,
+                               {"Retry-After": str(e.retry_after)})
+
+    context = _build_context(data)
+    context.setdefault("language", data.get("language", "python"))
+    context.setdefault("difficulty", data.get("difficulty", "medium"))
+    context.setdefault("topic", data.get("topic", ""))
+    context.setdefault("test_case_count", int(data.get("test_case_count", 5)))
+    context["prompt"] = goal
+
+    conversation_id = data.get("conversation_id")
+
+    try:
+        from app.agents.workflow import SupervisorAgent
+
+        supervisor = SupervisorAgent()
+        state = supervisor.run_workflow(
+            user_id=user.id,
+            user_role=user_role,
+            goal=goal,
+            context=context,
+            conversation_id=conversation_id,
+        )
+
+        rl_headers = _rate_limit_headers(rl_info)
+        resp = jsonify({
+            "workflow_run_id": state.get("workflow_run_id"),
+            "status": state.get("status"),
+            "workflow_type": state.get("workflow_type"),
+            "result": state.get("final_result"),
+            "error": state.get("error"),
+            "events": state.get("_events", []),
+        })
+        resp.status_code = 201 if state.get("status") != "failed" else 500
+        for k, v in rl_headers.items():
+            resp.headers[k] = v
+        return resp
+
+    except ConfigError as e:
+        db.session.rollback()
+        return _error_response("ai_config_error", e.user_message, 503)
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Workflow creation failed")
+        return _error_response("ai_service_error",
+                               "Workflow execution failed. Please try again.", 500)
+
+
+@bp.route("/workflows", methods=["GET"])
+@require_auth
+def list_workflows():
+    """List the current user's workflow runs."""
+    user = get_current_user_or_401()
+    from app.models.workflow import WorkflowRun
+
+    limit = min(int(request.args.get("limit", 20)), 100)
+    offset = int(request.args.get("offset", 0))
+    status = request.args.get("status")
+    workflow_type = request.args.get("type")
+
+    query = WorkflowRun.query.filter_by(user_id=user.id)
+    if status:
+        query = query.filter_by(status=status)
+    if workflow_type:
+        query = query.filter_by(workflow_type=workflow_type)
+
+    total = query.count()
+    runs = query.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit).all()
+
+    return jsonify({
+        "workflows": [r.to_dict() for r in runs],
+        "total": total,
+    })
+
+
+@bp.route("/workflows/<workflow_run_id>", methods=["GET"])
+@require_auth
+def get_workflow(workflow_run_id):
+    """Get detailed status of a workflow run including all steps."""
+    user = get_current_user_or_401()
+    from app.agents.workflow import SupervisorAgent
+
+    supervisor = SupervisorAgent()
+    result = supervisor.get_workflow_status(workflow_run_id)
+
+    if result.get("error"):
+        return _error_response("not_found", result["error"], 404)
+
+    run_data = result.get("run", {})
+    if run_data.get("user_id") != user.id:
+        user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        if user_role not in ("teacher", "admin"):
+            return _error_response("forbidden", "Access denied", 403)
+
+    return jsonify(result)
+
+
+@bp.route("/workflows/<workflow_run_id>/approve", methods=["POST"])
+@require_auth
+def approve_workflow_step(workflow_run_id):
+    """Approve or reject a workflow step at a human gate."""
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+
+    from app.models.workflow import WorkflowRun
+    run = WorkflowRun.query.get(workflow_run_id)
+    if not run:
+        return _error_response("not_found", "Workflow not found", 404)
+    if run.user_id != user.id:
+        user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        if user_role not in ("teacher", "admin"):
+            return _error_response("forbidden", "Access denied", 403)
+    if run.status != "waiting_approval":
+        return _error_response("invalid_state",
+                               f"Workflow is in '{run.status}' state, not waiting_approval", 400)
+
+    approved = data.get("approved", data.get("action") == "approve")
+    feedback = data.get("feedback", data.get("notes", ""))
+
+    try:
+        from app.agents.workflow import SupervisorAgent
+        supervisor = SupervisorAgent()
+        state = supervisor.resume_workflow(workflow_run_id, approved, feedback)
+
+        return jsonify({
+            "workflow_run_id": workflow_run_id,
+            "status": state.get("status"),
+            "result": state.get("final_result"),
+            "error": state.get("error"),
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Workflow approval failed")
+        return _error_response("ai_service_error",
+                               "Failed to process approval.", 500)

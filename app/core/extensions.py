@@ -66,6 +66,7 @@ def init_extensions(app):
         from app.models.student_profile import StudentProfile, TeacherPreference  # noqa: F401
         from app.models.eval_run import EvalRun  # noqa: F401
         from app.models.chat_task import ChatTask  # noqa: F401
+        from app.models.workflow import WorkflowRun, WorkflowStep  # noqa: F401
 
     # Initialize Redis
     global redis_client

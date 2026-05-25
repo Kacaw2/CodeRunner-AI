@@ -18,6 +18,7 @@ from .generated_question_draft import GeneratedQuestionDraft
 from .student_profile import StudentProfile, TeacherPreference
 from .eval_run import EvalRun
 from .chat_task import ChatTask
+from .workflow import WorkflowRun, WorkflowStep
 
 QuizQuestion = QuizProblem
 
@@ -63,4 +64,8 @@ __all__ = [
 
     # Async chat
     'ChatTask',
+
+    # Workflow (Phase 2)
+    'WorkflowRun',
+    'WorkflowStep',
 ]

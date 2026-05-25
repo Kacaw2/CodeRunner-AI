@@ -315,3 +315,36 @@ def run_generation_pipeline(
 
     result = pipeline.invoke(initial_state)
     return result
+
+
+def run_generation_workflow(
+    teacher_id: int,
+    prompt: str,
+    language: str = "python",
+    difficulty: str = "medium",
+    topic: str = "",
+    test_case_count: int = 5,
+    conversation_id: int = None,
+) -> dict:
+    """Run problem generation through the Supervisor Workflow framework.
+
+    This is the Phase 2 entry point that uses the generic workflow engine
+    instead of the hardcoded LangGraph pipeline above.
+    """
+    from app.agents.workflow import SupervisorAgent
+
+    supervisor = SupervisorAgent()
+    state = supervisor.run_workflow(
+        user_id=teacher_id,
+        user_role="teacher",
+        goal=prompt or f"Generate a {difficulty} {language} coding problem about {topic}",
+        context={
+            "language": language,
+            "difficulty": difficulty,
+            "topic": topic,
+            "test_case_count": test_case_count,
+            "prompt": prompt,
+        },
+        conversation_id=conversation_id,
+    )
+    return state
