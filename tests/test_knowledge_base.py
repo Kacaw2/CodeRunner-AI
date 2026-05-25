@@ -52,7 +52,7 @@ class TestIndexAndSearch:
         kb.index_problem(problem)
         assert kb.questions.count() == 1
 
-        results = kb.search_similar_questions("find two numbers that sum to target", n=3)
+        results = kb.search_similar_problems("find two numbers that sum to target", n=3)
         assert len(results) >= 1
         assert results[0]["title"] == "Two Sum"
 
@@ -66,7 +66,7 @@ class TestIndexAndSearch:
         })()
         kb.index_problem(problem)
 
-        results = kb.search_similar_questions("fibonacci dynamic programming")
+        results = kb.search_similar_problems("fibonacci dynamic programming")
         assert len(results) >= 1
         for r in results:
             assert 0 <= r["similarity"] <= 1, f"similarity {r['similarity']} not in [0,1]"
@@ -89,7 +89,7 @@ class TestIndexAndSearch:
         kb.index_problem(p1)
         kb.index_problem(p2)
 
-        results = kb.search_similar_questions("reverse a string", n=5)
+        results = kb.search_similar_problems("reverse a string", n=5)
         high_sim = [r for r in results if r["similarity"] > 0.8]
         assert len(high_sim) >= 1, "Nearly identical problems should have similarity > 0.8"
 

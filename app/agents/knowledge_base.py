@@ -7,7 +7,7 @@ _kb_instance = None
 
 
 class KnowledgeBase:
-    """Vector-based knowledge base using ChromaDB for question similarity search and knowledge retrieval."""
+    """Vector-based knowledge base using ChromaDB for problem similarity search and knowledge retrieval."""
 
     def __init__(self, persist_dir=None):
         import chromadb
@@ -62,8 +62,8 @@ class KnowledgeBase:
             }],
         )
 
-    def search_similar_questions(self, query: str, n: int = 5, language: str = None) -> list:
-        """Find questions similar to a query."""
+    def search_similar_problems(self, query: str, n: int = 5, language: str = None) -> list:
+        """Find problems similar to a query."""
         if self.questions.count() == 0:
             return []
 
@@ -86,7 +86,7 @@ class KnowledgeBase:
 
         return [
             {
-                "question_id": meta.get("question_id"),
+                "problem_id": meta.get("problem_id") or meta.get("question_id"),
                 "title": meta.get("title", ""),
                 "similarity": round(max(0, 1 - dist), 4) if dist is not None else 0,
                 "text_preview": doc[:200],

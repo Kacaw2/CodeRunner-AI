@@ -4,11 +4,11 @@ from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.tutor import TUTOR_SYSTEM_PROMPT
 from app.agents.tools.code_executor import execute_code
-from app.agents.tools.question_query import get_question_detail
+from app.agents.tools.question_query import get_problem_detail
 from app.agents.tools.submission_query import get_student_submissions, get_submission_detail
 from app.agents.tools.knowledge_tools import search_knowledge, search_error_patterns
 
-TUTOR_TOOLS = [execute_code, get_question_detail, get_student_submissions, get_submission_detail,
+TUTOR_TOOLS = [execute_code, get_problem_detail, get_student_submissions, get_submission_detail,
                search_knowledge, search_error_patterns]
 
 

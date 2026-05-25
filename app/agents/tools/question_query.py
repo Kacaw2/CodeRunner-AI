@@ -2,23 +2,21 @@ from langchain_core.tools import tool
 
 
 @tool
-def get_question_detail(question_id: int) -> dict:
-    """Get question description and public (non-hidden) test cases by question ID."""
-    from app.models.question import Question, TestCase
-    q = Question.query.get(question_id)
-    if not q:
-        return {"error": "Question not found"}
-    problem = q.problem
+def get_problem_detail(problem_id: int) -> dict:
+    """Get problem description and public (non-hidden) test cases by problem ID."""
+    from app.models.problem import Problem
+    from app.models.question import TestCase
+    problem = Problem.query.get(problem_id)
     if not problem:
         return {"error": "Problem not found"}
-    # Only expose public test cases; hidden ones must stay confidential
     cases = TestCase.query.filter_by(problem_id=problem.id, is_hidden=False).all()
+    languages = [v.programming_language for v in problem.variants] if problem.variants else []
     return {
-        "id": q.id,
         "problem_id": problem.id,
         "title": problem.title,
         "description": problem.description,
-        "language": q.programming_language,
+        "difficulty": problem.difficulty,
+        "languages": languages,
         "test_cases": [
             {"input": tc.input, "expected_output": tc.expected_output}
             for tc in cases

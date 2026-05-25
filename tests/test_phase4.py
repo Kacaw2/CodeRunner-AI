@@ -369,16 +369,16 @@ class TestAnalyticsTools:
         result = get_class_statistics.invoke({"teacher_id": teacher_user.id})
         assert result["classrooms"] == []
 
-    def test_get_question_difficulty_stats_no_submissions(self, app, db_session):
-        from app.agents.tools.analytics_query import get_question_difficulty_stats
-        result = get_question_difficulty_stats.invoke({"question_id": 99999})
+    def test_get_problem_difficulty_stats_no_submissions(self, app, db_session):
+        from app.agents.tools.analytics_query import get_problem_difficulty_stats
+        result = get_problem_difficulty_stats.invoke({"problem_id": 99999})
         assert result["total_submissions"] == 0
 
-    def test_get_question_difficulty_stats_with_data(self, app, student_user, db_session):
+    def test_get_problem_difficulty_stats_with_data(self, app, student_user, db_session):
         from app.models.submission import Submission
         from app.models.problem import Problem
         from app.models.question import Question
-        from app.agents.tools.analytics_query import get_question_difficulty_stats
+        from app.agents.tools.analytics_query import get_problem_difficulty_stats
 
         problem = Problem(slug="stats-q", title="Stats Q", description="Desc", created_by=1)
         db_session.add(problem)
@@ -398,7 +398,7 @@ class TestAnalyticsTools:
             db_session.add(sub)
         db_session.commit()
 
-        result = get_question_difficulty_stats.invoke({"question_id": q.id})
+        result = get_problem_difficulty_stats.invoke({"problem_id": problem.id})
         assert result["total_submissions"] == 5
         assert result["unique_students"] == 1
         assert result["status_distribution"]["AC"] == 2
@@ -407,7 +407,7 @@ class TestAnalyticsTools:
         from app.agents.tools.permissions import TOOL_PERMISSIONS
         assert ("analytics", "get_student_activity") in TOOL_PERMISSIONS
         assert ("analytics", "get_class_statistics") in TOOL_PERMISSIONS
-        assert ("analytics", "get_question_difficulty_stats") in TOOL_PERMISSIONS
+        assert ("analytics", "get_problem_difficulty_stats") in TOOL_PERMISSIONS
         assert "student" in TOOL_PERMISSIONS[("analytics", "get_student_activity")]
         assert "student" not in TOOL_PERMISSIONS[("analytics", "get_class_statistics")]
 
@@ -416,7 +416,7 @@ class TestAnalyticsTools:
         tool_names = [t.name for t in ANALYTICS_TOOLS]
         assert "get_student_activity" in tool_names
         assert "get_class_statistics" in tool_names
-        assert "get_question_difficulty_stats" in tool_names
+        assert "get_problem_difficulty_stats" in tool_names
 
 
 # ── Task 20: Agent handoff ───────────────────────────────────

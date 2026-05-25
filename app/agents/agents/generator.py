@@ -12,9 +12,9 @@ from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
 from app.agents.prompts.generator import GENERATOR_SYSTEM_PROMPT
 from app.agents.tools.code_executor import execute_code
-from app.agents.tools.knowledge_tools import search_similar_questions
+from app.agents.tools.knowledge_tools import search_similar_problems
 
-GENERATOR_TOOLS = [execute_code, search_similar_questions]
+GENERATOR_TOOLS = [execute_code, search_similar_problems]
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def _validate_solution(solution: str, language: str, test_cases: list,
 
 class GeneratorAgent(BaseAgent):
     name = "generator"
-    description = "Question generation agent for teachers"
+    description = "Problem generation agent for teachers"
 
     def _build_system_context(self, state: dict) -> str:
         from app.agents.memory import MemoryService
@@ -97,7 +97,7 @@ class GeneratorAgent(BaseAgent):
         if memory_ctx:
             parts.append(f"\n## Teacher Preferences (from profile)\n{memory_ctx}")
 
-        similar = self._get_similar_questions(state)
+        similar = self._get_similar_problems(state)
         if similar:
             parts.append(similar)
 
@@ -111,8 +111,8 @@ class GeneratorAgent(BaseAgent):
         parts.append(f"Required test cases: at least {test_count} (mix of visible and hidden)")
         return "\n".join(parts)
 
-    def _get_similar_questions(self, state: dict) -> str:
-        """Pre-fetch similar questions from KB for dedup awareness."""
+    def _get_similar_problems(self, state: dict) -> str:
+        """Pre-fetch similar problems from KB for dedup awareness."""
         try:
             from app.agents.knowledge_base import get_knowledge_base
             kb = get_knowledge_base()
@@ -128,17 +128,17 @@ class GeneratorAgent(BaseAgent):
             return ""
 
         language = context.get("language", "python")
-        results = kb.search_similar_questions(query, n=3, language=language)
+        results = kb.search_similar_problems(query, n=3, language=language)
         if not results:
             return ""
 
-        lines = ["\n## Existing Similar Questions (avoid duplication)"]
+        lines = ["\n## Existing Similar Problems (avoid duplication)"]
         for r in results:
             sim = r.get("similarity", 0)
             title = r.get("title", "untitled")
             preview = r.get("text_preview", "")[:100]
             lines.append(f"- [{sim:.0%} similar] {title}: {preview}...")
-        lines.append("Generate a question that is distinct from the above. Vary the scenario, constraints, or algorithm.")
+        lines.append("Generate a problem that is distinct from the above. Vary the scenario, constraints, or algorithm.")
         return "\n".join(lines)
 
     def invoke(self, state: AgentState) -> AgentState:
@@ -209,7 +209,7 @@ class GeneratorAgent(BaseAgent):
                 logger.warning("Generator: solution not verified after %d rounds", MAX_VALIDATION_ROUNDS)
 
         if question_data:
-            state["context"]["generated_question"] = question_data
+            state["context"]["generated_problem"] = question_data
             wrapped = json.dumps({"question": question_data}, ensure_ascii=False, indent=2)
             state["final_response"] = wrapped
 
@@ -331,7 +331,7 @@ class GeneratorAgent(BaseAgent):
                     question_data["verified"] = False
 
             if question_data:
-                state["context"]["generated_question"] = question_data
+                state["context"]["generated_problem"] = question_data
                 wrapped = json.dumps({"question": question_data}, ensure_ascii=False, indent=2)
                 state["final_response"] = wrapped
                 # If validation required retries, the frontend only saw the first (failed)

@@ -503,7 +503,7 @@ def chat_stream():
 
             # Auto-save draft when generator produces a valid question
             if resolved_agent_type == "generator":
-                question_data = state.get("context", {}).get("generated_question")
+                question_data = state.get("context", {}).get("generated_problem")
                 if not question_data:
                     question_data = _try_parse_review_json(full_response)
                 if question_data:
@@ -543,6 +543,177 @@ def chat_stream():
             **rl_headers,
         },
     )
+
+
+# ── POST /api/v1/ai/chat/async  (async task) ──────────────────
+
+@bp.route("/chat/async", methods=["POST"])
+@require_auth
+def chat_async():
+    """Create an async chat task. Returns task_id immediately.
+
+    The frontend should subscribe to /chat/task/<task_id>/stream for SSE events.
+    """
+    user = get_current_user_or_401()
+    data = request.get_json(silent=True) or {}
+
+    message = (data.get("message") or "").strip()
+    if not message:
+        return _error_response("invalid_request", "message is required", 400)
+
+    agent_type = data.get("agent_type", "auto")
+
+    # Restrict generator agent to teacher/admin only
+    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+    if agent_type == "generator" and user_role_str not in ("teacher", "admin"):
+        return _error_response("forbidden", "Only teachers can use the generator agent.", 403)
+
+    is_suspicious, pattern = detect_injection(message)
+    if is_suspicious:
+        logger.warning("Potential injection from user %d (async): pattern=%s", user.id, pattern)
+        _log_audit(user.id, agent_type, "chat_async", message, True, pattern)
+
+    message = sanitize_user_input(message)
+
+    try:
+        rl_info = _rate_limit_or_abort(user.id, agent_type)
+    except RateLimitError as e:
+        return _error_response("ai_rate_limit", e.user_message, 429,
+                               {"Retry-After": str(e.retry_after)})
+
+    context = _build_context(data)
+    rl_headers = _rate_limit_headers(rl_info)
+
+    try:
+        conv = _get_or_create_conversation(
+            user.id, agent_type, data.get("conversation_id"), context)
+
+        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
+        db.session.add(user_msg)
+        db.session.flush()
+
+        from app.models.chat_task import ChatTask
+        task = ChatTask(
+            conversation_id=conv.id,
+            user_id=user.id,
+            user_message_id=user_msg.id,
+            agent_type=agent_type,
+            status="pending",
+        )
+        db.session.add(task)
+        db.session.flush()
+        db.session.commit()
+
+        # Submit to background worker
+        from app.agents.chat_worker import submit_chat_task
+        submit_chat_task(task.id, current_app._get_current_object())
+
+        resp = jsonify({
+            "task_id": task.id,
+            "conversation_id": conv.id,
+        })
+        for k, v in rl_headers.items():
+            resp.headers[k] = v
+        return resp, 202
+
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Failed to create async chat task")
+        return _error_response("ai_service_error",
+                               "Failed to create chat task.", 500)
+
+
+# ── GET /api/v1/ai/chat/task/<task_id>/stream  (SSE) ─────────
+
+@bp.route("/chat/task/<task_id>/stream", methods=["GET"])
+@require_auth
+def chat_task_stream(task_id):
+    """SSE stream for an async chat task. Supports catch-up via ?last_event=N."""
+    user = get_current_user_or_401()
+
+    from app.models.chat_task import ChatTask
+    task = ChatTask.query.filter_by(id=task_id, user_id=user.id).first()
+    if not task:
+        return _error_response("not_found", "Task not found", 404)
+
+    last_event = request.args.get("last_event", 0, type=int)
+
+    def generate():
+        from app.agents.chat_worker import (
+            get_task_events, get_task_event_count, get_task_status_from_redis,
+        )
+
+        cursor = last_event
+        done = False
+        idle_count = 0
+        max_idle = 300  # 5 minutes max wait
+
+        while not done and idle_count < max_idle:
+            events = get_task_events(task_id, start=cursor)
+
+            if events:
+                idle_count = 0
+                for evt in events:
+                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    cursor += 1
+
+                    if evt.get("type") in ("done", "error"):
+                        done = True
+                        break
+            else:
+                # Check if task is already finished (DB fallback)
+                redis_info = get_task_status_from_redis(task_id)
+                redis_status = redis_info.get("status")
+
+                if redis_status in ("completed", "failed"):
+                    # Drain any remaining events
+                    remaining = get_task_events(task_id, start=cursor)
+                    for evt in remaining:
+                        yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                        cursor += 1
+                    done = True
+                    break
+
+                # Heartbeat and wait
+                yield ": heartbeat\n\n"
+                idle_count += 1
+                time.sleep(0.3)
+
+        yield "data: [DONE]\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ── GET /api/v1/ai/chat/task/<task_id>  (poll) ──────────────
+
+@bp.route("/chat/task/<task_id>", methods=["GET"])
+@require_auth
+def chat_task_status(task_id):
+    """Poll the status of an async chat task."""
+    user = get_current_user_or_401()
+
+    from app.models.chat_task import ChatTask
+    task = ChatTask.query.filter_by(id=task_id, user_id=user.id).first()
+    if not task:
+        return _error_response("not_found", "Task not found", 404)
+
+    result = task.to_dict()
+
+    # Include the final response content if completed
+    if task.status == "completed" and task.result_message_id:
+        result_msg = AIMessage.query.get(task.result_message_id)
+        if result_msg:
+            result["response"] = result_msg.content
+
+    return jsonify({"task": result})
 
 
 # ── GET /api/v1/ai/conversations ─────────────────────────────
@@ -745,7 +916,7 @@ def generate_question():
         conv.title = conv.title or f"AI Generate: {prompt[:60]}"
         db.session.commit()
 
-        question_data = state.get("context", {}).get("generated_question")
+        question_data = state.get("context", {}).get("generated_problem")
         draft_info = None
         if question_data:
             from app.models.generated_question_draft import GeneratedQuestionDraft
@@ -956,7 +1127,7 @@ def generate_pipeline():
                 validation_details={
                     "results": final_draft.get("validation_results", []),
                     "quality_review": final_draft.get("quality_review"),
-                    "similar_questions": final_draft.get("similar_questions", []),
+                    "similar_problems": final_draft.get("similar_problems", []),
                 },
                 status="pending_review",
             )
@@ -976,7 +1147,7 @@ def generate_pipeline():
                 "dedup_attempts": result.get("dedup_attempts", 0),
                 "validation_passed": result.get("validation_passed", False),
                 "quality_review": result.get("quality_review"),
-                "similar_questions": result.get("similar_questions", []),
+                "similar_problems": result.get("similar_problems", []),
             },
             "error": result.get("error"),
         })
@@ -1170,7 +1341,7 @@ def _trigger_revision(draft):
 
     try:
         result = agent.invoke(state)
-        revised = result.get("context", {}).get("generated_question")
+        revised = result.get("context", {}).get("generated_problem")
         if revised:
             draft.question_data = revised
             draft.status = "pending_review"
@@ -1572,17 +1743,24 @@ def add_knowledge():
         return err
 
     try:
+        user = get_current_user_or_401()
+        scope = (data.get("scope") or "teacher").strip()
+        if scope not in ("global", "teacher", "classroom"):
+            scope = "teacher"
+
         if category == "error_pattern":
             error_type = data.get("error_type", "CE")
             kb.add_error_pattern(error_type, topic, content)
         else:
-            kb.add_knowledge_point(topic, content, category)
+            kb.add_knowledge_point(topic, content, category,
+                                   scope=scope, owner_id=user.id)
 
         return jsonify({
             "message": "Knowledge point added successfully.",
             "id": f"{category}_{topic}",
             "topic": topic,
             "category": category,
+            "scope": scope,
         }), 201
     except Exception as e:
         logger.exception("Knowledge base add error")

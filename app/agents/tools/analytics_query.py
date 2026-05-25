@@ -4,7 +4,7 @@ Expanded analytics query tools (Phase 4, Task 19).
 New tools for the Analytics agent to provide richer data analysis:
 - get_student_activity: time-series activity data for a student
 - get_class_statistics: aggregate statistics across a teacher's classrooms
-- get_question_difficulty_stats: per-question success rate analysis
+- get_problem_difficulty_stats: per-problem success rate analysis
 """
 
 from langchain_core.tools import tool
@@ -165,24 +165,32 @@ def get_class_statistics(teacher_id: int) -> dict:
 
 
 @tool
-def get_question_difficulty_stats(question_id: int) -> dict:
-    """Get success rate and error distribution for a specific question.
+def get_problem_difficulty_stats(problem_id: int) -> dict:
+    """Get success rate and error distribution for a specific problem.
 
     Returns how many students attempted it, pass/fail rates, and common error types.
-    Useful for understanding whether a question is appropriately calibrated.
+    Useful for understanding whether a problem is appropriately calibrated.
     """
+    from app.models.question import Question
     from app.models.submission import Submission
     from sqlalchemy import func
     from app.core.extensions import db
 
     try:
-        submissions = Submission.query.filter_by(question_id=question_id).all()
+        variant_ids = [q.id for q in Question.query.filter_by(problem_id=problem_id).all()]
+        if not variant_ids:
+            return {
+                "problem_id": problem_id,
+                "total_submissions": 0,
+                "message": "No variants found for this problem",
+            }
+        submissions = Submission.query.filter(Submission.question_id.in_(variant_ids)).all()
 
         if not submissions:
             return {
-                "question_id": question_id,
+                "problem_id": problem_id,
                 "total_submissions": 0,
-                "message": "No submissions found for this question",
+                "message": "No submissions found for this problem",
             }
 
         unique_students = len({s.student_id for s in submissions})
@@ -202,7 +210,7 @@ def get_question_difficulty_stats(question_id: int) -> dict:
                 students_who_passed.add(s.student_id)
 
         return {
-            "question_id": question_id,
+            "problem_id": problem_id,
             "total_submissions": total,
             "unique_students": unique_students,
             "students_who_passed": len(students_who_passed),
@@ -213,4 +221,4 @@ def get_question_difficulty_stats(question_id: int) -> dict:
         }
 
     except Exception as e:
-        return {"error": str(e), "question_id": question_id}
+        return {"error": str(e), "problem_id": problem_id}

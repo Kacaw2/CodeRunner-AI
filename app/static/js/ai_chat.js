@@ -1,6 +1,8 @@
 (function () {
   const CTX = window.__AI_CONTEXT || {};
-  const API_CHAT_STREAM = "/api/v1/ai/chat/stream";
+  const API_CHAT_ASYNC = "/api/v1/ai/chat/async";
+  const API_CHAT_TASK = "/api/v1/ai/chat/task";
+  const API_CHAT_STREAM = "/api/v1/ai/chat/stream";  // legacy fallback
   const API_CONVERSATIONS = "/api/v1/ai/conversations";
 
   function authHeaders() {
@@ -19,62 +21,57 @@
   const chatTitle = document.getElementById("chatTitle");
   const toggleSidebar = document.getElementById("toggleSidebar");
   const chatSidebar = document.getElementById("chatSidebar");
-  const agentSelect = document.getElementById("agentType");
+  const agentBadge = document.getElementById("agentBadge");
   const convFilter = document.getElementById("convFilter");
-
-  const welcomePanels = {
-    tutor: document.getElementById("welcomeTutor"),
-    reviewer: document.getElementById("welcomeReviewer"),
-    generator: document.getElementById("welcomeGenerator"),
-    analytics: document.getElementById("welcomeAnalytics"),
-  };
+  const welcomeGeneral = document.getElementById("welcomeGeneral");
 
   const agentLabels = {
     tutor: "AI Tutor",
     reviewer: "Code Review",
     generator: "AI Generator",
     analytics: "Learning Analytics",
+    auto: "AI Assistant",
   };
 
-  const placeholders = {
-    tutor: "Ask me about your code...",
-    reviewer: "Paste code or ask for a review...",
-    generator: "Describe the problem you want to generate...",
-    analytics: "Ask about your learning progress...",
+  const agentBadgeColors = {
+    tutor: "bg-primary",
+    reviewer: "bg-info",
+    generator: "bg-success",
+    analytics: "bg-warning text-dark",
+    auto: "bg-secondary",
   };
 
   let conversationId = CTX.conversationId || null;
-  let currentAgent = CTX.agentType || "tutor";
+  let currentAgent = "auto";
   let isSending = false;
 
-  // Init agent selector
-  if (agentSelect) {
-    agentSelect.value = currentAgent;
-    agentSelect.addEventListener("change", () => {
-      currentAgent = agentSelect.value;
-      updateAgentUI();
-      if (!conversationId) showWelcome();
-    });
+  function updateAgentBadge(agentType) {
+    if (!agentBadge) return;
+    const label = agentLabels[agentType] || agentType || "Auto";
+    const colorClass = agentBadgeColors[agentType] || "bg-secondary";
+    agentBadge.className = "badge " + colorClass;
+    if (agentType === "auto") {
+      agentBadge.innerHTML = '<i class="bi bi-arrow-repeat"></i> Auto';
+    } else {
+      agentBadge.textContent = label;
+    }
   }
 
   function updateAgentUI() {
     chatTitle.textContent = agentLabels[currentAgent] || "AI Assistant";
-    chatInput.placeholder = placeholders[currentAgent] || "Type a message...";
+    chatInput.placeholder = "Type a message...";
   }
 
   function showWelcome() {
-    // Clear messages area and show appropriate welcome
     const msgs = chatMessages.querySelectorAll(".msg");
     msgs.forEach((m) => m.remove());
-    Object.entries(welcomePanels).forEach(([key, el]) => {
-      if (el) el.style.display = key === currentAgent ? "" : "none";
-    });
+    if (welcomeGeneral) welcomeGeneral.style.display = "";
+    currentAgent = "auto";
+    updateAgentBadge("auto");
   }
 
   function hideAllWelcomes() {
-    Object.values(welcomePanels).forEach((el) => {
-      if (el) el.style.display = "none";
-    });
+    if (welcomeGeneral) welcomeGeneral.style.display = "none";
   }
 
   // Sidebar toggle
@@ -112,6 +109,7 @@
   newChatBtn.addEventListener("click", () => {
     conversationId = null;
     showWelcome();
+    updateAgentUI();
     document.querySelectorAll(".conv-item.active").forEach((el) => el.classList.remove("active"));
   });
 
@@ -179,10 +177,10 @@
       conversationId = id;
       hideAllWelcomes();
 
-      // Switch agent type to match conversation
-      if (agentType && agentSelect) {
+      // Show the conversation's agent type in the badge
+      if (agentType) {
         currentAgent = agentType;
-        agentSelect.value = agentType;
+        updateAgentBadge(agentType);
         updateAgentUI();
       }
 
@@ -223,7 +221,7 @@
     } catch (_) { /* ignore */ }
   }
 
-  // ── Send message ──
+  // ── Send message (async task model) ──
   async function sendMessage() {
     const text = chatInput.value.trim();
     if (!text || isSending) return;
@@ -239,7 +237,7 @@
     const assistantEl = appendMessage("assistant", "");
     const bodyEl = assistantEl.querySelector(".msg-body");
     bodyEl.innerHTML = '<div class="thinking-label"><span class="thinking-dot"></span> Thinking...</div>';
-    userScrolledUp = false;  // Reset scroll tracking on new message
+    userScrolledUp = false;
     scrollToBottom(true);
 
     // SSE events container
@@ -273,30 +271,65 @@
 
     const payload = {
       message: text,
-      agent_type: currentAgent,
+      agent_type: "auto",
       conversation_id: conversationId,
       question_id: CTX.questionId,
       submission_id: CTX.submissionId,
     };
 
     try {
-      const response = await fetch(API_CHAT_STREAM, {
+      // Step 1: Create async task
+      const createRes = await fetch(API_CHAT_ASYNC, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
 
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({}));
+        throw new Error(err.message || "Request failed");
+      }
+
+      const { task_id, conversation_id: newConvId } = await createRes.json();
+      if (newConvId) conversationId = newConvId;
+
+      // Step 2: Subscribe to SSE stream for this task
+      await _subscribeToTaskStream(task_id, bodyEl, sseContainer, sseListEl, addSseEvent, sseEventCount);
+
+      loadConversations();
+    } catch (err) {
+      bodyEl.textContent = "Error: " + err.message;
+    } finally {
+      isSending = false;
+      sendBtn.disabled = false;
+      chatInput.focus();
+    }
+  }
+
+  // ── Task SSE subscription with reconnect ──
+  async function _subscribeToTaskStream(taskId, bodyEl, sseContainer, sseListEl, addSseEvent, initialSseCount) {
+    let sseEventCount = initialSseCount;
+    let lastEventIndex = 0;
+    let fullText = "";
+    let retries = 0;
+    const maxRetries = 3;
+
+    async function connectStream() {
+      const streamUrl = API_CHAT_TASK + "/" + taskId + "/stream?last_event=" + lastEventIndex;
+      const response = await fetch(streamUrl, { headers: authHeaders() });
+
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.message || "Request failed");
+        throw new Error(err.message || "Stream failed");
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let fullText = "";
 
-      bodyEl.innerHTML = "";
+      if (lastEventIndex === 0) {
+        bodyEl.innerHTML = "";
+      }
 
       while (true) {
         const { done, value } = await reader.read();
@@ -307,6 +340,7 @@
         buffer = lines.pop();
 
         for (const line of lines) {
+          if (line.startsWith(":")) continue;  // heartbeat
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
           if (raw === "[DONE]") continue;
@@ -318,9 +352,17 @@
             continue;
           }
 
+          lastEventIndex++;
+          retries = 0;  // Reset retry count on successful event
+
           if (event.type === "start") {
-            conversationId = event.conversation_id;
-            addSseEvent("start", "Connected to " + (event.agent_type || "agent"));
+            if (event.conversation_id) conversationId = event.conversation_id;
+            if (event.agent_type) {
+              currentAgent = event.agent_type;
+              updateAgentBadge(event.agent_type);
+              updateAgentUI();
+            }
+            addSseEvent("start", "Routed to " + (agentLabels[event.agent_type] || event.agent_type || "agent"));
           } else if (event.type === "token") {
             const thinkingEl = bodyEl.querySelector(".thinking-label");
             if (thinkingEl) thinkingEl.remove();
@@ -332,7 +374,6 @@
             }
             scrollToBottom();
           } else if (event.type === "replace") {
-            // Generator retries: replace all previous content with final result
             fullText = event.content;
             bodyEl.innerHTML = renderMarkdown(fullText);
             if (sseContainer.parentNode !== bodyEl && sseEventCount > 0) {
@@ -341,12 +382,15 @@
             }
             scrollToBottom();
           } else if (event.type === "handoff" || event.type === "handoff_start") {
-            // Agent handoff: show indicator and prepare for new agent's response
             const target = event.target || "";
             const reason = event.reason || "";
-            addSseEvent("handoff", "Handing off to " + target + (reason ? ": " + reason : ""));
+            if (target) {
+              currentAgent = target;
+              updateAgentBadge(target);
+              updateAgentUI();
+            }
+            addSseEvent("handoff", "Handing off to " + (agentLabels[target] || target) + (reason ? ": " + reason : ""));
             if (event.type === "handoff_start") {
-              // Add a visual separator for the new agent's response
               fullText += "\n\n---\n\n";
               bodyEl.innerHTML = renderMarkdown(fullText);
               if (sseContainer.parentNode !== bodyEl && sseEventCount > 0) {
@@ -361,7 +405,16 @@
           } else if (event.type === "tool_result") {
             addSseEvent("tool-result", "Done: " + (event.summary || event.tool || ""));
           } else if (event.type === "done") {
-            if (event.draft_id) {
+            if (currentAgent === "generator" && fullText) {
+              const genData = tryParseGeneratorJson(fullText);
+              if (genData) {
+                bodyEl.innerHTML = "";
+                bodyEl.appendChild(renderGeneratorCard(genData, event.draft_id || null));
+                if (sseEventCount > 0) bodyEl.appendChild(sseContainer);
+                scrollToBottom();
+              }
+            }
+            if (event.draft_id && currentAgent !== "generator") {
               const banner = document.createElement("div");
               banner.className = "draft-saved-banner";
               banner.innerHTML =
@@ -372,35 +425,69 @@
               bodyEl.appendChild(banner);
               scrollToBottom();
             }
+            return;  // Task complete
           } else if (event.type === "error") {
             const thinkingEl = bodyEl.querySelector(".thinking-label");
             if (thinkingEl) thinkingEl.remove();
             addSseEvent("error", event.message || "Unknown error");
             bodyEl.textContent = "Error: " + (event.message || "Unknown error");
             if (sseEventCount > 0) bodyEl.appendChild(sseContainer);
+            return;  // Task failed
           }
         }
       }
+    }
 
-      if (!fullText && bodyEl.textContent === "") {
-        bodyEl.textContent = "(No response)";
-      }
+    // Connect with retry logic
+    while (retries <= maxRetries) {
+      try {
+        await connectStream();
+        break;  // Clean exit (done or error event received)
+      } catch (err) {
+        retries++;
+        if (retries > maxRetries) {
+          // Fall back to polling for final result
+          try {
+            const pollRes = await fetch(API_CHAT_TASK + "/" + taskId, { headers: authHeaders() });
+            if (pollRes.ok) {
+              const pollData = await pollRes.json();
+              if (pollData.task && pollData.task.status === "completed" && pollData.task.response) {
+                fullText = pollData.task.response;
+              }
+            }
+          } catch (_) { /* ignore */ }
 
-      // Re-render final markdown, preserving the SSE events container
-      if (fullText) {
-        bodyEl.innerHTML = renderMarkdown(fullText);
-        if (sseEventCount > 0) {
-          bodyEl.appendChild(sseContainer);
+          if (!fullText) {
+            bodyEl.textContent = "Connection lost. Please try again.";
+            return;
+          }
+        } else {
+          // Wait before retry with exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, 1000 * retries));
         }
       }
+    }
 
-      loadConversations();
-    } catch (err) {
-      bodyEl.textContent = "Error: " + err.message;
-    } finally {
-      isSending = false;
-      sendBtn.disabled = false;
-      chatInput.focus();
+    // Final render
+    if (!fullText && bodyEl.textContent === "") {
+      bodyEl.textContent = "(No response)";
+    }
+
+    if (fullText) {
+      if (currentAgent === "generator") {
+        const genData = tryParseGeneratorJson(fullText);
+        if (genData) {
+          bodyEl.innerHTML = "";
+          bodyEl.appendChild(renderGeneratorCard(genData, null));
+        } else {
+          bodyEl.innerHTML = renderMarkdown(fullText);
+        }
+      } else {
+        bodyEl.innerHTML = renderMarkdown(fullText);
+      }
+      if (sseEventCount > 0) {
+        bodyEl.appendChild(sseContainer);
+      }
     }
   }
 
@@ -410,6 +497,101 @@
       return DOMPurify.sanitize(marked.parse(text || ""));
     }
     return escapeHtml(text);
+  }
+
+  // ── Generator problem card ──
+  function tryParseGeneratorJson(text) {
+    // Try to extract JSON from ```json fences or raw { ... }
+    let jsonStr = text;
+    const fenceMatch = text.match(/```json\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) jsonStr = fenceMatch[1];
+    const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (!braceMatch) return null;
+    try {
+      const obj = JSON.parse(braceMatch[0]);
+      // Check if it's a generator output (has question wrapper or direct problem fields)
+      const data = obj.question || obj;
+      if (data.title && data.test_cases) return data;
+      return null;
+    } catch (_) { return null; }
+  }
+
+  function renderGeneratorCard(data, draftId) {
+    const diff = (data.difficulty || "").toLowerCase();
+    const visibleCases = (data.test_cases || []).filter(tc => !tc.is_hidden).slice(0, 3);
+    const lang = data.programming_language || "python";
+
+    let casesHtml = "";
+    visibleCases.forEach((tc, i) => {
+      casesHtml +=
+        '<div class="gen-tc-item">' +
+        '<span class="gen-tc-label">Input:</span><span>' + escapeHtml(tc.input || "") + '</span>' +
+        '<span class="gen-tc-label">Expected:</span><span>' + escapeHtml(tc.expected_output || "") + '</span>' +
+        '</div>';
+    });
+
+    const descPreview = (data.description || "").substring(0, 400) + ((data.description || "").length > 400 ? "..." : "");
+
+    const card = document.createElement("div");
+    card.className = "gen-problem-card";
+    card.innerHTML =
+      '<div class="gen-problem-header">' +
+        '<span class="gen-title">' + escapeHtml(data.title || "Untitled") + '</span>' +
+        '<span class="gen-diff ' + diff + '">' + escapeHtml(diff || "-") + ' · ' + escapeHtml(lang.toUpperCase()) + '</span>' +
+      '</div>' +
+      '<div class="gen-problem-desc">' + escapeHtml(descPreview) + '</div>' +
+      (casesHtml ? '<div class="gen-test-cases"><h6>Sample Test Cases</h6>' + casesHtml + '</div>' : '') +
+      '<div class="gen-problem-actions">' +
+        (draftId
+          ? '<button class="gen-save-btn" disabled><i class="bi bi-check-circle"></i> Draft Saved</button>'
+          : '<button class="gen-save-btn" data-action="save"><i class="bi bi-floppy"></i> Save as Draft</button>'
+        ) +
+        '<button data-action="toggle-json"><i class="bi bi-code-slash"></i> View JSON</button>' +
+      '</div>';
+
+    // Toggle raw JSON view
+    card.querySelector('[data-action="toggle-json"]').addEventListener("click", function () {
+      let jsonPanel = card.querySelector(".gen-json-raw");
+      if (jsonPanel) {
+        jsonPanel.remove();
+        this.innerHTML = '<i class="bi bi-code-slash"></i> View JSON';
+      } else {
+        jsonPanel = document.createElement("pre");
+        jsonPanel.className = "gen-json-raw";
+        jsonPanel.style.cssText = "padding:12px 16px;font-size:0.78rem;background:#f8fafc;max-height:300px;overflow:auto;margin:0;border-top:1px solid #e2e8f0;";
+        jsonPanel.textContent = JSON.stringify(data, null, 2);
+        card.appendChild(jsonPanel);
+        this.innerHTML = '<i class="bi bi-code-slash"></i> Hide JSON';
+      }
+    });
+
+    // Save draft action
+    const saveBtn = card.querySelector('[data-action="save"]');
+    if (saveBtn) {
+      saveBtn.addEventListener("click", async function () {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+        try {
+          const res = await fetch("/api/v1/ai/generate/to-draft", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ question_data: data, conversation_id: conversationId }),
+          });
+          if (res.ok) {
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Draft Saved';
+            saveBtn.className = "gen-save-btn";
+          } else {
+            saveBtn.innerHTML = '<i class="bi bi-x-circle"></i> Failed';
+            saveBtn.disabled = false;
+          }
+        } catch (_) {
+          saveBtn.innerHTML = '<i class="bi bi-x-circle"></i> Failed';
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
+    return card;
   }
 
   // ── Helpers ──

@@ -97,9 +97,9 @@ class BatchTaskRunner:
         }
 
         result_state = agent.invoke(state)
-        question_data = result_state.get("context", {}).get("generated_question")
+        question_data = result_state.get("context", {}).get("generated_problem")
         if not question_data:
-            raise AIError("Generator did not produce a valid question")
+            raise AIError("Generator did not produce a valid problem")
         return question_data
 
 

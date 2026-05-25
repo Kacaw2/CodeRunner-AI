@@ -49,10 +49,10 @@ class TestExecuteCodeTool:
                 assert args.kwargs.get("language") == "c" or args[1].get("language") == "c"
 
 
-class TestQuestionQueryTool:
-    def test_returns_question_detail(self, app, db_session):
+class TestProblemQueryTool:
+    def test_returns_problem_detail(self, app, db_session):
         with app.app_context():
-            from app.agents.tools.question_query import get_question_detail
+            from app.agents.tools.question_query import get_problem_detail
             from app.models.problem import Problem
             from app.models.question import Question, TestCase
 
@@ -76,18 +76,18 @@ class TestQuestionQueryTool:
             db_session.add_all([tc_visible, tc_hidden])
             db_session.flush()
 
-            result = get_question_detail.invoke({"question_id": q.id})
+            result = get_problem_detail.invoke({"problem_id": problem.id})
 
-            assert result["id"] == q.id
+            assert result["problem_id"] == problem.id
             assert result["title"] == "Test Q"
             assert len(result["test_cases"]) == 1  # hidden excluded
             assert result["test_cases"][0]["input"] == "1"
 
-    def test_returns_error_for_missing_question(self, app, db_session):
+    def test_returns_error_for_missing_problem(self, app, db_session):
         with app.app_context():
-            from app.agents.tools.question_query import get_question_detail
+            from app.agents.tools.question_query import get_problem_detail
 
-            result = get_question_detail.invoke({"question_id": 99999})
+            result = get_problem_detail.invoke({"problem_id": 99999})
             assert "error" in result
 
 

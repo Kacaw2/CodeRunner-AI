@@ -1,10 +1,10 @@
 """
 Multi-agent generation pipeline (Phase 4, Task 16).
 
-Chains multiple specialized stages for question generation:
-  1. generate  — LLM produces the question JSON
+Chains multiple specialized stages for problem generation:
+  1. generate  — LLM produces the problem JSON
   2. validate  — run solution against test cases in sandbox
-  3. dedup     — search knowledge base for similar existing questions
+  3. dedup     — search knowledge base for similar existing problems
   4. quality   — LLM reviews description clarity, examples, constraints
   5. finalize  — assemble the draft with all metadata
 
@@ -35,10 +35,10 @@ class PipelineState(TypedDict):
     test_case_count: int
     prompt: str
     teacher_context: str
-    generated_question: dict | None
+    generated_problem: dict | None
     validation_results: list
     validation_passed: bool
-    similar_questions: list
+    similar_problems: list
     is_duplicate: bool
     dedup_attempts: int
     quality_review: dict | None
@@ -48,8 +48,8 @@ class PipelineState(TypedDict):
     status: str
 
 
-def _generate_question(state: PipelineState) -> PipelineState:
-    """Use the Generator agent's LLM to produce question JSON."""
+def _generate_problem(state: PipelineState) -> PipelineState:
+    """Use the Generator agent's LLM to produce problem JSON."""
     from app.agents.prompts.generator import GENERATOR_SYSTEM_PROMPT
     from app.agents.agents.generator import _extract_json
 
@@ -64,12 +64,12 @@ def _generate_question(state: PipelineState) -> PipelineState:
         system_parts.append(f"Topic: {state['topic']}")
     system_parts.append(f"Required test cases: at least {state.get('test_case_count', 5)}")
 
-    if state.get("similar_questions") and state.get("is_duplicate"):
-        existing_titles = [q["title"] for q in state["similar_questions"][:3]]
+    if state.get("similar_problems") and state.get("is_duplicate"):
+        existing_titles = [q["title"] for q in state["similar_problems"][:3]]
         system_parts.append(
             f"\n## Deduplication Warning\n"
-            f"The following similar questions already exist: {existing_titles}\n"
-            f"You MUST create a meaningfully different question."
+            f"The following similar problems already exist: {existing_titles}\n"
+            f"You MUST create a meaningfully different problem."
         )
 
     system_ctx = "\n".join(system_parts)
@@ -85,24 +85,24 @@ def _generate_question(state: PipelineState) -> PipelineState:
         response = llm.invoke(full_messages)
         question_data = _extract_json(response.content or "")
         if question_data:
-            state["generated_question"] = question_data
+            state["generated_problem"] = question_data
             state["error"] = None
         else:
             state["error"] = "Failed to extract JSON from LLM response"
-            state["generated_question"] = None
+            state["generated_problem"] = None
     except Exception as e:
         logger.error("Generation failed (attempt %d): %s", attempt, e)
         state["error"] = str(e)
-        state["generated_question"] = None
+        state["generated_problem"] = None
 
     return state
 
 
-def _validate_question(state: PipelineState) -> PipelineState:
+def _validate_problem(state: PipelineState) -> PipelineState:
     """Run the reference solution against all test cases via sandbox."""
     from app.agents.agents.generator import _validate_solution
 
-    question = state.get("generated_question")
+    question = state.get("generated_problem")
     if not question:
         state["validation_passed"] = False
         state["validation_results"] = []
@@ -136,46 +136,46 @@ def _validate_question(state: PipelineState) -> PipelineState:
 
 
 def _check_duplicates(state: PipelineState) -> PipelineState:
-    """Search the knowledge base for similar existing questions."""
-    question = state.get("generated_question", {})
+    """Search the knowledge base for similar existing problems."""
+    question = state.get("generated_problem", {})
     if not question:
         state["is_duplicate"] = False
-        state["similar_questions"] = []
+        state["similar_problems"] = []
         return state
 
     try:
         from app.agents.knowledge_base import get_knowledge_base
         kb = get_knowledge_base()
         query_text = f"{question.get('title', '')} {question.get('description', '')[:200]}"
-        similar = kb.search_similar_questions(
+        similar = kb.search_similar_problems(
             query_text,
             n=3,
             language=question.get("programming_language"),
         )
         high_similarity = [q for q in similar if q.get("similarity", 0) > SIMILARITY_THRESHOLD]
-        state["similar_questions"] = similar
+        state["similar_problems"] = similar
         state["is_duplicate"] = len(high_similarity) > 0
         state["dedup_attempts"] = state.get("dedup_attempts", 0) + (1 if state["is_duplicate"] else 0)
     except Exception as e:
         logger.warning("Dedup check failed: %s", e)
         state["is_duplicate"] = False
-        state["similar_questions"] = []
+        state["similar_problems"] = []
 
     return state
 
 
 def _review_quality(state: PipelineState) -> PipelineState:
-    """Use LLM to review the generated question's description quality."""
-    question = state.get("generated_question")
+    """Use LLM to review the generated problem's description quality."""
+    question = state.get("generated_problem")
     if not question:
-        state["quality_review"] = {"quality_score": 0, "issues": ["No question to review"]}
+        state["quality_review"] = {"quality_score": 0, "issues": ["No problem to review"]}
         return state
 
     llm = AIConfig.get_llm()
     question_json = json.dumps(question, indent=2, ensure_ascii=False)
 
     review_prompt = (
-        "Review this generated coding question for quality.\n"
+        "Review this generated coding problem for quality.\n"
         "Check:\n"
         "1. Is the description clear and unambiguous?\n"
         "2. Are input/output formats precisely specified?\n"
@@ -208,17 +208,17 @@ def _review_quality(state: PipelineState) -> PipelineState:
 
 def _finalize_draft(state: PipelineState) -> PipelineState:
     """Assemble all pipeline results into the final draft."""
-    question = state.get("generated_question")
+    question = state.get("generated_problem")
     if not question:
         state["final_draft"] = None
         state["status"] = "failed"
         return state
 
     state["final_draft"] = {
-        "question_data": question,
+        "problem_data": question,
         "validation_results": state.get("validation_results", []),
         "validation_passed": state.get("validation_passed", False),
-        "similar_questions": state.get("similar_questions", []),
+        "similar_problems": state.get("similar_problems", []),
         "quality_review": state.get("quality_review"),
         "generate_attempts": state.get("generate_attempts", 1),
         "dedup_attempts": state.get("dedup_attempts", 0),
@@ -247,8 +247,8 @@ def _after_dedup(state: PipelineState) -> str:
 def build_generation_pipeline() -> StateGraph:
     graph = StateGraph(PipelineState)
 
-    graph.add_node("generate", _generate_question)
-    graph.add_node("validate", _validate_question)
+    graph.add_node("generate", _generate_problem)
+    graph.add_node("validate", _validate_problem)
     graph.add_node("dedup_check", _check_duplicates)
     graph.add_node("quality_review", _review_quality)
     graph.add_node("finalize", _finalize_draft)
@@ -300,10 +300,10 @@ def run_generation_pipeline(
         "test_case_count": test_case_count,
         "prompt": prompt,
         "teacher_context": teacher_context,
-        "generated_question": None,
+        "generated_problem": None,
         "validation_results": [],
         "validation_passed": False,
-        "similar_questions": [],
+        "similar_problems": [],
         "is_duplicate": False,
         "dedup_attempts": 0,
         "quality_review": None,

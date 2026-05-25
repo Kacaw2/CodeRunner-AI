@@ -270,6 +270,202 @@ class TestAnalyticsEndpoint:
         assert "report" in data
 
 
+class TestAsyncChatEndpoint:
+    """Tests for the async chat task flow."""
+
+    def test_chat_async_requires_message(self, client, mock_auth_student, mock_redis):
+        resp = client.post("/api/v1/ai/chat/async", json={})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["error"] == "invalid_request"
+
+    @patch("app.agents.chat_worker.submit_chat_task")
+    def test_chat_async_creates_task(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
+        resp = client.post("/api/v1/ai/chat/async", json={
+            "message": "Help me with arrays",
+            "agent_type": "auto",
+        })
+
+        assert resp.status_code == 202
+        data = resp.get_json()
+        assert "task_id" in data
+        assert "conversation_id" in data
+        mock_submit.assert_called_once()
+
+    @patch("app.agents.chat_worker.submit_chat_task")
+    def test_chat_async_generator_restricted(self, mock_submit, client, mock_auth_student, mock_redis):
+        resp = client.post("/api/v1/ai/chat/async", json={
+            "message": "Generate a problem",
+            "agent_type": "generator",
+        })
+        assert resp.status_code == 403
+
+    def test_chat_task_status_not_found(self, client, mock_auth_student):
+        resp = client.get("/api/v1/ai/chat/task/nonexistent-uuid")
+        assert resp.status_code == 404
+
+    @patch("app.agents.chat_worker.submit_chat_task")
+    def test_chat_task_poll(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
+        resp = client.post("/api/v1/ai/chat/async", json={
+            "message": "Test polling",
+            "agent_type": "auto",
+        })
+        assert resp.status_code == 202
+        task_id = resp.get_json()["task_id"]
+
+        poll_resp = client.get(f"/api/v1/ai/chat/task/{task_id}")
+        assert poll_resp.status_code == 200
+        task_data = poll_resp.get_json()["task"]
+        assert task_data["status"] == "pending"
+
+    def test_chat_async_rate_limited(self, client, mock_auth_student):
+        mock_redis = MagicMock()
+        mock_redis.incr.return_value = 100
+        mock_redis.ttl.return_value = 45
+
+        with patch("app.api.v1.ai.redis_client", mock_redis):
+            resp = client.post("/api/v1/ai/chat/async", json={
+                "message": "help",
+                "agent_type": "auto",
+            })
+
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
+
+
+class TestChatTaskModel:
+    """Tests for the ChatTask model."""
+
+    def test_chat_task_creation(self, app, db_session, student_user):
+        from app.models.chat_task import ChatTask
+        from app.models.ai_conversation import AIConversation
+
+        conv = AIConversation(user_id=student_user.id, agent_type="tutor")
+        db_session.add(conv)
+        db_session.flush()
+
+        task = ChatTask(
+            conversation_id=conv.id,
+            user_id=student_user.id,
+            agent_type="auto",
+            status="pending",
+        )
+        db_session.add(task)
+        db_session.flush()
+
+        assert task.id is not None
+        assert len(task.id) == 36  # UUID
+        assert task.status == "pending"
+        assert task.conversation_id == conv.id
+
+    def test_chat_task_to_dict(self, app, db_session, student_user):
+        from app.models.chat_task import ChatTask
+        from app.models.ai_conversation import AIConversation
+
+        conv = AIConversation(user_id=student_user.id, agent_type="tutor")
+        db_session.add(conv)
+        db_session.flush()
+
+        task = ChatTask(
+            conversation_id=conv.id,
+            user_id=student_user.id,
+            agent_type="auto",
+        )
+        db_session.add(task)
+        db_session.flush()
+
+        d = task.to_dict()
+        assert d["status"] == "pending"
+        assert d["agent_type"] == "auto"
+        assert d["id"] == task.id
+
+
+class TestChatWorkerRedis:
+    """Tests for the chat worker Redis operations."""
+
+    def test_push_and_get_events(self, app):
+        with app.app_context():
+            from app.agents.chat_worker import _push_event, get_task_events
+
+            mock_redis = MagicMock()
+            stored = []
+
+            def mock_rpush(key, val):
+                stored.append(val)
+
+            def mock_lrange(key, start, end):
+                return stored[start:]
+
+            mock_redis.rpush.side_effect = mock_rpush
+            mock_redis.lrange.side_effect = mock_lrange
+            mock_redis.expire.return_value = True
+
+            with patch("app.agents.chat_worker.redis_client", mock_redis):
+                _push_event("test-task", {"type": "start", "agent_type": "tutor"})
+                _push_event("test-task", {"type": "token", "content": "Hello"})
+
+                events = get_task_events("test-task", start=0)
+                assert len(events) == 2
+                assert events[0]["type"] == "start"
+                assert events[1]["content"] == "Hello"
+
+    def test_get_events_with_offset(self, app):
+        with app.app_context():
+            from app.agents.chat_worker import _push_event, get_task_events
+
+            mock_redis = MagicMock()
+            stored = []
+
+            def mock_rpush(key, val):
+                stored.append(val)
+
+            def mock_lrange(key, start, end):
+                return stored[start:]
+
+            mock_redis.rpush.side_effect = mock_rpush
+            mock_redis.lrange.side_effect = mock_lrange
+            mock_redis.expire.return_value = True
+
+            with patch("app.agents.chat_worker.redis_client", mock_redis):
+                _push_event("test-task", {"type": "start"})
+                _push_event("test-task", {"type": "token", "content": "A"})
+                _push_event("test-task", {"type": "token", "content": "B"})
+
+                events = get_task_events("test-task", start=1)
+                assert len(events) == 2
+                assert events[0]["content"] == "A"
+
+    def test_get_status_from_redis(self, app):
+        with app.app_context():
+            from app.agents.chat_worker import _set_redis, get_task_status_from_redis
+
+            mock_redis = MagicMock()
+            store = {}
+
+            def mock_set(key, val, ex=None):
+                store[key] = val
+
+            def mock_get(key):
+                return store.get(key)
+
+            mock_redis.set.side_effect = mock_set
+            mock_redis.get.side_effect = mock_get
+
+            with patch("app.agents.chat_worker.redis_client", mock_redis):
+                _set_redis("test-task", "processing", "tutor")
+                info = get_task_status_from_redis("test-task")
+                assert info["status"] == "processing"
+                assert info["agent"] == "tutor"
+
+    def test_no_redis_returns_empty(self, app):
+        with app.app_context():
+            from app.agents.chat_worker import get_task_events, get_task_status_from_redis
+
+            with patch("app.agents.chat_worker.redis_client", None):
+                assert get_task_events("x") == []
+                assert get_task_status_from_redis("x") == {}
+
+
 class TestHelpers:
     def test_build_context(self, app):
         with app.app_context():

@@ -401,14 +401,14 @@ class TestKnowledgeToolPermissions:
     def test_generator_can_use_search_similar(self):
         from app.agents.tools.permissions import check_tool_permission
 
-        assert check_tool_permission("generator", "search_similar_questions", "teacher") is True
-        assert check_tool_permission("generator", "search_similar_questions", "student") is False
+        assert check_tool_permission("generator", "search_similar_problems", "teacher") is True
+        assert check_tool_permission("generator", "search_similar_problems", "student") is False
 
     def test_reviewer_cannot_use_knowledge_tools(self):
         from app.agents.tools.permissions import check_tool_permission
 
         assert check_tool_permission("reviewer", "search_knowledge", "student") is False
-        assert check_tool_permission("reviewer", "search_similar_questions", "teacher") is False
+        assert check_tool_permission("reviewer", "search_similar_problems", "teacher") is False
 
 
 # ── API Endpoint Tests ───────────────────────────────────────

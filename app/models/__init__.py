@@ -17,6 +17,7 @@ from .ai_audit_log import AIAuditLog
 from .generated_question_draft import GeneratedQuestionDraft
 from .student_profile import StudentProfile, TeacherPreference
 from .eval_run import EvalRun
+from .chat_task import ChatTask
 
 QuizQuestion = QuizProblem
 
@@ -59,4 +60,7 @@ __all__ = [
     'StudentProfile',
     'TeacherPreference',
     'EvalRun',
+
+    # Async chat
+    'ChatTask',
 ]

@@ -106,8 +106,8 @@ class TestTutorAgent:
             mock_llm.bind_tools.return_value = mock_llm
 
             tool_call_resp = _make_llm_response("", tool_calls=[{
-                "name": "get_question_detail",
-                "args": {"question_id": 1},
+                "name": "get_problem_detail",
+                "args": {"problem_id": 1},
                 "id": "tc1",
             }])
             final_resp = _make_llm_response("Based on the problem, check your loop.")
@@ -115,9 +115,9 @@ class TestTutorAgent:
             mock_config.get_llm.return_value = mock_llm
             mock_config.validate.return_value = None
 
-            with patch("app.agents.tools.question_query.get_question_detail") as mock_tool:
-                mock_tool.name = "get_question_detail"
-                mock_tool.invoke.return_value = {"id": 1, "title": "Two Sum", "test_cases": []}
+            with patch("app.agents.tools.question_query.get_problem_detail") as mock_tool:
+                mock_tool.name = "get_problem_detail"
+                mock_tool.invoke.return_value = {"problem_id": 1, "title": "Two Sum", "test_cases": []}
 
                 agent = TutorAgent()
                 state = {
