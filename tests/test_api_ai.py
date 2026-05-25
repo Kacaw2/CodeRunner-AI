@@ -293,12 +293,26 @@ class TestAsyncChatEndpoint:
         mock_submit.assert_called_once()
 
     @patch("app.agents.chat_worker.submit_chat_task")
-    def test_chat_async_generator_restricted(self, mock_submit, client, mock_auth_student, mock_redis):
+    def test_chat_async_ignores_manual_agent_type(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
         resp = client.post("/api/v1/ai/chat/async", json={
             "message": "Generate a problem",
             "agent_type": "generator",
         })
-        assert resp.status_code == 403
+
+        assert resp.status_code == 202
+        task_id = resp.get_json()["task_id"]
+
+        from app.models.chat_task import ChatTask
+        task = ChatTask.query.get(task_id)
+        assert task.agent_type == "auto"
+
+    def test_chat_agent_type_normalization_for_all_chat_entrypoints(self, app):
+        with app.app_context():
+            from app.api.v1.ai import _normalize_chat_agent_type
+
+            assert _normalize_chat_agent_type({"agent_type": "generator"}) == "auto"
+            assert _normalize_chat_agent_type({"agent_type": "reviewer"}) == "auto"
+            assert _normalize_chat_agent_type({}) == "auto"
 
     def test_chat_task_status_not_found(self, client, mock_auth_student):
         resp = client.get("/api/v1/ai/chat/task/nonexistent-uuid")
@@ -317,6 +331,13 @@ class TestAsyncChatEndpoint:
         assert poll_resp.status_code == 200
         task_data = poll_resp.get_json()["task"]
         assert task_data["status"] == "pending"
+
+    def test_frontend_resume_reads_nested_task_status(self):
+        from pathlib import Path
+
+        js = Path("app/static/js/ai_chat.js").read_text(encoding="utf-8")
+        assert "const taskInfo = info.task || info;" in js
+        assert 'taskInfo.status === "completed"' in js
 
     def test_chat_async_rate_limited(self, client, mock_auth_student):
         mock_redis = MagicMock()

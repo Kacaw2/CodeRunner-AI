@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("ai", __name__, url_prefix="/api/v1/ai")
 
 
+def _normalize_chat_agent_type(_data=None) -> str:
+    """User-facing chat always starts with server-side intent routing."""
+    return "auto"
+
+
 # ── Rate Limiting ─────────────────────────────────────────────
 
 def _check_rate_limit(user_id: int, agent_type: str = "tutor") -> dict:
@@ -95,17 +100,17 @@ def _log_audit(user_id: int, agent_type: str, action: str, message: str,
 
 # ── Incremental Knowledge Base Indexing ──────────────────────
 
-def _maybe_index_question(question):
-    """Index a newly published question into the knowledge base (best-effort)."""
-    if not question:
+def _maybe_index_problem(problem):
+    """Index a newly published problem into the knowledge base (best-effort)."""
+    if not problem:
         return
     try:
         from app.agents.knowledge_base import get_knowledge_base
         kb = get_knowledge_base()
-        kb.index_question(question)
+        kb.index_problem(problem)
     except Exception as e:
-        logger.warning("Incremental KB indexing skipped for question %s: %s",
-                       getattr(question, "id", "?"), e)
+        logger.warning("Incremental KB indexing skipped for problem %s: %s",
+                       getattr(problem, "id", "?"), e)
 
 
 # ── Async Summary ────────────────────────────────────────────
@@ -255,7 +260,7 @@ def _publish_question_data_as_problem(question_data: dict, created_by: int):
             weight=tc_data.get("weight", 1.0),
         ))
 
-    _maybe_index_question(first_variant)
+    _maybe_index_problem(problem)
 
     return problem, first_variant
 
@@ -272,12 +277,7 @@ def chat():
     if not message:
         return _error_response("invalid_request", "message is required", 400)
 
-    agent_type = data.get("agent_type", "tutor")
-
-    # Restrict generator agent to teacher/admin only
-    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
-    if agent_type == "generator" and user_role_str not in ("teacher", "admin"):
-        return _error_response("forbidden", "Only teachers can use the generator agent.", 403)
+    agent_type = _normalize_chat_agent_type(data)
 
     is_suspicious, pattern = detect_injection(message)
     if is_suspicious:
@@ -319,11 +319,13 @@ def chat():
             "final_response": "",
         })
 
-        response_text = filter_output(state.get("final_response", ""), agent_type, user_role)
+        resolved_agent_type = state.get("agent_type", agent_type)
+        response_text = filter_output(state.get("final_response", ""), resolved_agent_type, user_role)
 
         assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
         db.session.add(assistant_msg)
         conv.title = conv.title or message[:80]
+        conv.agent_type = resolved_agent_type
         db.session.commit()
 
         _maybe_generate_summary(conv.id)
@@ -331,7 +333,7 @@ def chat():
         resp = jsonify({
             "conversation_id": conv.id,
             "message_id": assistant_msg.id,
-            "agent_type": agent_type,
+            "agent_type": resolved_agent_type,
             "response": response_text,
         })
         for k, v in rl_headers.items():
@@ -364,12 +366,7 @@ def chat_stream():
     if not message:
         return _error_response("invalid_request", "message is required", 400)
 
-    agent_type = data.get("agent_type", "tutor")
-
-    # Restrict generator agent to teacher/admin only
-    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
-    if agent_type == "generator" and user_role_str not in ("teacher", "admin"):
-        return _error_response("forbidden", "Only teachers can use the generator agent.", 403)
+    agent_type = _normalize_chat_agent_type(data)
 
     is_suspicious, pattern = detect_injection(message)
     if is_suspicious:
@@ -495,6 +492,8 @@ def chat_stream():
             _conv = AIConversation.query.get(conv_id)
             if _conv and not _conv.title:
                 _conv.title = message[:80]
+            if _conv:
+                _conv.agent_type = resolved_agent_type
             db.session.commit()
 
             _maybe_generate_summary(conv_id)
@@ -561,12 +560,7 @@ def chat_async():
     if not message:
         return _error_response("invalid_request", "message is required", 400)
 
-    agent_type = data.get("agent_type", "auto")
-
-    # Restrict generator agent to teacher/admin only
-    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
-    if agent_type == "generator" and user_role_str not in ("teacher", "admin"):
-        return _error_response("forbidden", "Only teachers can use the generator agent.", 403)
+    agent_type = _normalize_chat_agent_type(data)
 
     is_suspicious, pattern = detect_injection(message)
     if is_suspicious:
@@ -1648,8 +1642,8 @@ def refresh_class_analysis():
 
 @bp.route("/knowledge/index", methods=["POST"])
 @require_teacher
-def index_questions():
-    """Index all questions into the knowledge base vector store. Teacher/admin only."""
+def index_problems():
+    """Index all problems into the knowledge base vector store. Teacher/admin only."""
     try:
         from app.agents.knowledge_base import index_all_problems
     except ImportError:
@@ -1660,7 +1654,7 @@ def index_questions():
         return jsonify({"message": f"Indexed {count} problems into the knowledge base."})
     except Exception as e:
         logger.exception("Knowledge base indexing error")
-        return _error_response("ai_service_error", f"Failed to index questions: {e}", 500)
+        return _error_response("ai_service_error", f"Failed to index problems: {e}", 500)
 
 
 # ── Knowledge Base helpers ───────────────────────────────

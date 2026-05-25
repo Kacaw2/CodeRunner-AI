@@ -168,6 +168,35 @@ class TestLowRelevanceFiltering:
 
 
 class TestIndexAllProblems:
+    def test_incremental_publish_indexes_problem_not_variant(self, app, db_session, teacher_user):
+        from unittest.mock import MagicMock, patch
+        from app.api.v1.ai import _publish_question_data_as_problem
+
+        kb = MagicMock()
+        question_data = {
+            "title": "Array Sum",
+            "description": "Sum all integers in an array.",
+            "difficulty": "easy",
+            "programming_language": "python",
+            "solution": "print(sum(map(int, input().split())))",
+            "test_cases": [
+                {"input": "1 2 3", "expected_output": "6", "is_hidden": False},
+            ],
+        }
+
+        with patch("app.agents.knowledge_base.get_knowledge_base", return_value=kb):
+            problem, variant = _publish_question_data_as_problem(question_data, teacher_user.id)
+
+        assert problem.id is not None
+        assert variant.problem_id == problem.id
+        kb.index_problem.assert_called_once_with(problem)
+        assert not kb.index_question.called
+
+    def test_legacy_index_question_method_is_removed(self):
+        from app.agents.knowledge_base import KnowledgeBase
+
+        assert not hasattr(KnowledgeBase, "index_question")
+
     def test_index_all_problems_function(self, app, db_session, tmp_path):
         from app.models.problem import Problem
         from app.agents import knowledge_base as kb_module

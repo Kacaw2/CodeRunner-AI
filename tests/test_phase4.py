@@ -63,8 +63,8 @@ class TestGenerationPipeline:
         hints = typing.get_type_hints(PipelineState)
         required_fields = [
             "teacher_id", "language", "difficulty", "topic", "prompt",
-            "generated_question", "validation_results", "validation_passed",
-            "similar_questions", "is_duplicate", "dedup_attempts",
+            "generated_problem", "validation_results", "validation_passed",
+            "similar_problems", "is_duplicate", "dedup_attempts",
             "quality_review", "generate_attempts", "final_draft", "error", "status",
         ]
         for field in required_fields:
@@ -77,8 +77,8 @@ class TestGenerationPipeline:
         assert compiled is not None
 
     @patch("app.agents.agents.generator._validate_solution")
-    def test_validate_question_passes_on_all_ac(self, mock_validate):
-        from app.agents.generation_pipeline import _validate_question
+    def test_validate_problem_passes_on_all_ac(self, mock_validate):
+        from app.agents.generation_pipeline import _validate_problem
 
         mock_validate.return_value = [
             {"index": 0, "passed": True, "status": "AC"},
@@ -86,7 +86,7 @@ class TestGenerationPipeline:
         ]
 
         state = {
-            "generated_question": {
+            "generated_problem": {
                 "solution": "print(1)",
                 "test_cases": [{"input": "", "expected_output": "1"}] * 2,
                 "programming_language": "python",
@@ -96,29 +96,29 @@ class TestGenerationPipeline:
             "validation_passed": False,
         }
 
-        result = _validate_question(state)
+        result = _validate_problem(state)
         assert result["validation_passed"] is True
-        assert result["generated_question"]["verified"] is True
+        assert result["generated_problem"]["verified"] is True
 
-    def test_validate_question_fails_with_no_question(self):
-        from app.agents.generation_pipeline import _validate_question
+    def test_validate_problem_fails_with_no_problem(self):
+        from app.agents.generation_pipeline import _validate_problem
 
         state = {
-            "generated_question": None,
+            "generated_problem": None,
             "validation_results": [],
             "validation_passed": False,
         }
-        result = _validate_question(state)
+        result = _validate_problem(state)
         assert result["validation_passed"] is False
 
     def test_finalize_draft_assembles_result(self):
         from app.agents.generation_pipeline import _finalize_draft
 
         state = {
-            "generated_question": {"title": "Test", "verified": True},
+            "generated_problem": {"title": "Test", "verified": True},
             "validation_results": [{"passed": True}],
             "validation_passed": True,
-            "similar_questions": [],
+            "similar_problems": [],
             "quality_review": {"quality_score": 4},
             "generate_attempts": 1,
             "dedup_attempts": 0,
@@ -130,16 +130,16 @@ class TestGenerationPipeline:
         result = _finalize_draft(state)
         assert result["status"] == "completed"
         assert result["final_draft"] is not None
-        assert result["final_draft"]["question_data"]["title"] == "Test"
+        assert result["final_draft"]["problem_data"]["title"] == "Test"
 
     def test_finalize_draft_fails_without_question(self):
         from app.agents.generation_pipeline import _finalize_draft
 
         state = {
-            "generated_question": None,
+            "generated_problem": None,
             "validation_results": [],
             "validation_passed": False,
-            "similar_questions": [],
+            "similar_problems": [],
             "quality_review": None,
             "generate_attempts": 3,
             "dedup_attempts": 0,

@@ -30,21 +30,6 @@ class KnowledgeBase:
             "error_patterns", metadata={"hnsw:space": "cosine"},
         )
 
-    def index_question(self, question):
-        """Add a question to the vector store for similarity search (legacy, per-variant)."""
-        text = f"{question.title}\n{question.description}"
-        embedding = self.embedder.encode(text).tolist()
-        self.questions.upsert(
-            ids=[str(question.id)],
-            embeddings=[embedding],
-            documents=[text],
-            metadatas=[{
-                "question_id": question.id,
-                "language": question.programming_language or "python",
-                "title": question.title or "",
-            }],
-        )
-
     def index_problem(self, problem):
         """Index a problem (not per-variant) into the vector store."""
         text = f"{problem.title}\n{problem.description}"

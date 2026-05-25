@@ -2,6 +2,7 @@
 __pycache__/
 .DS_Store
 node_modules/
+data/
 .env
 .env.local
 .env.*.local

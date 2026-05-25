@@ -125,7 +125,7 @@ Human Gate（需要时）
 
 #### 背景
 
-项目已完成 Problem/Question 数据模型迁移（参见 `docs/superpowers/plans/2026-05-22-problem-variant-migration.md`）：
+项目已完成 Problem/Question 数据模型迁移（参见 `../superpowers/plans/2026-05-22-problem-variant-migration.md`）：
 
 - **Problem** = 面向用户的题目单位（标题、描述、共享测试用例）
 - **Question** = 语言变体（starter_code、solution，属于 Problem 子项）

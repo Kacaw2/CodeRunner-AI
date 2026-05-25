@@ -181,6 +181,8 @@ def _run_chat_task(task_id: str, app):
                 resolved_agent_type = state.get("agent_type", "tutor")
 
             task.routed_agent = resolved_agent_type
+            if conv:
+                conv.agent_type = resolved_agent_type
             db.session.commit()
             _set_redis(task_id, "processing", resolved_agent_type)
 
@@ -239,6 +241,8 @@ def _run_chat_task(task_id: str, app):
                 handoff_count += 1
 
                 task.routed_agent = resolved_agent_type
+                if conv:
+                    conv.agent_type = resolved_agent_type
                 db.session.commit()
                 _set_redis(task_id, "processing", resolved_agent_type)
 

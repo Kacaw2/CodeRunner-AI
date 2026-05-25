@@ -664,8 +664,9 @@
       const res = await fetch(API_CHAT_TASK + "/" + taskId, { headers: authHeaders() });
       if (!res.ok) { sessionStorage.removeItem("ai_active_task"); return; }
       const info = await res.json();
+      const taskInfo = info.task || info;
 
-      if (info.status === "completed" || info.status === "failed") {
+      if (taskInfo.status === "completed" || taskInfo.status === "failed") {
         sessionStorage.removeItem("ai_active_task");
         return;
       }

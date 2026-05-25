@@ -153,6 +153,8 @@ docker compose logs -f db            # MySQL
 docker compose restart web
 docker compose restart agent_host
 
+docker compose up --build web agent_host -d
+
 # 仅重建 Agent Host（修改 agent_host/ 后）
 docker compose up --build agent_host -d
 

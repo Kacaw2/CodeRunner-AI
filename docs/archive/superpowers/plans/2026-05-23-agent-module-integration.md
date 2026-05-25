@@ -6,9 +6,9 @@
 
 **Tech Stack:** Flask, LangGraph, LangChain, DeepSeek API (langchain_openai.ChatOpenAI), SQLAlchemy, ChromaDB, Redis, sentence-transformers.
 
-**Audit Reference:** `docs/superpowers/plans/ai-agents-module-audit.md` (2026-05-22)
+**Audit Reference:** `ai-agents-module-audit.md` (2026-05-22)
 
-**Enhancement Guide Reference:** `docs/AGENT_ENHANCEMENT_GUIDE.md`
+**Enhancement Guide Reference:** `../../completed/AGENT_ENHANCEMENT_GUIDE.md`
 
 ---
 

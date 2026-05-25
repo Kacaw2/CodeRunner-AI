@@ -206,8 +206,8 @@ class TestGeneratorAgent:
                 }
                 result = agent.invoke(state)
 
-            assert result["context"].get("generated_question") is not None
-            assert result["context"]["generated_question"]["verified"] is True
+            assert result["context"].get("generated_problem") is not None
+            assert result["context"]["generated_problem"]["verified"] is True
 
     @patch("app.agents.config.AIConfig.validate")
     @patch("app.agents.config.AIConfig.get_llm")
@@ -254,7 +254,7 @@ class TestGeneratorAgent:
                 result = agent.invoke(state)
 
             assert call_count == 2
-            assert result["context"]["generated_question"]["verified"] is True
+            assert result["context"]["generated_problem"]["verified"] is True
 
     @patch("app.agents.config.AIConfig.validate")
     @patch("app.agents.agents.generator.AIConfig.get_llm")

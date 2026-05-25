@@ -1,0 +1,1061 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeRunner-AI Agent 知识图谱</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: oklch(22% 0.025 250);
+      --muted: oklch(45% 0.025 250);
+      --paper: oklch(97% 0.01 95);
+      --panel: oklch(99% 0.008 95);
+      --line: oklch(84% 0.025 250);
+      --blue: oklch(58% 0.15 245);
+      --green: oklch(60% 0.13 155);
+      --amber: oklch(70% 0.15 75);
+      --red: oklch(60% 0.15 25);
+      --violet: oklch(58% 0.14 305);
+      --shadow: 0 18px 50px oklch(28% 0.03 250 / 0.10);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      max-width: 100%;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, oklch(96% 0.018 95), oklch(93% 0.016 250));
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 28px;
+      align-items: end;
+      padding: 24px 0 30px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: clamp(34px, 6vw, 68px);
+      line-height: 1;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+      text-wrap: balance;
+    }
+
+    h2 {
+      font-size: 26px;
+      line-height: 1.15;
+      margin-bottom: 18px;
+    }
+
+    h3 {
+      font-size: 17px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      margin-top: 18px;
+      max-width: 760px;
+      font-size: 18px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .facts {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: oklch(99% 0.01 95 / 0.88);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      width: 100%;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .fact {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      color: var(--muted);
+      font-size: 14px;
+      min-width: 0;
+    }
+
+    .fact span:last-child {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 10px;
+      border-radius: 999px;
+      background: var(--blue);
+    }
+
+    .dot.green { background: var(--green); }
+    .dot.amber { background: var(--amber); }
+    .dot.red { background: var(--red); }
+
+    section {
+      margin-top: 28px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: oklch(98% 0.01 95);
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .graph {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 14px;
+      align-items: stretch;
+      margin-top: 20px;
+    }
+
+    .node {
+      min-height: 118px;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: oklch(98% 0.01 95);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .node::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--blue);
+    }
+
+    .node.core::before { background: var(--violet); }
+    .node.tool::before { background: var(--green); }
+    .node.data::before { background: var(--amber); }
+    .node.risk::before { background: var(--red); }
+
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-12 { grid-column: span 12; }
+
+    .node small {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .node ul,
+    .flow ol {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
+    .node li,
+    .flow li {
+      margin: 5px 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: oklch(93% 0.018 250);
+      color: oklch(35% 0.11 245);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .step {
+      min-height: 104px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(180deg, oklch(99% 0.01 95), oklch(96% 0.015 95));
+    }
+
+    .step strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.25;
+      margin-bottom: 8px;
+    }
+
+    .step p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .band {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: oklch(98% 0.01 95);
+    }
+
+    .band p {
+      color: var(--muted);
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 12px 13px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: oklch(94% 0.018 95);
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    td {
+      color: var(--muted);
+      background: oklch(99% 0.008 95);
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .architecture {
+      display: grid;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .layer {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .layer-label {
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      border-radius: 8px;
+      background: oklch(35% 0.08 245);
+      color: oklch(98% 0.01 95);
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .layer-body {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: oklch(98% 0.01 95);
+    }
+
+    .layer-body p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .done {
+      background: oklch(92% 0.055 155);
+      color: oklch(34% 0.09 155);
+    }
+
+    .partial {
+      background: oklch(93% 0.06 75);
+      color: oklch(42% 0.09 75);
+    }
+
+    .missing {
+      background: oklch(93% 0.045 25);
+      color: oklch(42% 0.10 25);
+    }
+
+    .footer-note {
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 920px) {
+      header,
+      .matrix,
+      .layer {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .span-3,
+      .span-4,
+      .span-5,
+      .span-6,
+      .span-7,
+      .span-12 {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 560px) {
+      main {
+        width: calc(100% - 48px);
+        max-width: 1180px;
+        padding-top: 18px;
+      }
+
+      h1 {
+        font-size: 31px;
+        line-height: 1.08;
+      }
+
+      .subtitle {
+        font-size: 16px;
+        max-width: 300px;
+      }
+
+      .facts {
+        padding: 14px;
+      }
+
+      .fact {
+        display: grid;
+        grid-template-columns: 10px minmax(0, 1fr);
+      }
+
+      .fact span:last-child {
+        max-width: 260px;
+        word-break: break-all;
+      }
+
+      section {
+        padding: 18px;
+      }
+
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .graph {
+        grid-template-columns: 1fr;
+      }
+
+      .span-3,
+      .span-4,
+      .span-5,
+      .span-6,
+      .span-7,
+      .span-12 {
+        grid-column: 1;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>CodeRunner-AI Agent 知识图谱</h1>
+        <p class="subtitle">基于当前仓库源码整理：Agent 主流程、Prompt、Tool Calling、RAG、Memory/State、Trace、Eval、数据层和 API 调用面。</p>
+        <div class="legend" aria-label="图例">
+          <span class="pill"><span class="dot"></span>控制流</span>
+          <span class="pill"><span class="dot green"></span>工具与检索</span>
+          <span class="pill"><span class="dot amber"></span>数据持久化</span>
+          <span class="pill"><span class="dot red"></span>未实现或风险项</span>
+        </div>
+      </div>
+      <aside class="facts" aria-label="项目事实">
+        <div class="fact"><span class="dot"></span><span>后端主站：Flask + flask-smorest + SQLAlchemy</span></div>
+        <div class="fact"><span class="dot green"></span><span>Agent：LangGraph 编排 + LangChain Core tools</span></div>
+        <div class="fact"><span class="dot amber"></span><span>LLM：DeepSeek API，OpenAI-compatible ChatOpenAI</span></div>
+        <div class="fact"><span class="dot red"></span><span>MCP：源码未实现，当前仅有方案文档</span></div>
+      </aside>
+    </header>
+
+    <section>
+      <h2>一张图看全局</h2>
+      <div class="graph">
+        <article class="node core span-4">
+          <small>入口</small>
+          <h3>API 与前端调用</h3>
+          <ul>
+            <li><code>/api/v1/ai/chat</code> 同步对话</li>
+            <li><code>/api/v1/ai/chat/stream</code> SSE 流式输出</li>
+            <li><code>/api/v1/ai/review</code> 代码审查</li>
+            <li><code>/api/v1/ai/generate*</code> 出题与草稿</li>
+          </ul>
+        </article>
+        <article class="node core span-4">
+          <small>编排</small>
+          <h3>AgentOrchestrator</h3>
+          <ul>
+            <li>LangGraph <code>StateGraph</code> 路由</li>
+            <li>支持 tutor、reviewer、generator、analytics</li>
+            <li>支持 auto route、handoff、结构化输出校验重试</li>
+          </ul>
+        </article>
+        <article class="node span-4">
+          <small>执行</small>
+          <h3>BaseAgent 主循环</h3>
+          <ul>
+            <li>系统 Prompt + 安全规则 + 历史消息</li>
+            <li><code>llm.bind_tools(tools)</code></li>
+            <li>最多 <code>MAX_TOOL_ITERATIONS = 5</code> 轮工具调用</li>
+          </ul>
+        </article>
+        <article class="node tool span-3">
+          <small>Prompt</small>
+          <h3>角色化系统提示</h3>
+          <ul>
+            <li><code>prompts/tutor.py</code></li>
+            <li><code>prompts/reviewer.py</code></li>
+            <li><code>prompts/generator.py</code></li>
+            <li><code>prompts/analytics.py</code></li>
+          </ul>
+        </article>
+        <article class="node tool span-3">
+          <small>Tool Calling</small>
+          <h3>受权限控制的工具</h3>
+          <ul>
+            <li>沙箱执行代码</li>
+            <li>读取题目、提交、统计</li>
+            <li>知识库搜索</li>
+            <li>服务端覆盖敏感参数</li>
+          </ul>
+        </article>
+        <article class="node tool span-3">
+          <small>RAG</small>
+          <h3>ChromaDB 知识库</h3>
+          <ul>
+            <li><code>questions</code></li>
+            <li><code>knowledge_points</code></li>
+            <li><code>error_patterns</code></li>
+            <li><code>all-MiniLM-L6-v2</code> embedding</li>
+          </ul>
+        </article>
+        <article class="node data span-3">
+          <small>Memory / State</small>
+          <h3>上下文与长期状态</h3>
+          <ul>
+            <li><code>AgentState</code> 传递运行状态</li>
+            <li>会话历史存入 MySQL</li>
+            <li>学生画像与教师偏好作为记忆注入 Prompt</li>
+          </ul>
+        </article>
+        <article class="node data span-4">
+          <small>Trace</small>
+          <h3>日志追踪</h3>
+          <ul>
+            <li><code>TraceCollector</code> 记录 LLM/tool 步骤</li>
+            <li>写入 <code>agent_runs</code> 与 <code>agent_run_steps</code></li>
+            <li>教师端通过 traces API/UI 查看</li>
+          </ul>
+        </article>
+        <article class="node data span-4">
+          <small>Eval</small>
+          <h3>测试评估</h3>
+          <ul>
+            <li><code>evals/cases/*_evals.json</code></li>
+            <li><code>EvalRunner</code> 调用 Agent 并运行 judges</li>
+            <li>结果持久化到 <code>eval_runs</code></li>
+          </ul>
+        </article>
+        <article class="node risk span-4">
+          <small>MCP</small>
+          <h3>MCP Client / Server 状态</h3>
+          <ul>
+            <li>当前源码无 MCP 协议服务端或客户端</li>
+            <li>方案文档建议未来提供只读 MCP Server</li>
+            <li>第一版应复用现有权限与工具边界</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>核心问题速查</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>问题</th>
+            <th>当前答案</th>
+            <th>关键证据</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1. 这个 Agent 项目解决什么问题？</td>
+            <td>面向编程教学，把普通在线判题平台增强为多 Agent 教学系统：学生获得答疑、代码审查和学习分析，教师获得 AI 出题、草稿审核和知识库管理。</td>
+            <td><code>README.md</code>、<code>app/agents/agents/</code></td>
+          </tr>
+          <tr>
+            <td>2. 用户输入从哪里进入系统？</td>
+            <td>Web 页面和外部调用都进入 Flask API，主要是 <code>/api/v1/ai/chat</code>、<code>/chat/stream</code>、<code>/review</code>、<code>/generate*</code>。</td>
+            <td><code>app/web/ai_chat.py</code>、<code>app/api/v1/ai.py</code></td>
+          </tr>
+          <tr>
+            <td>3. Agent 主流程怎么执行？</td>
+            <td>认证限流、加载会话、构造 AgentState、LangGraph 路由、组装 Prompt、调用 LLM、执行工具、处理 handoff/校验、保存消息和 trace。</td>
+            <td><code>chat()</code>、<code>chat_stream()</code>、<code>AgentOrchestrator</code></td>
+          </tr>
+          <tr>
+            <td>4. Agent 是否有任务规划能力？</td>
+            <td>有流程编排和条件分支，但不是完整通用 Planner-Executor。已实现 auto route、handoff、结构校验重试、生成题目的 LangGraph pipeline；<code>agent_tasks.plan_steps</code> 支持任务步骤字段。</td>
+            <td><code>orchestrator.py</code>、<code>generation_pipeline.py</code>、<code>agent_task.py</code></td>
+          </tr>
+          <tr>
+            <td>5. Agent 如何调用 LLM？</td>
+            <td>统一由 <code>AIConfig.get_llm()</code> 创建 OpenAI-compatible <code>ChatOpenAI</code>，base URL 指向 DeepSeek，支持 invoke 和 stream，LLM 调用带重试包装。</td>
+            <td><code>app/agents/config.py</code>、<code>BaseAgent._llm_invoke</code></td>
+          </tr>
+          <tr>
+            <td>6. Prompt 在哪里？控制什么行为？</td>
+            <td>Prompt 在 <code>app/agents/prompts/</code>，控制角色职责、工具使用规则、输出格式、handoff 条件、安全约束和是否必须查询真实数据。</td>
+            <td><code>prompts/tutor.py</code>、<code>prompts/generator.py</code></td>
+          </tr>
+          <tr>
+            <td>7. Agent 能调用哪些工具？</td>
+            <td>可执行代码、查询题目、查询提交、查询学生统计、查询班级统计、检索知识点、检索错误模式、检索相似题。</td>
+            <td><code>app/agents/tools/</code>、<code>TOOL_PERMISSIONS</code></td>
+          </tr>
+          <tr>
+            <td>8. 工具调用链路是什么？</td>
+            <td>LLM 通过 <code>bind_tools</code> 选择工具，BaseAgent 校验权限并覆盖敏感参数，调用 tool.invoke，结果作为 <code>ToolMessage</code> 回到消息列表，trace 记录工具步骤。</td>
+            <td><code>BaseAgent._run_tools()</code>、<code>TraceCollector</code></td>
+          </tr>
+          <tr>
+            <td>9. 是否接入 RAG 知识库？</td>
+            <td>已接入。ChromaDB 存题目、知识点、错误模式；Tutor 构造 Prompt 时检索知识和错误模式，Generator 检索相似题，pipeline 做 dedup。</td>
+            <td><code>knowledge_base.py</code>、<code>knowledge_tools.py</code></td>
+          </tr>
+          <tr>
+            <td>10. 是否接入 MCP Client / Server？</td>
+            <td>当前源码未实现 MCP Client 或 MCP Server。已有中文方案文档规划未来 FastAPI Agent Host 和只读 MCP Server。</td>
+            <td><code>docs/FASTAPI_AGENT_HOST_MCP_WORKFLOW_PLAN_ZH.md</code></td>
+          </tr>
+          <tr>
+            <td>11. 是否有 Memory / State / Session？</td>
+            <td>有。State 用 <code>AgentState</code>，Session/历史用 <code>AIConversation</code> 和 <code>AIMessage</code>，长期画像用 <code>StudentProfile</code> 和 <code>TeacherPreference</code>。</td>
+            <td><code>state.py</code>、<code>memory.py</code>、<code>ai_conversation.py</code></td>
+          </tr>
+          <tr>
+            <td>12. 数据存在哪里？</td>
+            <td>MySQL 存用户、业务、会话、消息、trace、任务、草稿、画像、eval；ChromaDB 存向量；Redis 存限流和异步事件；日志输出到应用日志。</td>
+            <td><code>app/models/</code>、<code>data/knowledge_base</code>、<code>compose.yaml</code></td>
+          </tr>
+          <tr>
+            <td>13. API 怎么暴露给前端或外部系统？</td>
+            <td>Flask Blueprint 暴露 REST 和 SSE，Swagger UI 可查看 API；前端 JS 直接 fetch <code>/api/v1/ai/*</code>。</td>
+            <td><code>app/api/v1/ai.py</code>、<code>app/static/js/ai_chat.js</code></td>
+          </tr>
+          <tr>
+            <td>14. 日志、监控、评估怎么做？</td>
+            <td>TraceCollector 记录 LLM/tool 延迟、token、错误；教师端 traces UI 查看；eval runner 运行 JSON case suite 并持久化结果。</td>
+            <td><code>tracing.py</code>、<code>traces.js</code>、<code>evals/runner.py</code></td>
+          </tr>
+          <tr>
+            <td>15. 项目如何配置、启动和部署？</td>
+            <td>Docker Compose 启动 Flask、MySQL、Redis，Web 端口默认 <code>9900</code>；依赖在 <code>requirements.txt</code> 和 <code>package.json</code>；健康检查是 <code>/health</code>。</td>
+            <td><code>compose.yaml</code>、<code>docker/Dockerfile</code>、<code>docs/INSTALLATION.md</code></td>
+          </tr>
+          <tr>
+            <td>16. 相比普通 Chatbot 强在哪里？</td>
+            <td>它不是只把用户消息转给模型，而是有多 Agent 分工、工具权限、真实业务数据查询、RAG、沙箱执行、可追踪运行记录、教师审核流和 eval。</td>
+            <td><code>orchestrator.py</code>、<code>tools/</code>、<code>generated_question_draft.py</code></td>
+          </tr>
+          <tr>
+            <td>17. 简历上应该怎么包装它？</td>
+            <td>可定位为“面向编程教育的多 Agent 智能评测平台”，关键词是 LangGraph、Tool Calling、RAG、Agent Trace、Eval、权限隔离、AI 出题与代码审查。</td>
+            <td>见本页 ResumeValue 节点</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>一级节点主干</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>一级节点</th>
+            <th>回答什么</th>
+            <th>当前仓库事实</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Project 项目</td><td>项目是什么类型</td><td>编程教育场景的 Multi-Agent + Tool Calling + RAG 在线评测平台。</td></tr>
+          <tr><td>BusinessGoal 业务目标</td><td>解决什么问题</td><td>降低教师出题和审查成本，给学生提供基于代码、题目和提交记录的个性化辅导。</td></tr>
+          <tr><td>UserEntry 用户入口</td><td>输入从哪里进</td><td><code>/ai/chat</code>、嵌入式 tutor、review queue、knowledge 页面和外部 REST/SSE API。</td></tr>
+          <tr><td>API 接口层</td><td>怎么暴露能力</td><td><code>app/api/v1/ai.py</code> 提供 chat、stream、async、review、generate、knowledge、traces、evals。</td></tr>
+          <tr><td>AgentCore Agent 核心</td><td>Agent 怎么工作</td><td>LangGraph 路由四类 Agent，BaseAgent 统一 LLM/tool 循环。</td></tr>
+          <tr><td>Workflow 执行流程</td><td>请求经过哪些步骤</td><td>SessionLoader、PromptBuilder、LLMProvider、ToolExecutor、Handoff、Logger 都有对应代码路径。</td></tr>
+          <tr><td>LLMProvider 模型调用层</td><td>模型怎么接入</td><td>DeepSeek API，通过 LangChain <code>ChatOpenAI</code> 兼容封装调用。</td></tr>
+          <tr><td>PromptSystem Prompt 系统</td><td>规则在哪里</td><td><code>app/agents/prompts/</code> 控制角色、工具、输出格式、handoff 和安全规则。</td></tr>
+          <tr><td>ToolSystem 工具系统</td><td>Agent 能做什么</td><td>工具注册在 <code>app/agents/tools/</code>，权限矩阵限制角色和 Agent 可调用范围。</td></tr>
+          <tr><td>RAGSystem 知识库系统</td><td>是否基于资料回答</td><td>ChromaDB + sentence-transformers，集合为 questions、knowledge_points、error_patterns。</td></tr>
+          <tr><td>MCPSystem MCP 系统</td><td>是否具备 MCP 扩展</td><td>当前未实现，仅规划 FastAPI Agent Host 和只读 MCP Server。</td></tr>
+          <tr><td>MemorySystem 记忆系统</td><td>是否支持多轮上下文</td><td>会话消息、摘要、学生画像、教师偏好都可作为记忆。</td></tr>
+          <tr><td>StateManagement 状态管理</td><td>执行状态怎么流转</td><td><code>AgentState</code> 保存 messages、agent_type、context、tool_results、trace_id、handoff 等。</td></tr>
+          <tr><td>DataStorage 数据存储</td><td>数据存在哪里</td><td>MySQL、Redis、ChromaDB、本地日志和上传/数据卷。</td></tr>
+          <tr><td>Frontend 前端界面</td><td>用户怎么使用</td><td>Jinja + CSS + Vanilla JS，支持聊天、流式输出、草稿审核、trace 查看、知识库管理。</td></tr>
+          <tr><td>Auth 权限认证</td><td>谁能用什么能力</td><td>Session、Bearer token、Cookie 三源认证；teacher/admin 才能生成题目和管理知识库。</td></tr>
+          <tr><td>Logging 日志追踪</td><td>Agent 做了什么</td><td>TraceCollector 写 run 和 step，记录 LLM、tool、latency、token、error。</td></tr>
+          <tr><td>Evaluation 测试评估</td><td>怎么证明有效</td><td>pytest、Cypress、eval suite、judge、eval_runs 历史。</td></tr>
+          <tr><td>Deployment 部署运行</td><td>怎么启动部署</td><td>Dockerfile + Compose，gunicorn 4 workers，端口 9900，健康检查 <code>/health</code>。</td></tr>
+          <tr><td>Config 配置管理</td><td>参数在哪里</td><td><code>.env</code>、<code>app/core/config.py</code>、<code>app/agents/config.py</code> 和 <code>compose.yaml</code>。</td></tr>
+          <tr><td>ResumeValue 简历价值</td><td>怎么包装项目</td><td>突出多 Agent 编排、RAG、Tool Calling、Trace、Eval、权限控制和教育场景落地。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Agent 主流程</h2>
+      <div class="flow" aria-label="Agent 主流程">
+        <div class="step">
+          <strong>1. 前端/API 发起请求</strong>
+          <p>携带 <code>message</code>、<code>agent_type</code>、题目/提交/语言等上下文。</p>
+        </div>
+        <div class="step">
+          <strong>2. 认证与限流</strong>
+          <p><code>require_auth</code> 校验用户，Redis 做每用户每 Agent 的分钟级限流。</p>
+        </div>
+        <div class="step">
+          <strong>3. 会话装载</strong>
+          <p>创建或复用 <code>AIConversation</code>，读取历史 <code>AIMessage</code>。</p>
+        </div>
+        <div class="step">
+          <strong>4. 路由 Agent</strong>
+          <p><code>AgentOrchestrator</code> 自动分类或使用显式类型。</p>
+        </div>
+        <div class="step">
+          <strong>5. 组装 Prompt</strong>
+          <p>系统提示、上下文、记忆、RAG 结果、安全规则共同进入消息列表。</p>
+        </div>
+        <div class="step">
+          <strong>6. LLM + Tool Loop</strong>
+          <p>LLM 可发起工具调用；服务端校验权限、注入可信参数、执行工具。</p>
+        </div>
+        <div class="step">
+          <strong>7. Handoff / 校验</strong>
+          <p>需要时交给其他 Agent；reviewer/generator/analytics 可做结构校验重试。</p>
+        </div>
+        <div class="step">
+          <strong>8. 输出、追踪、持久化</strong>
+          <p>返回 JSON 或 SSE，同时保存消息、trace、草稿或 eval 结果。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>系统架构图</h2>
+      <div class="architecture">
+        <div class="layer">
+          <div class="layer-label">客户端层</div>
+          <div class="layer-body">
+            <h3>Jinja 页面 + Vanilla JS + 外部 API 调用者</h3>
+            <p><code>app/static/js/ai_chat.js</code>、<code>embedded_tutor.js</code>、review queue 与 traces 页面通过 <code>/api/v1/ai/*</code> 调用 Agent 能力。</p>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="layer-label">API 层</div>
+          <div class="layer-body">
+            <h3>Flask Blueprint <code>app/api/v1/ai.py</code></h3>
+            <p>负责认证、限流、输入清洗、会话持久化、同步/流式/异步任务、题目草稿审阅、知识库管理、trace 查询和 eval 运行。</p>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="layer-label">Agent 层</div>
+          <div class="layer-body">
+            <h3>LangGraph + BaseAgent + 专用 Agent</h3>
+            <p><code>orchestrator.py</code> 负责路由与 handoff，<code>BaseAgent</code> 负责 LLM/tool 循环，四类 Agent 各自注入 Prompt、工具和上下文。</p>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="layer-label">工具层</div>
+          <div class="layer-body">
+            <h3>LangChain tools + 权限矩阵</h3>
+            <p>工具包括代码执行、题目查询、提交查询、统计查询、知识库检索。<code>TOOL_PERMISSIONS</code> 控制 Agent 与角色组合，<code>_inject_security</code> 覆盖敏感 ID 参数。</p>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="layer-label">数据层</div>
+          <div class="layer-body">
+            <h3>MySQL + ChromaDB + Redis + 本地日志</h3>
+            <p>MySQL 存业务数据、会话、消息、trace、任务、草稿、评估结果与画像；ChromaDB 存向量知识库；Redis 做限流和异步任务事件缓存；<code>logs/</code> 承载应用日志。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>核心模块与知识点</h2>
+      <div class="matrix">
+        <div class="band">
+          <h3>Prompt 设计</h3>
+          <p>四个 Agent 各有系统提示，并拼接安全规则、handoff 规则、运行上下文、用户画像和 RAG 片段。Tutor 强调苏格拉底式提示，Analytics 要求先查真实数据，Generator 输出结构化题目 JSON。</p>
+        </div>
+        <div class="band">
+          <h3>Tool Calling</h3>
+          <p>工具由 LangChain <code>@tool</code> 暴露，LLM 通过 <code>bind_tools</code> 选择工具。执行前检查 <code>agent_type + tool + user_role</code> 权限，执行失败会重试一次并把错误作为 ToolMessage 回传。</p>
+        </div>
+        <div class="band">
+          <h3>RAG 知识库</h3>
+          <p>当前不是全局 retrieve-then-answer，而是在 Tutor 和 Generator 的 Prompt 构造阶段按需检索。Tutor 查知识点和错误模式，Generator 查相似题防重复，生成 pipeline 也会做 dedup 检查。</p>
+        </div>
+        <div class="band">
+          <h3>Memory / State</h3>
+          <p><code>AgentState</code> 是单次运行状态；<code>AIConversation</code> 与 <code>AIMessage</code> 是对话记忆；<code>StudentProfile</code> 与 <code>TeacherPreference</code> 是跨会话画像。长历史会被 <code>MemoryService.compact_messages</code> 压缩。</p>
+        </div>
+        <div class="band">
+          <h3>日志追踪</h3>
+          <p><code>TraceCollector</code> 包裹 LLM 和 tool 步骤，记录延迟、token、工具名、输入、成功状态和错误。API 提供 trace 列表与详情，前端有 <code>/ai/traces</code> 页面。</p>
+        </div>
+        <div class="band">
+          <h3>测试评估</h3>
+          <p>单元测试覆盖 Agent、AI API、知识库；E2E 用 Cypress；LLM 行为评估用 <code>evals/runner.py</code> 和 JSON case suite，运行结果可落到 <code>eval_runs</code>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>数据层：Agent 数据存放位置</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>数据</th>
+            <th>存放位置</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>会话</td>
+            <td><code>ai_conversations</code></td>
+            <td>记录用户、Agent 类型、上下文对象、标题、摘要、创建更新时间。</td>
+          </tr>
+          <tr>
+            <td>消息</td>
+            <td><code>ai_messages</code></td>
+            <td>保存 user/assistant 内容、工具调用 JSON、token 使用量。</td>
+          </tr>
+          <tr>
+            <td>运行追踪</td>
+            <td><code>agent_runs</code>、<code>agent_run_steps</code></td>
+            <td>保存每次 Agent 运行及 LLM/tool 步骤，用于可观测性和排障。</td>
+          </tr>
+          <tr>
+            <td>异步任务</td>
+            <td><code>agent_tasks</code> + Redis event stream</td>
+            <td>批量生成、异步 chat、任务状态、重试、结果和错误信息。</td>
+          </tr>
+          <tr>
+            <td>出题草稿</td>
+            <td><code>generated_question_drafts</code></td>
+            <td>AI 生成题目进入教师审核区，通过后发布到 <code>problems/questions</code>。</td>
+          </tr>
+          <tr>
+            <td>学习记忆</td>
+            <td><code>student_profiles</code>、<code>teacher_preferences</code></td>
+            <td>存学生错误模式、知识图谱、最近题目、教师偏好、班级薄弱点。</td>
+          </tr>
+          <tr>
+            <td>RAG 向量库</td>
+            <td><code>data/knowledge_base</code> ChromaDB</td>
+            <td>持久化题目向量、知识点和错误模式。</td>
+          </tr>
+          <tr>
+            <td>Eval 历史</td>
+            <td><code>eval_runs</code></td>
+            <td>保存 suite 名称、模型名、通过率、case 结果和耗时。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>API 层：如何调用 Agent</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>接口</th>
+            <th>调用方式</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>POST /api/v1/ai/chat</code></td>
+            <td>同步 JSON</td>
+            <td>通用聊天入口，支持 <code>agent_type</code>、<code>conversation_id</code> 和上下文。</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/ai/chat/stream</code></td>
+            <td>SSE</td>
+            <td>流式返回 <code>start/token/tool_call/tool_result/handoff/done</code> 等事件。</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/ai/chat/async</code></td>
+            <td>任务 ID + 后续轮询/流</td>
+            <td>创建后台 AgentTask，用于长任务或异步聊天。</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/ai/review</code></td>
+            <td>同步 JSON</td>
+            <td>代码审查专用入口，底层调用 ReviewerAgent。</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/ai/generate</code></td>
+            <td>同步 JSON</td>
+            <td>教师出题入口，底层调用 GeneratorAgent 并保存草稿。</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/ai/generate/pipeline</code></td>
+            <td>同步 JSON</td>
+            <td>LangGraph 生成流水线：generate、validate、dedup、quality review、finalize。</td>
+          </tr>
+          <tr>
+            <td><code>GET /api/v1/ai/traces</code></td>
+            <td>分页列表</td>
+            <td>教师/管理员查看 Agent 运行记录。</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/ai/evals/run</code></td>
+            <td>同步 JSON</td>
+            <td>运行指定 eval suite 或全部 suite，并写入历史。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>部署、配置、权限与简历价值</h2>
+      <div class="matrix">
+        <div class="band">
+          <h3>Deployment 部署运行</h3>
+          <p>默认通过 <code>docker compose up -d --build</code> 启动 Web、MySQL、Redis。Web 服务由 gunicorn 运行在容器 <code>9900</code> 端口，宿主端口由 <code>WEB_PORT</code> 控制，健康检查访问 <code>/health</code>。</p>
+        </div>
+        <div class="band">
+          <h3>Config 配置管理</h3>
+          <p>核心配置来自 <code>.env</code>、<code>compose.yaml</code>、<code>app/core/config.py</code> 和 <code>app/agents/config.py</code>。关键项包括 <code>DATABASE_URL</code>、<code>DEEPSEEK_API_KEY</code>、<code>AI_MODEL</code>、<code>REDIS_URL</code>、<code>AI_MAX_TOKENS</code>、<code>AI_TEMPERATURE</code>。</p>
+        </div>
+        <div class="band">
+          <h3>Auth 权限认证</h3>
+          <p>API 通过 <code>require_auth</code>、<code>require_teacher</code> 等装饰器保护，认证源包括 Flask session、Authorization Bearer token 和 <code>auth_token</code> cookie。工具层还有 <code>TOOL_PERMISSIONS</code>，生成题目和知识库管理主要限制给 teacher/admin。</p>
+        </div>
+        <div class="band">
+          <h3>Frontend 前端界面</h3>
+          <p>前端是 Jinja 模板、CSS 和 Vanilla JS。主要页面包括 <code>/ai/chat</code>、<code>/ai/review-queue</code>、<code>/ai/traces</code>、<code>/teacher/knowledge</code>，聊天页支持 SSE 流式输出和工具事件展示。</p>
+        </div>
+        <div class="band">
+          <h3>相比普通 Chatbot</h3>
+          <p>普通 Chatbot 多数只有“消息进、模型答”。本项目加入了业务数据库查询、代码沙箱、知识库检索、多 Agent 路由、教师审核流、Trace 可观测性、Eval 评估和角色权限控制。</p>
+        </div>
+        <div class="band">
+          <h3>ResumeValue 简历价值</h3>
+          <p>建议定位为“面向编程教育的多 Agent 智能评测平台”。可写成：基于 Flask、LangGraph、DeepSeek、ChromaDB 构建 AI Tutor、Code Reviewer、Question Generator 和 Analytics Agent，支持 Tool Calling、RAG、运行追踪和评估闭环。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>可直接放进简历的表述</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>用途</th>
+            <th>推荐写法</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>项目标题</td>
+            <td>CodeRunner-AI: 面向编程教育的多 Agent 在线评测与智能辅导平台</td>
+          </tr>
+          <tr>
+            <td>一句话定位</td>
+            <td>在在线判题系统中集成 AI Tutor、Code Review、Question Generation 和 Learning Analytics，实现基于题目、提交记录和知识库的个性化编程教学辅助。</td>
+          </tr>
+          <tr>
+            <td>技术关键词</td>
+            <td>Flask, SQLAlchemy, LangGraph, LangChain Tool Calling, DeepSeek API, ChromaDB, Redis, Docker, Cypress, pytest</td>
+          </tr>
+          <tr>
+            <td>工程亮点</td>
+            <td>设计 Agent 工具权限矩阵和服务端参数注入机制，避免模型绕过用户身份读取敏感数据；实现 LLM/tool trace 持久化，支持教师端排障和效果复盘。</td>
+          </tr>
+          <tr>
+            <td>AI 亮点</td>
+            <td>构建 RAG 检索链路，将知识点、错误模式和相似题注入 Prompt；使用 LangGraph 编排 Agent 路由、handoff、生成题验证和去重流程。</td>
+          </tr>
+          <tr>
+            <td>避免夸大</td>
+            <td>MCP 目前应写为“规划/设计过 MCP Server 方案”，不要写成“已接入 MCP”。RAG 可以写“已接入 ChromaDB 轻量知识库”，不要写成完整生产级 RAG 平台。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>实现状态矩阵</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>能力</th>
+            <th>状态</th>
+            <th>当前证据</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Agent 主流程</td>
+            <td><span class="status done">已实现</span></td>
+            <td><code>app/agents/orchestrator.py</code> + <code>app/agents/agents/base.py</code></td>
+          </tr>
+          <tr>
+            <td>Prompt 设计</td>
+            <td><span class="status done">已实现</span></td>
+            <td><code>app/agents/prompts/</code> 下四类角色提示，并拼接安全与 handoff 规则。</td>
+          </tr>
+          <tr>
+            <td>Tool Calling</td>
+            <td><span class="status done">已实现</span></td>
+            <td><code>langchain_core.tools</code>、<code>bind_tools</code>、<code>TOOL_PERMISSIONS</code></td>
+          </tr>
+          <tr>
+            <td>RAG 知识库</td>
+            <td><span class="status partial">部分实现</span></td>
+            <td>ChromaDB 已接入；仍需关注去重阈值、元数据、租户隔离、chunk/rerank 等生产级能力。</td>
+          </tr>
+          <tr>
+            <td>MCP Client / Server</td>
+            <td><span class="status missing">未实现</span></td>
+            <td>源码未发现 MCP 协议代码；<code>docs/FASTAPI_AGENT_HOST_MCP_WORKFLOW_PLAN_ZH.md</code> 是规划文档。</td>
+          </tr>
+          <tr>
+            <td>Memory / State</td>
+            <td><span class="status done">已实现</span></td>
+            <td><code>AgentState</code>、会话消息、摘要、学生画像、教师偏好、消息压缩。</td>
+          </tr>
+          <tr>
+            <td>日志追踪</td>
+            <td><span class="status done">已实现</span></td>
+            <td><code>TraceCollector</code>、<code>agent_runs</code>、<code>agent_run_steps</code>、trace API。</td>
+          </tr>
+          <tr>
+            <td>测试评估</td>
+            <td><span class="status done">已实现</span></td>
+            <td><code>tests/test_agents.py</code>、<code>tests/test_api_ai.py</code>、<code>evals/runner.py</code>。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="footer-note">本页是源码快照说明，不代表运行中容器一定已安装全部可选依赖。RAG 运行态仍应检查 <code>chromadb</code>、<code>sentence-transformers</code> 和 <code>data/knowledge_base</code>。</p>
+    </section>
+  </main>
+</body>
+</html>

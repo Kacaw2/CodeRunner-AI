@@ -690,10 +690,10 @@ LLM 生成题目 + 测试用例 + 参考答案
 ## 十六、相关文档
 
 - AI API 端点参考：[AI_API.md](AI_API.md)
-- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](AI_AGENTS_STATUS.md)
-- Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](AGENT_ENHANCEMENT_GUIDE.md)
-- 模块审计报告：[ai-agents-module-audit.md](superpowers/plans/ai-agents-module-audit.md)
-- 集成修复计划：[2026-05-23-agent-module-integration.md](superpowers/plans/2026-05-23-agent-module-integration.md)
+- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](archive/status/AI_AGENTS_STATUS.md)
+- Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](archive/completed/AGENT_ENHANCEMENT_GUIDE.md)
+- 模块审计报告：[ai-agents-module-audit.md](archive/superpowers/plans/ai-agents-module-audit.md)
+- 集成修复计划：[2026-05-23-agent-module-integration.md](archive/superpowers/plans/2026-05-23-agent-module-integration.md)
 - 系统架构总览：[ARCHITECTURE.md](ARCHITECTURE.md)
 - 现有 REST API：[API.md](API.md)
 - 代码沙箱：[EXECUTOR.md](EXECUTOR.md)
