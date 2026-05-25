@@ -554,8 +554,6 @@ def chat_async():
     The frontend should subscribe to /chat/task/<task_id>/stream for SSE events.
     """
     from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_create
-    if is_proxy_enabled():
-        return proxy_chat_create()
 
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
@@ -581,6 +579,12 @@ def chat_async():
 
     context = _build_context(data)
     rl_headers = _rate_limit_headers(rl_info)
+
+    if is_proxy_enabled():
+        proxied_payload = dict(data)
+        proxied_payload["message"] = message
+        proxied_payload["agent_type"] = agent_type
+        return proxy_chat_create(proxied_payload, extra_headers=rl_headers)
 
     try:
         conv = _get_or_create_conversation(

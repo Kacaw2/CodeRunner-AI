@@ -46,31 +46,48 @@ class WorkflowEngine:
         user_role: str,
         conversation_id: int = None,
         chat_task_id: str = None,
+        workflow_run_id: str = None,
     ) -> WorkflowState:
         """Execute a complete workflow plan and return final state."""
         from app.core.timezone import now_china
         from app.models.workflow import WorkflowRun, WorkflowStep
 
         session = self._get_session()
-        run_id = str(uuid4())
+        run_id = workflow_run_id or str(uuid4())
         steps_def = plan.get("steps", [])
 
         if len(steps_def) > MAX_WORKFLOW_STEPS:
             steps_def = steps_def[:MAX_WORKFLOW_STEPS]
 
-        workflow_run = WorkflowRun(
-            id=run_id,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            chat_task_id=chat_task_id,
-            goal=plan.get("goal", ""),
-            workflow_type=plan.get("workflow_type", "general"),
-            status="executing",
-            plan_json=plan,
-            total_steps=len(steps_def),
-            started_at=now_china(),
-        )
-        session.add(workflow_run)
+        workflow_run = session.get(WorkflowRun, run_id) if workflow_run_id else None
+        if workflow_run is None:
+            workflow_run = WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                chat_task_id=chat_task_id,
+            )
+            session.add(workflow_run)
+        else:
+            (
+                session.query(WorkflowStep)
+                .filter_by(workflow_run_id=run_id)
+                .delete(synchronize_session=False)
+            )
+
+        workflow_run.user_id = user_id
+        workflow_run.conversation_id = conversation_id
+        workflow_run.chat_task_id = chat_task_id
+        workflow_run.goal = plan.get("goal", "")
+        workflow_run.workflow_type = plan.get("workflow_type", "general")
+        workflow_run.status = "executing"
+        workflow_run.plan_json = plan
+        workflow_run.current_step_index = 0
+        workflow_run.total_steps = len(steps_def)
+        workflow_run.result = None
+        workflow_run.error_detail = None
+        workflow_run.started_at = now_china()
+        workflow_run.completed_at = None
 
         db_steps = []
         for step_def in steps_def:

@@ -279,6 +279,16 @@ class TestAsyncChatEndpoint:
         data = resp.get_json()
         assert data["error"] == "invalid_request"
 
+    def test_chat_async_proxy_still_validates_message(self, client, mock_auth_student, mock_redis):
+        with patch("app.api.v1.ai_proxy.USE_AGENT_HOST_PROXY", True), \
+             patch("app.api.v1.ai_proxy.proxy_chat_create", return_value=({"proxied": True}, 202)) as proxy:
+            resp = client.post("/api/v1/ai/chat/async", json={})
+
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["error"] == "invalid_request"
+        proxy.assert_not_called()
+
     @patch("app.agents.chat_worker.submit_chat_task")
     def test_chat_async_creates_task(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
         resp = client.post("/api/v1/ai/chat/async", json={

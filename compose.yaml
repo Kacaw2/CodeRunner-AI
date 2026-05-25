@@ -78,6 +78,8 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20}
       REDIS_URL: redis://redis:6379/0
+      AGENT_HOST_URL: http://agent_host:8100
+      USE_AGENT_HOST_PROXY: ${USE_AGENT_HOST_PROXY:-true}
 
       MAX_CONTENT_LENGTH: 16777216
       UPLOAD_FOLDER: /app/uploads
@@ -143,6 +145,42 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - educode_network
+    env_file:
+      - .env
+
+  mcp_server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent_host
+    container_name: educode_mcp_server
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "mcp_server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8200"]
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_USER: ${MYSQL_USER:-educode}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${MCP_PORT:-8200}:8200"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - kb_data:/app/data/knowledge_base
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/sse"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - educode_network
     env_file:

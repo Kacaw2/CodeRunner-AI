@@ -358,17 +358,31 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
             token = set_current_session(session)
 
             try:
-                from app.agents.workflow.supervisor import SupervisorAgent
+                plan = run.plan_json if isinstance(run.plan_json, dict) else None
+                if plan and plan.get("steps"):
+                    from app.agents.workflow.engine import WorkflowEngine
 
-                supervisor = SupervisorAgent(session=session)
-                state = supervisor.run_workflow(
-                    user_id=run.user_id,
-                    user_role=user_role,
-                    goal=goal,
-                    context=context,
-                    conversation_id=run.conversation_id,
-                    chat_task_id=run.chat_task_id,
-                )
+                    state = WorkflowEngine(session=session).execute(
+                        plan=plan,
+                        user_id=run.user_id,
+                        user_role=user_role,
+                        conversation_id=run.conversation_id,
+                        chat_task_id=run.chat_task_id,
+                        workflow_run_id=run_id,
+                    )
+                else:
+                    from app.agents.workflow.supervisor import SupervisorAgent
+
+                    supervisor = SupervisorAgent(session=session)
+                    state = supervisor.run_workflow(
+                        user_id=run.user_id,
+                        user_role=user_role,
+                        goal=goal,
+                        context=context,
+                        conversation_id=run.conversation_id,
+                        chat_task_id=run.chat_task_id,
+                        workflow_run_id=run_id,
+                    )
 
                 for evt in state.get("_events", []):
                     redis_buffer.wf_push_event(run_id, evt)

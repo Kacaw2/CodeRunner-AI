@@ -30,6 +30,12 @@ TOOL_PERMISSIONS: dict[tuple[str, str], set[str]] = {
     ("analytics", "get_student_activity"):          {"student", "teacher", "admin"},
     ("analytics", "get_class_statistics"):           {"teacher", "admin"},
     ("analytics", "get_problem_difficulty_stats"):   {"student", "teacher", "admin"},
+
+    # MCP Server tools (external clients — teacher/admin only)
+    ("mcp", "search_knowledge"):              {"teacher", "admin"},
+    ("mcp", "search_similar_problems"):       {"teacher", "admin"},
+    ("mcp", "get_problem_detail"):            {"teacher", "admin"},
+    ("mcp", "get_problem_difficulty_stats"):  {"teacher", "admin"},
 }
 
 

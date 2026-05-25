@@ -20,7 +20,7 @@ def is_proxy_enabled() -> bool:
     return USE_AGENT_HOST_PROXY
 
 
-def proxy_chat_create():
+def proxy_chat_create(payload: dict | None = None, extra_headers: dict | None = None):
     """Proxy POST /api/chat to Agent Host."""
     url = f"{AGENT_HOST_URL}/api/chat"
     headers = {
@@ -32,13 +32,19 @@ def proxy_chat_create():
             method="POST",
             url=url,
             headers=headers,
-            content=request.get_data(),
+            json=payload,
+            content=None if payload is not None else request.get_data(),
             timeout=30,
         )
+        response_headers = {
+            "Content-Type": resp.headers.get("Content-Type", "application/json")
+        }
+        if extra_headers:
+            response_headers.update(extra_headers)
         return (
             resp.content,
             resp.status_code,
-            {"Content-Type": resp.headers.get("Content-Type", "application/json")},
+            response_headers,
         )
     except httpx.ConnectError:
         logger.error("Agent Host unreachable at %s", AGENT_HOST_URL)

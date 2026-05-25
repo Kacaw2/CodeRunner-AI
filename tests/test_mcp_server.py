@@ -1,0 +1,377 @@
+"""Tests for Phase 3 — MCP Server, API Key management, auth/permission/rate-limit."""
+
+import json
+import uuid
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+from app import create_app
+from app.core.extensions import db as _db
+from app.models.user import User, UserRole
+from mcp_server.auth import hash_api_key, verify_api_key
+from mcp_server.models.api_key import McpApiKey
+from mcp_server.models.audit_log import McpAuditLog
+from mcp_server.middleware import set_caller_info, get_caller_info, mcp_tool_middleware
+from mcp_server.rate_limiter import check_rate_limit
+
+
+@pytest.fixture(scope="module")
+def app():
+    application = create_app("testing")
+    application.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    application.config["SERVER_NAME"] = "localhost"
+    with application.app_context():
+        _db.create_all()
+        yield application
+        _db.drop_all()
+
+
+@pytest.fixture(autouse=True)
+def db_session(app):
+    with app.app_context():
+        yield _db.session
+        _db.session.rollback()
+        for table in reversed(_db.metadata.sorted_tables):
+            _db.session.execute(table.delete())
+        _db.session.commit()
+
+
+@pytest.fixture()
+def client(app, db_session):
+    return app.test_client()
+
+
+@pytest.fixture()
+def teacher_user(db_session):
+    user = User(
+        username="mcp_teacher", password="hashed",
+        email="mcp_teacher@test.com", role=UserRole.TEACHER,
+    )
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+@pytest.fixture()
+def student_user(db_session):
+    user = User(
+        username="mcp_student", password="hashed",
+        email="mcp_student@test.com", role=UserRole.STUDENT,
+    )
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+@pytest.fixture()
+def mock_auth_teacher(teacher_user):
+    with patch("app.auth.decorators.get_current_user_or_401", return_value=teacher_user), \
+         patch("app.auth.decorators._try_get_user_from_sources", return_value=teacher_user):
+        yield teacher_user
+
+
+@pytest.fixture()
+def mock_auth_student(student_user):
+    with patch("app.auth.decorators.get_current_user_or_401", return_value=student_user), \
+         patch("app.auth.decorators._try_get_user_from_sources", return_value=student_user):
+        yield student_user
+
+
+# ── MCP Server creation ──
+
+class TestMcpServerCreation:
+    def test_server_registers_four_tools(self):
+        from mcp_server.server import create_mcp_server
+        mcp = create_mcp_server()
+        tools = list(mcp._tool_manager._tools.keys())
+        assert len(tools) == 4
+        assert "search_knowledge" in tools
+        assert "search_similar_problems" in tools
+        assert "get_problem_detail" in tools
+        assert "get_problem_difficulty_stats" in tools
+
+
+# ── Core logic extraction ──
+
+class TestCoreFunctions:
+    def test_search_similar_problems_impl(self):
+        from app.agents.tools.core.knowledge import search_similar_problems_impl
+        with patch("app.agents.knowledge_base.get_knowledge_base") as mock_kb:
+            mock_kb.return_value.search_similar_problems.return_value = [
+                {"id": 1, "title": "Two Sum", "score": 0.95}
+            ]
+            result = search_similar_problems_impl("two sum", "python", 5)
+        assert "similar_problems" in result
+        assert len(result["similar_problems"]) == 1
+
+    def test_search_knowledge_impl(self):
+        from app.agents.tools.core.knowledge import search_knowledge_impl
+        with patch("app.agents.knowledge_base.get_knowledge_base") as mock_kb:
+            mock_kb.return_value.search_knowledge.return_value = [
+                {"topic": "Arrays", "content": "..."}
+            ]
+            result = search_knowledge_impl("arrays")
+        assert "relevant_knowledge" in result
+        assert len(result["relevant_knowledge"]) == 1
+
+    def test_get_problem_detail_impl_not_found(self, app):
+        from app.agents.tools.core.problems import get_problem_detail_impl
+        with app.app_context():
+            result = get_problem_detail_impl(99999)
+        assert result == {"error": "Problem not found"}
+
+    def test_get_problem_difficulty_stats_impl_no_variants(self, app):
+        from app.agents.tools.core.analytics import get_problem_difficulty_stats_impl
+        with app.app_context():
+            result = get_problem_difficulty_stats_impl(99999)
+        assert result["total_submissions"] == 0
+        assert "No variants found" in result.get("message", "")
+
+
+# ── API Key management endpoints ──
+
+class TestApiKeyManagement:
+    def test_create_key(self, client, mock_auth_teacher):
+        resp = client.post(
+            "/api/v1/mcp/keys",
+            json={"name": "My Claude Desktop"},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["name"] == "My Claude Desktop"
+        assert data["key"].startswith("mcp-")
+        assert data["role"] == "teacher"
+        assert "Save this key" in data["message"]
+
+    def test_create_key_with_scopes(self, client, mock_auth_teacher):
+        resp = client.post(
+            "/api/v1/mcp/keys",
+            json={"name": "Limited Key", "scopes": ["search_knowledge"]},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["scopes"] == ["search_knowledge"]
+
+    def test_list_keys(self, client, mock_auth_teacher, teacher_user):
+        client.post("/api/v1/mcp/keys", json={"name": "Key1"})
+        client.post("/api/v1/mcp/keys", json={"name": "Key2"})
+        resp = client.get("/api/v1/mcp/keys")
+        assert resp.status_code == 200
+        keys = resp.get_json()
+        assert len(keys) == 2
+
+    def test_revoke_key(self, client, mock_auth_teacher):
+        resp = client.post("/api/v1/mcp/keys", json={"name": "Temp Key"})
+        key_id = resp.get_json()["id"]
+        resp = client.delete(f"/api/v1/mcp/keys/{key_id}")
+        assert resp.status_code == 200
+        assert resp.get_json()["message"] == "Key revoked"
+
+    def test_revoke_already_revoked(self, client, mock_auth_teacher):
+        resp = client.post("/api/v1/mcp/keys", json={"name": "Temp Key"})
+        key_id = resp.get_json()["id"]
+        client.delete(f"/api/v1/mcp/keys/{key_id}")
+        resp = client.delete(f"/api/v1/mcp/keys/{key_id}")
+        assert resp.status_code == 400
+
+    def test_revoke_nonexistent(self, client, mock_auth_teacher):
+        resp = client.delete("/api/v1/mcp/keys/nonexistent-id")
+        assert resp.status_code == 404
+
+    def test_student_cannot_create_key(self, client, mock_auth_student):
+        resp = client.post("/api/v1/mcp/keys", json={"name": "Forbidden"})
+        assert resp.status_code == 403
+
+
+# ── API Key verification ──
+
+class TestApiKeyVerification:
+    def test_hash_api_key_deterministic(self):
+        key = "mcp-test-key-123"
+        assert hash_api_key(key) == hash_api_key(key)
+
+    def test_verify_valid_key(self, app, teacher_user, db_session):
+        teacher_id = teacher_user.id
+        raw_key = "mcp-test-valid-key"
+        record = McpApiKey(
+            id=str(uuid.uuid4()),
+            user_id=teacher_id,
+            key_hash=hash_api_key(raw_key),
+            name="Test Key",
+            role="teacher",
+            rate_limit_rpm=30,
+        )
+        db_session.add(record)
+        db_session.commit()
+
+        with patch("mcp_server.auth.get_session", return_value=db_session):
+            caller = verify_api_key(raw_key)
+        assert caller is not None
+        assert caller["user_id"] == teacher_id
+        assert caller["role"] == "teacher"
+
+    def test_verify_invalid_key(self, app, db_session):
+        with patch("mcp_server.auth.get_session", return_value=db_session):
+            caller = verify_api_key("mcp-nonexistent-key")
+        assert caller is None
+
+    def test_verify_revoked_key(self, app, teacher_user, db_session):
+        from app.core.timezone import now_china
+        raw_key = "mcp-revoked-key"
+        record = McpApiKey(
+            id=str(uuid.uuid4()),
+            user_id=teacher_user.id,
+            key_hash=hash_api_key(raw_key),
+            name="Revoked Key",
+            role="teacher",
+            revoked_at=now_china(),
+        )
+        db_session.add(record)
+        db_session.commit()
+
+        with patch("mcp_server.auth.get_session", return_value=db_session):
+            caller = verify_api_key(raw_key)
+        assert caller is None
+
+
+# ── Middleware: permission + scope + rate limit ──
+
+class TestMiddleware:
+    def test_no_caller_returns_auth_error(self):
+        set_caller_info(None)
+
+        @mcp_tool_middleware("search_knowledge")
+        def dummy(query: str) -> str:
+            return json.dumps({"ok": True})
+
+        with patch("mcp_server.middleware.log_tool_call"):
+            result = dummy(query="test")
+        assert "Authentication required" in result
+
+    def test_wrong_role_returns_permission_error(self):
+        set_caller_info({
+            "api_key_id": "k1", "user_id": 1,
+            "role": "student", "scopes": None, "rate_limit_rpm": 30,
+        })
+
+        @mcp_tool_middleware("search_knowledge")
+        def dummy(query: str) -> str:
+            return json.dumps({"ok": True})
+
+        with patch("mcp_server.middleware.log_tool_call"):
+            result = dummy(query="test")
+        assert "Permission denied" in result
+
+    def test_scope_restriction(self):
+        set_caller_info({
+            "api_key_id": "k1", "user_id": 1,
+            "role": "teacher", "scopes": ["search_knowledge"],
+            "rate_limit_rpm": 30,
+        })
+
+        @mcp_tool_middleware("get_problem_detail")
+        def dummy(problem_id: int) -> str:
+            return json.dumps({"ok": True})
+
+        with patch("mcp_server.middleware.log_tool_call"):
+            result = dummy(problem_id=1)
+        assert "not in key scopes" in result
+
+    def test_valid_call_passes(self):
+        set_caller_info({
+            "api_key_id": "k1", "user_id": 1,
+            "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
+        })
+
+        @mcp_tool_middleware("search_knowledge")
+        def dummy(query: str) -> str:
+            return json.dumps({"ok": True})
+
+        with patch("mcp_server.middleware.log_tool_call"), \
+             patch("mcp_server.middleware.check_rate_limit", return_value=True):
+            result = dummy(query="test")
+        data = json.loads(result)
+        assert data["ok"] is True
+
+    def test_rate_limit_exceeded(self):
+        set_caller_info({
+            "api_key_id": "k1", "user_id": 1,
+            "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
+        })
+
+        @mcp_tool_middleware("search_knowledge")
+        def dummy(query: str) -> str:
+            return json.dumps({"ok": True})
+
+        with patch("mcp_server.middleware.log_tool_call"), \
+             patch("mcp_server.middleware.check_rate_limit", return_value=False):
+            result = dummy(query="test")
+        assert "Rate limit exceeded" in result
+
+
+# ── Rate limiter ──
+
+class TestRateLimiter:
+    def test_allows_under_limit(self):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = "5"
+        mock_redis.pipeline.return_value = MagicMock()
+        with patch("mcp_server.rate_limiter._redis_client", mock_redis):
+            assert check_rate_limit("k1", 30) is True
+
+    def test_blocks_over_limit(self):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = "30"
+        with patch("mcp_server.rate_limiter._redis_client", mock_redis):
+            assert check_rate_limit("k1", 30) is False
+
+    def test_no_redis_allows_all(self):
+        with patch("mcp_server.rate_limiter._redis_client", None):
+            assert check_rate_limit("k1", 30) is True
+
+
+# ── Permission matrix ──
+
+class TestMcpPermissions:
+    def test_teacher_allowed(self):
+        from app.agents.tools.permissions import check_tool_permission
+        assert check_tool_permission("mcp", "search_knowledge", "teacher")
+        assert check_tool_permission("mcp", "search_similar_problems", "teacher")
+        assert check_tool_permission("mcp", "get_problem_detail", "teacher")
+        assert check_tool_permission("mcp", "get_problem_difficulty_stats", "teacher")
+
+    def test_admin_allowed(self):
+        from app.agents.tools.permissions import check_tool_permission
+        assert check_tool_permission("mcp", "search_knowledge", "admin")
+
+    def test_student_denied(self):
+        from app.agents.tools.permissions import check_tool_permission
+        assert not check_tool_permission("mcp", "search_knowledge", "student")
+        assert not check_tool_permission("mcp", "get_problem_detail", "student")
+
+    def test_unknown_tool_denied(self):
+        from app.agents.tools.permissions import check_tool_permission
+        assert not check_tool_permission("mcp", "nonexistent_tool", "teacher")
+
+
+# ── Audit logging ──
+
+class TestAuditLog:
+    def test_log_tool_call(self, app, db_session):
+        from mcp_server.audit import log_tool_call
+        with patch("mcp_server.audit.get_session", return_value=db_session):
+            log_tool_call(
+                api_key_id=None,
+                user_id=None,
+                tool_name="search_knowledge",
+                tool_args={"query": "test"},
+                status="success",
+                latency_ms=42,
+            )
+
+        logs = db_session.query(McpAuditLog).all()
+        assert len(logs) == 1
+        assert logs[0].tool_name == "search_knowledge"
+        assert logs[0].status == "success"
+        assert logs[0].latency_ms == 42

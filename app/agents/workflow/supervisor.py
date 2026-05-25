@@ -37,6 +37,7 @@ class SupervisorAgent:
         context: dict = None,
         conversation_id: int = None,
         chat_task_id: str = None,
+        workflow_run_id: str = None,
     ) -> WorkflowState:
         """Plan and execute a workflow for the given goal.
 
@@ -72,6 +73,7 @@ class SupervisorAgent:
             user_role=user_role,
             conversation_id=conversation_id,
             chat_task_id=chat_task_id,
+            workflow_run_id=workflow_run_id,
         )
 
         state["_events"] = engine.events

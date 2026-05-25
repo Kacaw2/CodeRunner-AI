@@ -52,6 +52,7 @@ def _ensure_tables(app):
         needed = {
             "agent_runs", "agent_run_steps", "ai_audit_logs", "agent_tasks",
             "chat_tasks", "workflow_runs", "workflow_steps",
+            "mcp_api_keys", "mcp_audit_logs",
         }
         missing = needed - existing
         if missing:
@@ -180,6 +181,9 @@ def register_blueprints(app):
 
     from app.api.v1.ai import bp as ai_bp
     app.register_blueprint(ai_bp)
+
+    from app.api.v1.mcp_keys import bp as mcp_keys_bp
+    app.register_blueprint(mcp_keys_bp)
 
     from app.web.ai_chat import ai_chat_bp
     app.register_blueprint(ai_chat_bp)

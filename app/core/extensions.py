@@ -67,6 +67,8 @@ def init_extensions(app):
         from app.models.eval_run import EvalRun  # noqa: F401
         from app.models.chat_task import ChatTask  # noqa: F401
         from app.models.workflow import WorkflowRun, WorkflowStep  # noqa: F401
+        from mcp_server.models.api_key import McpApiKey  # noqa: F401
+        from mcp_server.models.audit_log import McpAuditLog  # noqa: F401
 
     # Initialize Redis
     global redis_client

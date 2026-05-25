@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from agent_host.core.auth import TokenPayload, require_auth
 from agent_host.core.db import get_db
+from agent_host.models.ai_conversation import AIConversation, AIMessage
 from agent_host.models.chat_task import ChatTask
 from agent_host.worker import redis_buffer
 from agent_host.worker.task_runner import submit_chat_task
@@ -70,9 +71,33 @@ def create_chat_task(
             status_code=403, detail="Only teachers can use the generator agent."
         )
 
+    conv = None
+    if body.conversation_id:
+        conv = (
+            db.query(AIConversation)
+            .filter_by(id=body.conversation_id, user_id=user.user_id)
+            .first()
+        )
+    if conv is None:
+        conv = AIConversation(
+            user_id=user.user_id,
+            agent_type=body.agent_type,
+        )
+        db.add(conv)
+        db.flush()
+
+    user_msg = AIMessage(
+        conversation_id=conv.id,
+        role="user",
+        content=message,
+    )
+    db.add(user_msg)
+    db.flush()
+
     task = ChatTask(
-        conversation_id=body.conversation_id,
+        conversation_id=conv.id,
         user_id=user.user_id,
+        user_message_id=user_msg.id,
         agent_type=body.agent_type,
         status="pending",
     )
@@ -85,7 +110,7 @@ def create_chat_task(
 
     return ChatTaskCreated(
         task_id=task.id,
-        conversation_id=body.conversation_id,
+        conversation_id=conv.id,
     )
 
 
