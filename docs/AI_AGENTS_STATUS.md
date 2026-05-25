@@ -1,6 +1,6 @@
 # AI Agents 模块能力总览
 
-> 最后更新: 2026-05-24 (Phase A/B/C 全部完成)
+> 最后更新: 2026-05-24 (Phase A/B/C/D 全部完成)
 
 ---
 
@@ -109,11 +109,27 @@ CodeRunner-AI 的 AI 模块基于 **Flask + LangGraph + LangChain + DeepSeek API
 | 能力 | 状态 | 说明 |
 |------|------|------|
 | **孤儿任务恢复** | ✅ 已接入 | `create_app()` 启动时同步调用 `recover_orphaned_tasks()`，将 executing 状态任务重置为 pending (C1) |
-| **知识库自动索引** | ✅ 已接入 | `create_app()` 启动后台线程异步执行 `index_all_questions()`，不阻塞启动 (C2) |
+| **知识库自动索引** | ✅ 已接入 | `create_app()` 启动后台线程异步执行 `index_all_problems()`，受 `ENABLE_KB_STARTUP_INDEX` 配置控制 (C2) |
 | **学生画像自动更新** | ✅ 已接入 | 提交判题后异步调用 `update_student_profile()`，60 秒每学生节流 (C3) |
-| **新题增量索引** | ✅ 已接入 | 题目发布为正式 Problem 时自动调用 `kb.index_question()` (C4) |
+| **新题增量索引** | ✅ 已接入 | 题目发布为正式 Problem 时自动调用 `kb.index_problem()` (C4) |
 
-### 2.8 其他已接入能力
+### 2.8 RAG 与知识库 (Phase D)
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| **Cosine 距离度量** | ✅ 已接入 | 所有 collection 显式指定 `hnsw:space=cosine`，similarity ∈ [0,1] |
+| **Problem 粒度索引** | ✅ 已接入 | 按 Problem 而非 Question variant 索引，避免重复向量 |
+| **结构化搜索结果** | ✅ 已接入 | `search_knowledge` / `search_error_patterns` 返回 dict (含 topic, score, content) |
+| **最低相关性阈值** | ✅ 已接入 | Tutor 使用 `MIN_KNOWLEDGE_SCORE=0.3` 过滤弱相关结果 |
+| **启动索引配置化** | ✅ 已接入 | `ENABLE_KB_STARTUP_INDEX` 控制，生产环境默认关闭 |
+| **Scope 隔离** | ✅ 已接入 | 知识点支持 global/teacher/classroom scope，搜索按 owner_id 过滤 |
+| **错误模式种子数据** | ✅ 已接入 | `scripts/seed_knowledge.py` 预填充 CE/RE/WA/TLE 常见错误 (D1) |
+| **知识点种子数据** | ✅ 已接入 | 按课程大纲填充数据结构/算法/编程基础知识点 (D2) |
+| **教师知识库管理 API** | ✅ 已接入 | `/knowledge/add` `/knowledge/search` `/knowledge/stats` `/knowledge/seed` (D3) |
+| **KB 迁移脚本** | ✅ 已接入 | `scripts/migrate_kb.py` + `flask kb-migrate` CLI 命令 |
+| **向量操作测试** | ✅ 已接入 | `tests/test_knowledge_base.py` 覆盖全部 P0-P6 场景 |
+
+### 2.9 其他已接入能力
 
 | 能力 | 说明 |
 |------|------|
@@ -130,15 +146,7 @@ CodeRunner-AI 的 AI 模块基于 **Flask + LangGraph + LangChain + DeepSeek API
 
 ## 三、已定义但未接入的能力 (待实现)
 
-### 3.1 Phase D — RAG 与知识库深度集成 (优先级: 低)
-
-| 能力 | 文件 | 现状 | 计划 |
-|------|------|------|------|
-| **错误模式种子数据** | 待新建 `scripts/seed_knowledge.py` | error_patterns 集合为空 | 预填充 CE/RE/WA/TLE 常见错误模式（Python + C） |
-| **知识点种子数据** | 待新建 `scripts/seed_knowledge.py` | knowledge_points 集合为空 | 按课程大纲填充数据结构/算法/编程基础知识点 |
-| **教师知识库管理 API** | 待添加到 `ai.py` | 无管理接口 | 添加知识点的增删查 API + 前端管理页面 |
-
-### 3.2 Generator 流式路径 (Phase A5 遗留)
+### 3.1 Generator 流式路径 (Phase A5 遗留)
 
 GeneratorAgent 的 `stream()` 方法仍使用直接 LLM 调用，未通过 `_invoke_with_tools` / `_run_tools` 管道。这意味着：
 - 流式路径的验证执行无权限检查
@@ -172,10 +180,13 @@ Phase C (启动集成)     ██████████  100%
   C3 学生画像自动更新       ✅ 完成
   C4 新题增量索引           ✅ 完成
 
-Phase D (RAG 深度集成)  ░░░░░░░░░░  ~0%
-  D1 error_patterns 种子    ❌ 未开始
-  D2 knowledge_points 种子  ❌ 未开始
-  D3 教师知识库管理 API     ❌ 未开始
+Phase D (RAG 深度集成)  ██████████  100%
+  D1 error_patterns 种子    ✅ 完成
+  D2 knowledge_points 种子  ✅ 完成
+  D3 教师知识库管理 API     ✅ 完成
+  D4 cosine 距离 + 结构化返回 ✅ 完成
+  D5 scope 隔离 + 阈值过滤  ✅ 完成
+  D6 测试 + 迁移脚本        ✅ 完成
 ```
 
 ---

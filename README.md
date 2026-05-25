@@ -17,7 +17,7 @@
 | **RBAC** | 5 个细粒度装饰器（`require_auth / require_role / require_teacher / require_student / require_admin`）配合 Web 镜像版（`web_*_required`），权限层叠（teacher 可访问 student 接口）|
 | **领域模型** | Problem 作为公开练习单元，Question 作为语言变体；显式关联实体（`Enrollment / QuizProblem / ClassroomQuiz` 各自带主键与附加字段）/ 全表级联删除策略 / 唯一约束防重复入班、重复加题、重复布置 |
 | **REST API 设计** | flask-smorest 自动生成 OpenAPI 3.0.3 + Swagger UI；Marshmallow schema 双向校验；按 `/api/v1` (受保护) 与 `/api/public` (公开) 分层；17 个蓝图集中注册 |
-| **容器化部署** | docker-compose 双容器（Flask + MySQL）；非 root `appuser` 启动 gunicorn 4 workers；HEALTHCHECK 自愈；MySQL 健康依赖；卷分离（数据 / 日志 / 上传 / 沙箱临时）|
+| **容器化部署** | docker-compose 四容器（Flask + FastAPI Agent Host + MySQL + Redis）；非 root `appuser` 启动；HEALTHCHECK 级联依赖；卷分离（数据 / 日志 / 上传 / 沙箱临时）|
 | **E2E 测试** | Cypress 11 个 spec 覆盖游客 / 学生 / 教师全流程；happy path + 失败场景（500 兜底、认证守卫、表单校验、CSV 导出失败、删除重试）；fixture 与 mock 分层。详见 [docs/TESTING.md](docs/TESTING.md) |
 
 ---
@@ -27,7 +27,8 @@
 | 类别 | 技术 |
 |---|---|
 | 后端 | Flask 3.1 + SQLAlchemy 2.0 + flask-smorest（OpenAPI）+ Flask-Login + PyJWT + Marshmallow + Flask-Migrate (Alembic) |
-| 数据库 | MySQL 8.0（utf8mb4，`pool_size=10`、`pool_pre_ping=True`）|
+| Agent Host | FastAPI 0.115 + Uvicorn + SSE-Starlette + httpx（独立微服务，异步任务编排）|
+| 数据库 | MySQL 8.0（utf8mb4，`pool_size=10`、`pool_pre_ping=True`）+ Redis 7（任务队列 / 事件缓冲）|
 | WSGI | Gunicorn 21.2，4 workers，120s timeout |
 | 前端 | Jinja2 + HTML5 + CSS3 + Vanilla JS + CodeMirror 5.65 |
 | 容器 | Docker 24+ / docker-compose v2 / Python 3.11-slim |
@@ -51,7 +52,7 @@
 ## 快速开始
 
 ```bash
-# 1. 启动（首次会构建镜像）
+# 1. 启动全部服务（Flask + Agent Host + MySQL + Redis）
 docker compose up -d --build
 sleep 30
 
@@ -84,7 +85,8 @@ open http://localhost:9900
 | http://localhost:9900/teacher/questions/create | 教师题库 / Problem 创建与管理入口 |
 | http://localhost:9900/teacher/classrooms | 教师班级 |
 | http://localhost:9900/swagger-ui | API 交互文档 |
-| http://localhost:9900/health | 健康检查 |
+| http://localhost:9900/health | Flask 健康检查 |
+| http://localhost:8100/api/health | Agent Host 健康检查 |
 
 ---
 
@@ -93,33 +95,36 @@ open http://localhost:9900
 ```
 CodeRunner/
 ├── compose.yaml
-├── app/
-│   ├── __init__.py            # create_app() 工厂 + 17 蓝图注册
-│   ├── core/                  # config / extensions / executor / executor_client / init_db
-│   ├── auth/                  # decorators (API/Web 双轨) + utils (JWT/密码)
+├── app/                           # Flask 主服务（:9900）
+│   ├── __init__.py                # create_app() 工厂 + 蓝图注册
+│   ├── core/                      # config / extensions / executor / init_db
+│   ├── auth/                      # decorators (API/Web 双轨) + utils (JWT/密码)
+│   ├── agents/                    # AI Agent 系统（orchestrator / tutor / reviewer / generator / workflow）
 │   ├── api/
-│   │   ├── public/            # 公开 API（health / quizzes / metrics）
-│   │   └── v1/                # 受保护 API（auth / classrooms / quizzes / problems /
-│   │                          #              submissions / grades / judge / profile /
-│   │                          #              teacher_stats / teacher_students / user_profile）
-│   ├── models/                # ORM (user / classroom / quiz / problem / question / submission)
-│   ├── schemas/               # Marshmallow 8 个 schema 模块
-│   ├── services/              # 业务逻辑层（auth / classroom / quiz / problem / question /
-│   │                          #              submission / executor / profile / teacher_stats）
-│   ├── web/                   # Jinja2 路由（main / auth / student / teacher /
-│   │                          #              question / submissions）
-│   ├── templates/             # 按角色组织的 HTML 模板
-│   ├── static/                # CSS + JS（CodeMirror）
-│   └── utils/                 # 通用工具（pagination 等）
+│   │   ├── public/                # 公开 API（health / quizzes / metrics）
+│   │   └── v1/                    # 受保护 API（auth / classrooms / ai / ...）
+│   ├── models/                    # ORM 模型
+│   ├── schemas/                   # Marshmallow schema
+│   ├── services/                  # 业务逻辑层
+│   ├── web/                       # Jinja2 路由
+│   ├── templates/                 # HTML 模板
+│   └── static/                    # CSS + JS
+├── agent_host/                    # FastAPI Agent Host 微服务（:8100）
+│   ├── main.py                    # FastAPI 入口 + lifespan
+│   ├── core/                      # config / db(standalone SQLAlchemy) / auth(JWT)
+│   ├── api/                       # chat / workflows / traces 端点
+│   ├── adapters/                  # HTTP adapter 调用 Flask 后端
+│   ├── models/                    # 独立 ORM 模型（共享同一数据库）
+│   └── worker/                    # redis_buffer + task_runner (ThreadPool)
 ├── docker/
-│   ├── Dockerfile
+│   ├── Dockerfile                 # Flask 镜像
+│   ├── Dockerfile.agent_host      # Agent Host 镜像
 │   ├── entrypoint.sh
 │   └── init.sql
-├── migrations/                # Alembic 迁移
-├── tests/cypress/             # E2E 测试
-├── docs/                      # 架构 / 认证 / 沙箱 / API / 部署 / 测试 文档
+├── migrations/                    # Alembic 迁移
+├── tests/                         # E2E + 单元测试
+├── docs/                          # 文档
 ├── requirements.txt
-├── package.json
 ├── run.py
 └── README.md
 ```

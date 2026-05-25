@@ -293,8 +293,16 @@
       const { task_id, conversation_id: newConvId } = await createRes.json();
       if (newConvId) conversationId = newConvId;
 
+      // Persist task_id so page reload can resume
+      sessionStorage.setItem("ai_active_task", JSON.stringify({
+        task_id: task_id,
+        conversation_id: conversationId,
+      }));
+
       // Step 2: Subscribe to SSE stream for this task
       await _subscribeToTaskStream(task_id, bodyEl, sseContainer, sseListEl, addSseEvent, sseEventCount);
+
+      sessionStorage.removeItem("ai_active_task");
 
       loadConversations();
     } catch (err) {
@@ -640,11 +648,59 @@
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
+  // ── Resume in-progress task after page reload ──
+  async function _tryResumeActiveTask() {
+    const raw = sessionStorage.getItem("ai_active_task");
+    if (!raw) return;
+
+    let saved;
+    try { saved = JSON.parse(raw); } catch (_) { sessionStorage.removeItem("ai_active_task"); return; }
+
+    const taskId = saved.task_id;
+    if (!taskId) { sessionStorage.removeItem("ai_active_task"); return; }
+
+    // Check if the task is still running
+    try {
+      const res = await fetch(API_CHAT_TASK + "/" + taskId, { headers: authHeaders() });
+      if (!res.ok) { sessionStorage.removeItem("ai_active_task"); return; }
+      const info = await res.json();
+
+      if (info.status === "completed" || info.status === "failed") {
+        sessionStorage.removeItem("ai_active_task");
+        return;
+      }
+    } catch (_) { sessionStorage.removeItem("ai_active_task"); return; }
+
+    // Task is still in-progress — resume streaming
+    if (saved.conversation_id) conversationId = saved.conversation_id;
+
+    hideAllWelcomes();
+    const msgDiv = document.createElement("div");
+    msgDiv.className = "msg assistant";
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "msg-body";
+    bodyEl.innerHTML = '<i class="bi bi-hourglass-split"></i> Resuming AI response...';
+    msgDiv.appendChild(bodyEl);
+    chatMessages.appendChild(msgDiv);
+    scrollToBottom(true);
+
+    const sseContainer = document.createElement("div");
+    const sseListEl = document.createElement("div");
+    sseContainer.appendChild(sseListEl);
+    function addSseEvent() {}
+
+    try {
+      await _subscribeToTaskStream(taskId, bodyEl, sseContainer, sseListEl, addSseEvent, 0);
+    } catch (_) {}
+    sessionStorage.removeItem("ai_active_task");
+  }
+
   // ── Init ──
   updateAgentUI();
   loadConversations();
   if (conversationId) {
     loadConversation(conversationId);
   }
+  _tryResumeActiveTask();
   chatInput.focus();
 })();

@@ -49,7 +49,10 @@ def _ensure_tables(app):
         from sqlalchemy import inspect, text
         inspector = inspect(db.engine)
         existing = set(inspector.get_table_names())
-        needed = {"agent_runs", "agent_run_steps", "ai_audit_logs", "agent_tasks"}
+        needed = {
+            "agent_runs", "agent_run_steps", "ai_audit_logs", "agent_tasks",
+            "chat_tasks", "workflow_runs", "workflow_steps",
+        }
         missing = needed - existing
         if missing:
             app.logger.warning("Startup: missing tables %s — creating now", missing)

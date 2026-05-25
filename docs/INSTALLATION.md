@@ -23,7 +23,7 @@ docker ps
 ## 快速启动
 
 ```bash
-# 1. 启动所有服务（首次运行会构建镜像）
+# 1. 启动全部服务（Flask + Agent Host + MySQL + Redis）
 docker compose up -d --build
 
 # 2. 等待 30 秒服务初始化
@@ -34,7 +34,21 @@ docker compose exec web \
   python -m app.core.init_db --drop --seed
 ```
 
-打开 http://localhost:9900 验证服务运行。健康检查：http://localhost:9900/health。
+验证：
+```bash
+curl http://localhost:9900/health       # Flask Web
+curl http://localhost:8100/api/health   # Agent Host
+```
+
+### 服务启动顺序
+
+`docker compose` 通过 `depends_on` + `healthcheck` 自动保证：
+
+```
+db (MySQL:3306) → redis (:6379) → web (Flask:9900) → agent_host (FastAPI:8100)
+```
+
+Agent Host 通过 HTTP adapter 调用 Flask 后端执行 AI agent 任务，两个服务共享同一 MySQL + Redis。
 
 ### 默认账号
 
@@ -69,9 +83,20 @@ MYSQL_APP_PASSWORD=<应用账号密码>
 MYSQL_PASSWORD=<root 密码>
 MYSQL_DATABASE=coderunner
 
+# Redis
+REDIS_URL=redis://redis:6379/0
+
 # 端口
 WEB_PORT=9900
+AGENT_HOST_PORT=8100
 MYSQL_PORT=3306
+REDIS_PORT=6379
+
+# AI（DeepSeek）
+DEEPSEEK_API_KEY=<your-api-key>
+AI_MODEL=deepseek-chat
+AI_MAX_TOKENS=2048
+AI_TEMPERATURE=0.7
 
 # 沙箱（详见 docs/EXECUTOR.md）
 EXECUTOR_TMP_DIR=/tmp/executor
@@ -81,6 +106,8 @@ USE_DOCKER=false
 # EXECUTOR_REMOTE_URL=https://executor.example.com/run    # 可选：远程沙箱
 # EXECUTOR_API_TOKEN=<token>
 ```
+
+> **重要**：`SECRET_KEY` 必须在 Flask 和 Agent Host 间保持一致，否则 JWT 令牌无法互认。
 
 生成 SECRET_KEY：`python -c "import secrets; print(secrets.token_urlsafe(32))"`
 
@@ -118,11 +145,16 @@ docker compose exec web flask db upgrade
 
 ```bash
 # 查看日志
-docker compose logs -f web
-docker compose logs -f db
+docker compose logs -f web           # Flask 主服务
+docker compose logs -f agent_host    # Agent Host
+docker compose logs -f db            # MySQL
 
-# 重启服务
+# 重启单个服务
 docker compose restart web
+docker compose restart agent_host
+
+# 仅重建 Agent Host（修改 agent_host/ 后）
+docker compose up --build agent_host -d
 
 # 停止（保留数据）
 docker compose stop
@@ -133,7 +165,7 @@ docker compose down
 # 完全清理（包括数据卷）
 docker compose down -v
 
-# 重新构建（代码变更后）
+# 重新构建全部（代码变更后）
 docker compose up -d --build
 ```
 
@@ -156,10 +188,12 @@ make status     # ps
 
 ## 端口映射
 
-| 端口 | 服务 |
-|---|---|
-| 9900 | Flask Web 应用 |
-| 3306 | MySQL（仅当 `MYSQL_PORT` 暴露）|
+| 端口 | 服务 | 容器名 |
+|---|---|---|
+| 9900 | Flask Web 应用 | educode_web |
+| 8100 | FastAPI Agent Host | educode_agent_host |
+| 3306 | MySQL | educode_db |
+| 6379 | Redis | educode_redis |
 
 URL 速查：
 
@@ -172,7 +206,8 @@ URL 速查：
 | http://localhost:9900/teacher/questions | 教师题库管理 |
 | http://localhost:9900/teacher/classrooms | 教师班级管理 |
 | http://localhost:9900/swagger-ui | API 文档 |
-| http://localhost:9900/health | 健康检查 |
+| http://localhost:9900/health | Flask 健康检查 |
+| http://localhost:8100/api/health | Agent Host 健康检查 |
 
 ---
 
@@ -220,11 +255,15 @@ with app.app_context():
 ### 健康检查异常
 
 ```bash
-curl http://localhost:9900/health
-# 期望: {"status": "healthy", "service": "coderunner", "checks": {"database": "ok"}}
+curl http://localhost:9900/health       # Flask
+curl http://localhost:8100/api/health   # Agent Host
 ```
 
-返回 503 通常意味着 DB 连接出问题。检查 `db` 容器状态与凭据。
+Flask 返回 503 通常意味着 DB 连接出问题。Agent Host 返回错误检查 Redis 和 Flask 连通性：
+
+```bash
+docker compose logs agent_host --tail=30
+```
 
 ---
 
