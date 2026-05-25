@@ -9,6 +9,8 @@ New tools for the Analytics agent to provide richer data analysis:
 
 from langchain_core.tools import tool
 
+from app.agents.tools.db_context import get_current_session
+
 
 @tool
 def get_student_activity(student_id: int, days: int = 30) -> dict:
@@ -18,23 +20,33 @@ def get_student_activity(student_id: int, days: int = 30) -> dict:
     Use this to identify activity patterns, streaks, and engagement trends.
     """
     from datetime import datetime, timedelta
-    from sqlalchemy import func
     from app.models.submission import Submission
-    from app.core.extensions import db
     from app.core.timezone import now_china
 
     cutoff = now_china() - timedelta(days=days)
 
     try:
-        submissions = (
-            Submission.query
-            .filter(
-                Submission.student_id == student_id,
-                Submission.submitted_at >= cutoff,
+        session = get_current_session()
+        if session:
+            submissions = (
+                session.query(Submission)
+                .filter(
+                    Submission.student_id == student_id,
+                    Submission.submitted_at >= cutoff,
+                )
+                .order_by(Submission.submitted_at.asc())
+                .all()
             )
-            .order_by(Submission.submitted_at.asc())
-            .all()
-        )
+        else:
+            submissions = (
+                Submission.query
+                .filter(
+                    Submission.student_id == student_id,
+                    Submission.submitted_at >= cutoff,
+                )
+                .order_by(Submission.submitted_at.asc())
+                .all()
+            )
 
         daily = {}
         for s in submissions:
@@ -69,7 +81,6 @@ def get_student_activity(student_id: int, days: int = 30) -> dict:
             today = now_china().date()
             for i in range(len(activity_timeline) - 1, -1, -1):
                 entry_date = datetime.strptime(activity_timeline[i]["date"], "%Y-%m-%d").date()
-                expected = today - timedelta(days=len(activity_timeline) - 1 - i)
                 if entry_date == today - timedelta(days=current_streak):
                     current_streak += 1
                 else:
@@ -99,12 +110,14 @@ def get_class_statistics(teacher_id: int) -> dict:
     """
     from app.models.classroom import Classroom, Enrollment
     from app.models.submission import Submission
-    from app.models.user import User
-    from sqlalchemy import func
-    from app.core.extensions import db
 
     try:
-        classrooms = Classroom.query.filter_by(teacher_id=teacher_id).all()
+        session = get_current_session()
+        if session:
+            classrooms = session.query(Classroom).filter_by(teacher_id=teacher_id).all()
+        else:
+            classrooms = Classroom.query.filter_by(teacher_id=teacher_id).all()
+
         if not classrooms:
             return {"teacher_id": teacher_id, "classrooms": [], "message": "No classrooms found"}
 
@@ -114,7 +127,10 @@ def get_class_statistics(teacher_id: int) -> dict:
         total_accepted = 0
 
         for classroom in classrooms:
-            enrollments = Enrollment.query.filter_by(classroom_id=classroom.id).all()
+            if session:
+                enrollments = session.query(Enrollment).filter_by(classroom_id=classroom.id).all()
+            else:
+                enrollments = Enrollment.query.filter_by(classroom_id=classroom.id).all()
             student_ids = [e.student_id for e in enrollments]
 
             if not student_ids:
@@ -127,11 +143,18 @@ def get_class_statistics(teacher_id: int) -> dict:
                 })
                 continue
 
-            submissions = (
-                Submission.query
-                .filter(Submission.student_id.in_(student_ids))
-                .all()
-            )
+            if session:
+                submissions = (
+                    session.query(Submission)
+                    .filter(Submission.student_id.in_(student_ids))
+                    .all()
+                )
+            else:
+                submissions = (
+                    Submission.query
+                    .filter(Submission.student_id.in_(student_ids))
+                    .all()
+                )
 
             sub_count = len(submissions)
             accepted_count = sum(
@@ -173,18 +196,25 @@ def get_problem_difficulty_stats(problem_id: int) -> dict:
     """
     from app.models.question import Question
     from app.models.submission import Submission
-    from sqlalchemy import func
-    from app.core.extensions import db
 
     try:
-        variant_ids = [q.id for q in Question.query.filter_by(problem_id=problem_id).all()]
+        session = get_current_session()
+        if session:
+            variant_ids = [q.id for q in session.query(Question).filter_by(problem_id=problem_id).all()]
+        else:
+            variant_ids = [q.id for q in Question.query.filter_by(problem_id=problem_id).all()]
+
         if not variant_ids:
             return {
                 "problem_id": problem_id,
                 "total_submissions": 0,
                 "message": "No variants found for this problem",
             }
-        submissions = Submission.query.filter(Submission.question_id.in_(variant_ids)).all()
+
+        if session:
+            submissions = session.query(Submission).filter(Submission.question_id.in_(variant_ids)).all()
+        else:
+            submissions = Submission.query.filter(Submission.question_id.in_(variant_ids)).all()
 
         if not submissions:
             return {

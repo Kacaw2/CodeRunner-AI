@@ -1,21 +1,19 @@
 """Background task runner for the FastAPI Agent Host.
 
-Phase 1 approach: delegates actual agent execution to the Flask backend via
-HTTP adapter (see section 9.1 of the architecture plan).  The runner manages
-ChatTask lifecycle, streams events from Flask into the shared Redis buffer,
+Direct agent execution — no HTTP delegation to Flask.
+The runner manages ChatTask lifecycle, streams events into Redis buffer,
 and persists final status to the database.
-
-In Phase 2, direct agent invocation will replace the HTTP adapter path.
 """
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from agent_host.adapters import flask_client
 from agent_host.core.config import get_settings
 from agent_host.core.db import db_session
+from agent_host.models.ai_conversation import AIConversation, AIMessage
 from agent_host.models.chat_task import ChatTask
+from agent_host.models.user import User
 from agent_host.models.workflow import WorkflowRun
 from agent_host.worker import redis_buffer
 
@@ -56,13 +54,7 @@ def submit_chat_task(task_id: str, jwt_token: str, message: str):
 
 
 def _run_chat_task(task_id: str, jwt_token: str, message: str):
-    """Execute a chat task by delegating to the Flask backend.
-
-    1. Mark task as processing in DB + Redis.
-    2. Call Flask async chat endpoint, which creates its own ChatTask.
-    3. Stream events from Flask into our Redis buffer.
-    4. Mark task completed/failed.
-    """
+    """Execute a chat task by directly invoking agents."""
     try:
         with db_session() as session:
             task = session.get(ChatTask, task_id)
@@ -75,67 +67,214 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
             session.flush()
 
             redis_buffer.ct_set_status(task_id, "processing")
-            redis_buffer.ct_push_event(task_id, {
-                "type": "start",
-                "conversation_id": task.conversation_id,
-                "agent_type": task.agent_type,
-            })
 
-            conversation_id = task.conversation_id if task.conversation_id else None
-            agent_type = task.agent_type
+            # Load context
+            conv = session.get(AIConversation, task.conversation_id) if task.conversation_id else None
+            user_msg = session.get(AIMessage, task.user_message_id) if task.user_message_id else None
+            if user_msg:
+                message = user_msg.content
 
-        _delegate_to_flask(task_id, jwt_token, message, agent_type, conversation_id)
+            user = session.get(User, task.user_id)
+            user_role = user.role if user else "student"
+
+            # Load conversation history
+            from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
+
+            history = []
+            if task.conversation_id:
+                rows = (
+                    session.query(AIMessage)
+                    .filter_by(conversation_id=task.conversation_id)
+                    .order_by(AIMessage.id)
+                    .all()
+                )
+                current_msg_id = user_msg.id if user_msg else None
+                for r in rows:
+                    if r.id == current_msg_id:
+                        break
+                    if r.role == "user":
+                        history.append(HumanMessage(content=r.content))
+                    elif r.role == "assistant":
+                        history.append(LCAIMessage(content=r.content))
+
+            context = {"conversation_id": task.conversation_id}
+
+            # Set up DB session context var for tools
+            from app.agents.tools.db_context import set_current_session
+            token = set_current_session(session)
+
+            try:
+                # ── Try Supervisor workflow first ──
+                from app.agents.workflow.supervisor import SupervisorAgent
+
+                supervisor = SupervisorAgent(session=session)
+                wf_result = supervisor.invoke_from_chat(
+                    user_id=task.user_id,
+                    user_role=user_role,
+                    message=message,
+                    conversation_id=task.conversation_id,
+                    chat_task_id=task_id,
+                    context=context,
+                )
+
+                if wf_result.get("use_workflow"):
+                    # Supervisor handled it via workflow
+                    for evt in wf_result.get("events", []):
+                        redis_buffer.ct_push_event(task_id, evt)
+                    full_response = _format_workflow_result(wf_result)
+                    resolved_agent_type = "supervisor"
+                else:
+                    # ── Single agent path ──
+                    from app.agents.agents import (
+                        TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent,
+                    )
+                    from app.agents.orchestrator import _classify_intent, MAX_HANDOFFS
+
+                    _AGENT_MAP = {
+                        "tutor": TutorAgent,
+                        "reviewer": ReviewerAgent,
+                        "generator": GeneratorAgent,
+                        "analytics": AnalyticsAgent,
+                    }
+
+                    state = {
+                        "messages": history + [HumanMessage(content=message)],
+                        "agent_type": task.agent_type,
+                        "user_id": task.user_id,
+                        "user_role": user_role,
+                        "context": context,
+                        "tool_results": [],
+                        "final_response": "",
+                    }
+
+                    # Intent classification
+                    resolved_agent_type = task.agent_type
+                    if not task.agent_type or task.agent_type == "auto":
+                        state = _classify_intent(state)
+                        resolved_agent_type = state.get("agent_type", "tutor")
+
+                    task.routed_agent = resolved_agent_type
+                    if conv:
+                        conv.agent_type = resolved_agent_type
+                    session.flush()
+                    redis_buffer.ct_set_status(task_id, "processing", resolved_agent_type)
+
+                    redis_buffer.ct_push_event(task_id, {
+                        "type": "start",
+                        "conversation_id": task.conversation_id,
+                        "agent_type": resolved_agent_type,
+                    })
+
+                    if resolved_agent_type != task.agent_type:
+                        redis_buffer.ct_push_event(task_id, {
+                            "type": "route",
+                            "agent_type": resolved_agent_type,
+                        })
+
+                    # Stream from agent
+                    agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
+                    agent = agent_cls()
+                    full_response = ""
+
+                    for event in agent.stream(state):
+                        if event["type"] == "token":
+                            full_response += event["content"]
+                        redis_buffer.ct_push_event(task_id, event)
+
+                    # Handle handoffs
+                    handoff_count = 0
+                    previous_agents = [resolved_agent_type]
+
+                    while (state.get("handoff_to")
+                           and handoff_count < MAX_HANDOFFS
+                           and state["handoff_to"] in _AGENT_MAP
+                           and state["handoff_to"] not in previous_agents):
+
+                        target_type = state["handoff_to"]
+                        handoff_reason = state.get("handoff_reason", "")
+                        state["handoff_to"] = None
+                        state["handoff_reason"] = None
+                        state["agent_type"] = target_type
+
+                        redis_buffer.ct_push_event(task_id, {
+                            "type": "handoff_start",
+                            "target": target_type,
+                            "reason": handoff_reason,
+                        })
+
+                        target_agent = _AGENT_MAP.get(target_type, TutorAgent)()
+                        full_response = ""
+                        for event in target_agent.stream(state):
+                            if event["type"] == "token":
+                                full_response += event["content"]
+                            redis_buffer.ct_push_event(task_id, event)
+
+                        previous_agents.append(target_type)
+                        resolved_agent_type = target_type
+                        handoff_count += 1
+
+                        task.routed_agent = resolved_agent_type
+                        if conv:
+                            conv.agent_type = resolved_agent_type
+                        session.flush()
+                        redis_buffer.ct_set_status(task_id, "processing", resolved_agent_type)
+
+                    if not full_response:
+                        full_response = state.get("final_response", "")
+
+                # ── Filter output ──
+                from app.agents.security import filter_output
+                filtered = filter_output(full_response, resolved_agent_type, user_role)
+
+                # ── Save assistant message ──
+                assistant_msg = AIMessage(
+                    conversation_id=task.conversation_id,
+                    role="assistant",
+                    content=filtered,
+                )
+                session.add(assistant_msg)
+                if conv and not conv.title:
+                    conv.title = message[:80]
+                session.flush()
+
+                task.result_message_id = assistant_msg.id
+                task.status = "completed"
+                task.completed_at = _now()
+
+                # Done event
+                done_payload = {"type": "done", "message_id": assistant_msg.id}
+                redis_buffer.ct_push_event(task_id, done_payload)
+                redis_buffer.ct_set_status(task_id, "completed", resolved_agent_type)
+
+            finally:
+                set_current_session(None)
 
     except Exception as e:
         logger.exception("ChatTask %s failed", task_id)
         _fail_task(task_id, str(e)[:500])
 
 
-def _delegate_to_flask(
-    task_id: str,
-    jwt_token: str,
-    message: str,
-    agent_type: str,
-    conversation_id: int | None,
-):
-    """Call Flask's async chat endpoint and mirror events into our Redis buffer."""
-    try:
-        flask_result = flask_client.create_chat_task(
-            jwt_token=jwt_token,
-            message=message,
-            agent_type=agent_type,
-            conversation_id=conversation_id,
-        )
-        flask_task_id = flask_result.get("task_id")
-        if not flask_task_id:
-            raise RuntimeError("Flask did not return a task_id")
+def _format_workflow_result(wf_result: dict) -> str:
+    """Format Supervisor workflow result into user-readable response text."""
+    import json
 
-        for event in flask_client.stream_chat_task(jwt_token, flask_task_id):
-            redis_buffer.ct_push_event(task_id, event)
+    status = wf_result.get("status", "unknown")
+    result = wf_result.get("result")
+    error = wf_result.get("error")
 
-            evt_type = event.get("type")
-            if evt_type == "route":
-                _update_routed_agent(task_id, event.get("agent_type"))
-            elif evt_type == "done":
-                _complete_task(
-                    task_id,
-                    result_message_id=event.get("message_id"),
-                    routed_agent=event.get("agent_type"),
-                )
-                return
-            elif evt_type == "error":
-                _fail_task(task_id, event.get("message", "Agent error"))
-                return
-
-        _complete_task(task_id)
-
-    except Exception as e:
-        logger.exception("Flask delegation failed for task %s", task_id)
-        redis_buffer.ct_push_event(task_id, {
-            "type": "error",
-            "message": "Agent execution failed. Please try again.",
-        })
-        _fail_task(task_id, str(e)[:500])
+    if status == "waiting_approval":
+        return "题目已生成并保存为草稿，等待您的审批。"
+    if status == "failed":
+        return f"工作流执行失败：{error or '未知错误'}"
+    if status == "completed" and result:
+        if isinstance(result, dict):
+            for step_output in result.values():
+                if isinstance(step_output, dict) and "problem_data" in step_output:
+                    return json.dumps(
+                        step_output["problem_data"], indent=2, ensure_ascii=False
+                    )
+        return str(result)
+    return "工作流已完成。"
 
 
 def _update_routed_agent(task_id: str, agent_type: str | None):
@@ -193,12 +332,7 @@ def submit_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None
 
 
 def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None = None):
-    """Execute a workflow by delegating to Flask's Supervisor endpoint.
-
-    Flask's POST /api/v1/ai/workflows invokes SupervisorAgent which plans
-    and executes through the WorkflowEngine.  We mirror status/events into
-    our Redis buffer so the agent_host SSE stream stays live.
-    """
+    """Execute a workflow directly via SupervisorAgent."""
     try:
         with db_session() as session:
             run = session.get(WorkflowRun, run_id)
@@ -210,55 +344,49 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
             run.started_at = _now()
             session.flush()
 
-        redis_buffer.wf_set_status(run_id, "executing")
-        redis_buffer.wf_push_event(run_id, {
-            "type": "workflow_start",
-            "workflow_id": run_id,
-        })
+            redis_buffer.wf_set_status(run_id, "executing")
+            redis_buffer.wf_push_event(run_id, {
+                "type": "workflow_start",
+                "workflow_id": run_id,
+            })
 
-        flask_result = flask_client.create_workflow(
-            jwt_token=jwt_token,
-            goal=goal,
-            context=context,
-        )
+            user = session.get(User, run.user_id)
+            user_role = user.role if user else "teacher"
 
-        flask_status = flask_result.get("status", "unknown")
-        flask_events = flask_result.get("events", [])
-        flask_run_id = flask_result.get("workflow_run_id")
+            # Set DB session context var for tools
+            from app.agents.tools.db_context import set_current_session
+            token = set_current_session(session)
 
-        for evt in flask_events:
-            redis_buffer.wf_push_event(run_id, evt)
+            try:
+                from app.agents.workflow.supervisor import SupervisorAgent
 
-        with db_session() as session:
-            run = session.get(WorkflowRun, run_id)
-            if not run:
-                return
+                supervisor = SupervisorAgent(session=session)
+                state = supervisor.run_workflow(
+                    user_id=run.user_id,
+                    user_role=user_role,
+                    goal=goal,
+                    context=context,
+                    conversation_id=run.conversation_id,
+                    chat_task_id=run.chat_task_id,
+                )
 
-            if flask_run_id:
-                run.chat_task_id = flask_run_id
+                for evt in state.get("_events", []):
+                    redis_buffer.wf_push_event(run_id, evt)
 
-            if flask_status in ("completed", "failed", "cancelled", "waiting_approval"):
-                run.status = flask_status
-                run.completed_at = _now() if flask_status != "waiting_approval" else None
-                run.result = flask_result.get("result")
-                if flask_result.get("error"):
-                    run.error_detail = flask_result["error"]
-            else:
-                run.status = "completed"
-                run.completed_at = _now()
-                run.result = flask_result.get("result")
+                final_status = state.get("status", "completed")
+                if final_status == "completed":
+                    _complete_workflow(run_id, result=state.get("final_result"))
+                elif final_status == "waiting_approval":
+                    redis_buffer.wf_set_status(run_id, "waiting_approval")
+                    redis_buffer.wf_push_event(run_id, {
+                        "type": "workflow_waiting_approval",
+                        "workflow_id": run_id,
+                    })
+                else:
+                    _fail_workflow(run_id, state.get("error", "Workflow failed"))
 
-            if flask_status == "waiting_approval":
-                redis_buffer.wf_set_status(run_id, "waiting_approval")
-                redis_buffer.wf_push_event(run_id, {
-                    "type": "workflow_waiting_approval",
-                    "workflow_id": run_id,
-                    "flask_run_id": flask_run_id,
-                })
-            elif flask_status == "failed":
-                _fail_workflow(run_id, flask_result.get("error", "Workflow failed"))
-            else:
-                _complete_workflow(run_id, result=flask_result.get("result"))
+            finally:
+                set_current_session(None)
 
     except Exception as e:
         logger.exception("WorkflowRun %s failed", run_id)

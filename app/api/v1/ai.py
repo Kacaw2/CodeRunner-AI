@@ -553,6 +553,10 @@ def chat_async():
 
     The frontend should subscribe to /chat/task/<task_id>/stream for SSE events.
     """
+    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_create
+    if is_proxy_enabled():
+        return proxy_chat_create()
+
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
@@ -623,6 +627,10 @@ def chat_async():
 @require_auth
 def chat_task_stream(task_id):
     """SSE stream for an async chat task. Supports catch-up via ?last_event=N."""
+    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_stream
+    if is_proxy_enabled():
+        return proxy_chat_stream(task_id)
+
     user = get_current_user_or_401()
 
     from app.models.chat_task import ChatTask
@@ -692,6 +700,10 @@ def chat_task_stream(task_id):
 @require_auth
 def chat_task_status(task_id):
     """Poll the status of an async chat task."""
+    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_status
+    if is_proxy_enabled():
+        return proxy_chat_status(task_id)
+
     user = get_current_user_or_401()
 
     from app.models.chat_task import ChatTask
@@ -1098,15 +1110,16 @@ def generate_pipeline():
     from app.agents.memory import MemoryService
     teacher_ctx = MemoryService.get_memory_context(user.id, user_role)
 
-    from app.agents.generation_pipeline import run_generation_pipeline
+    from app.agents.generation_pipeline import run_generation_workflow
     try:
-        result = run_generation_pipeline(
+        result = run_generation_workflow(
             teacher_id=user.id,
             prompt=prompt,
             language=data.get("language", "python"),
             difficulty=data.get("difficulty", "medium"),
             topic=data.get("topic", ""),
             test_case_count=int(data.get("test_case_count", 5)),
+            conversation_id=data.get("conversation_id"),
             teacher_context=teacher_ctx,
         )
 

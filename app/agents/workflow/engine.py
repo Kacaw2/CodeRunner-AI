@@ -25,8 +25,15 @@ DEFAULT_TIMEOUT_SECONDS = 300
 class WorkflowEngine:
     """Executes a structured workflow plan with full persistence."""
 
-    def __init__(self):
+    def __init__(self, session=None):
         self._events: list[dict] = []
+        self._session = session
+
+    def _get_session(self):
+        if self._session is not None:
+            return self._session
+        from app.core.extensions import db
+        return db.session
 
     @property
     def events(self) -> list[dict]:
@@ -41,10 +48,10 @@ class WorkflowEngine:
         chat_task_id: str = None,
     ) -> WorkflowState:
         """Execute a complete workflow plan and return final state."""
-        from app.core.extensions import db
         from app.core.timezone import now_china
         from app.models.workflow import WorkflowRun, WorkflowStep
 
+        session = self._get_session()
         run_id = str(uuid4())
         steps_def = plan.get("steps", [])
 
@@ -63,7 +70,7 @@ class WorkflowEngine:
             total_steps=len(steps_def),
             started_at=now_china(),
         )
-        db.session.add(workflow_run)
+        session.add(workflow_run)
 
         db_steps = []
         for step_def in steps_def:
@@ -79,10 +86,10 @@ class WorkflowEngine:
                 input_data=step_def.get("input_data"),
                 depends_on=step_def.get("depends_on"),
             )
-            db.session.add(db_step)
+            session.add(db_step)
             db_steps.append(db_step)
 
-        db.session.commit()
+        session.commit()
 
         self._emit("workflow_started", {"run_id": run_id, "total_steps": len(steps_def)})
 
@@ -120,7 +127,7 @@ class WorkflowEngine:
             if db_step.requires_approval:
                 db_step.status = "waiting_approval"
                 workflow_run.status = "waiting_approval"
-                db.session.commit()
+                session.commit()
                 self._emit("step_waiting_approval", {
                     "step_index": i,
                     "instruction": db_step.instruction,
@@ -137,7 +144,7 @@ class WorkflowEngine:
                 workflow_run.completed_at = now_china()
                 workflow_run.total_tokens_used = total_tokens
                 workflow_run.total_latency_ms = int((time.monotonic() - start_time) * 1000)
-                db.session.commit()
+                session.commit()
                 state["status"] = "failed"
                 state["error"] = db_step.error_detail
                 self._emit("workflow_failed", {"run_id": run_id, "error": db_step.error_detail})
@@ -149,7 +156,7 @@ class WorkflowEngine:
             workflow_run.result = state["step_outputs"]
             workflow_run.total_tokens_used = total_tokens
             workflow_run.total_latency_ms = int((time.monotonic() - start_time) * 1000)
-            db.session.commit()
+            session.commit()
             state["status"] = "completed"
             state["final_result"] = state["step_outputs"]
             self._emit("workflow_completed", {"run_id": run_id})
@@ -158,19 +165,21 @@ class WorkflowEngine:
 
     def resume_after_approval(self, workflow_run_id: str, approved: bool, feedback: str = "") -> WorkflowState:
         """Resume a workflow that was paused at a human_gate step."""
-        from app.core.extensions import db
         from app.core.timezone import now_china
         from app.models.workflow import WorkflowRun, WorkflowStep
 
-        workflow_run = WorkflowRun.query.get(workflow_run_id)
+        session = self._get_session()
+
+        workflow_run = session.get(WorkflowRun, workflow_run_id)
         if not workflow_run or workflow_run.status != "waiting_approval":
             return {"status": "error", "error": "Workflow not in waiting_approval state"}
 
         current_index = workflow_run.current_step_index
-        current_step = WorkflowStep.query.filter_by(
-            workflow_run_id=workflow_run_id,
-            step_index=current_index,
-        ).first()
+        current_step = (
+            session.query(WorkflowStep)
+            .filter_by(workflow_run_id=workflow_run_id, step_index=current_index)
+            .first()
+        )
 
         if not approved:
             current_step.status = "failed"
@@ -179,7 +188,7 @@ class WorkflowEngine:
             workflow_run.status = "cancelled"
             workflow_run.completed_at = now_china()
             workflow_run.error_detail = "Cancelled at human gate"
-            db.session.commit()
+            session.commit()
             return {"status": "cancelled", "error": "Workflow cancelled by user"}
 
         current_step.status = "completed"
@@ -193,16 +202,19 @@ class WorkflowEngine:
         if not remaining_steps:
             workflow_run.status = "completed"
             workflow_run.completed_at = now_china()
-            db.session.commit()
+            session.commit()
             return {"status": "completed", "workflow_run_id": workflow_run_id}
 
         workflow_run.status = "executing"
         workflow_run.current_step_index = current_index + 1
-        db.session.commit()
+        session.commit()
 
-        all_db_steps = WorkflowStep.query.filter_by(
-            workflow_run_id=workflow_run_id
-        ).order_by(WorkflowStep.step_index).all()
+        all_db_steps = (
+            session.query(WorkflowStep)
+            .filter_by(workflow_run_id=workflow_run_id)
+            .order_by(WorkflowStep.step_index)
+            .all()
+        )
 
         step_outputs = {}
         for s in all_db_steps:
@@ -242,7 +254,7 @@ class WorkflowEngine:
                 db_step.status = "waiting_approval"
                 workflow_run.status = "waiting_approval"
                 workflow_run.current_step_index = idx
-                db.session.commit()
+                session.commit()
                 state["status"] = "waiting_approval"
                 return state
 
@@ -251,7 +263,7 @@ class WorkflowEngine:
                 workflow_run.status = "failed"
                 workflow_run.error_detail = db_step.error_detail
                 workflow_run.completed_at = now_china()
-                db.session.commit()
+                session.commit()
                 state["status"] = "failed"
                 state["error"] = db_step.error_detail
                 return state
@@ -259,16 +271,16 @@ class WorkflowEngine:
         workflow_run.status = "completed"
         workflow_run.completed_at = now_china()
         workflow_run.result = state["step_outputs"]
-        db.session.commit()
+        session.commit()
         state["status"] = "completed"
         state["final_result"] = state["step_outputs"]
         return state
 
     def _execute_step(self, db_step, step_def: dict, context: dict, state: WorkflowState) -> bool:
         """Execute a single workflow step with retry logic. Returns True on success."""
-        from app.core.extensions import db
         from app.core.timezone import now_china
 
+        session = self._get_session()
         step_type = step_def.get("step_type", "llm_call")
         handler = get_step_handler(step_type)
 
@@ -276,7 +288,7 @@ class WorkflowEngine:
             db_step.status = "failed"
             db_step.error_detail = f"No handler for step_type: {step_type}"
             db_step.completed_at = now_china()
-            db.session.commit()
+            session.commit()
             self._emit("step_failed", {
                 "step_index": db_step.step_index,
                 "error": db_step.error_detail,
@@ -290,7 +302,7 @@ class WorkflowEngine:
             db_step.status = "running"
             db_step.attempt = attempt + 1
             db_step.started_at = now_china()
-            db.session.commit()
+            session.commit()
 
             self._emit("step_started", {
                 "step_index": db_step.step_index,
@@ -320,7 +332,7 @@ class WorkflowEngine:
                     db_step.status = "failed"
                     db_step.error_detail = last_error
                     db_step.completed_at = now_china()
-                    db.session.commit()
+                    session.commit()
                     self._emit("step_failed", {
                         "step_index": db_step.step_index,
                         "error": last_error,
@@ -330,7 +342,7 @@ class WorkflowEngine:
                 db_step.status = "completed"
                 db_step.output_data = output
                 db_step.completed_at = now_china()
-                db.session.commit()
+                session.commit()
 
                 state["step_outputs"][db_step.step_index] = output
                 self._emit("step_completed", {
@@ -350,7 +362,7 @@ class WorkflowEngine:
                 db_step.status = "failed"
                 db_step.error_detail = last_error
                 db_step.completed_at = now_china()
-                db.session.commit()
+                session.commit()
                 self._emit("step_failed", {
                     "step_index": db_step.step_index,
                     "error": last_error,

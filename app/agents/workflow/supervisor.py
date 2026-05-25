@@ -26,6 +26,9 @@ class SupervisorAgent:
     name = "supervisor"
     description = "Coordinates multi-agent workflows via structured planning and execution"
 
+    def __init__(self, session=None):
+        self._session = session
+
     def run_workflow(
         self,
         user_id: int,
@@ -62,7 +65,7 @@ class SupervisorAgent:
         logger.info("Plan generated: type=%s steps=%d",
                     plan.get("workflow_type"), len(plan.get("steps", [])))
 
-        engine = WorkflowEngine()
+        engine = WorkflowEngine(session=self._session)
         state = engine.execute(
             plan=plan,
             user_id=user_id,
@@ -77,20 +80,33 @@ class SupervisorAgent:
     def resume_workflow(self, workflow_run_id: str, approved: bool, feedback: str = "") -> WorkflowState:
         """Resume a workflow paused at a human gate."""
         logger.info("Supervisor resuming workflow %s: approved=%s", workflow_run_id, approved)
-        engine = WorkflowEngine()
+        engine = WorkflowEngine(session=self._session)
         return engine.resume_after_approval(workflow_run_id, approved, feedback)
 
     def get_workflow_status(self, workflow_run_id: str) -> dict:
         """Query current status of a workflow run."""
         from app.models.workflow import WorkflowRun, WorkflowStep
 
-        run = WorkflowRun.query.get(workflow_run_id)
-        if not run:
-            return {"error": "Workflow not found"}
-
-        steps = WorkflowStep.query.filter_by(
-            workflow_run_id=workflow_run_id
-        ).order_by(WorkflowStep.step_index).all()
+        if self._session:
+            run = self._session.get(WorkflowRun, workflow_run_id)
+            if not run:
+                return {"error": "Workflow not found"}
+            steps = (
+                self._session.query(WorkflowStep)
+                .filter_by(workflow_run_id=workflow_run_id)
+                .order_by(WorkflowStep.step_index)
+                .all()
+            )
+        else:
+            run = WorkflowRun.query.get(workflow_run_id)
+            if not run:
+                return {"error": "Workflow not found"}
+            steps = (
+                WorkflowStep.query
+                .filter_by(workflow_run_id=workflow_run_id)
+                .order_by(WorkflowStep.step_index)
+                .all()
+            )
 
         return {
             "run": run.to_dict(),

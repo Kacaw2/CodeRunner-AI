@@ -6,7 +6,7 @@ Mirrors app/models/workflow.py without Flask-SQLAlchemy dependency.
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mysql import JSON
 from sqlalchemy.orm import Mapped, relationship
 
@@ -86,7 +86,9 @@ class WorkflowStep(Base):
     id: Mapped[str] = Column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    workflow_run_id: Mapped[str] = Column(String(36), nullable=False)
+    workflow_run_id: Mapped[str] = Column(
+        String(36), ForeignKey("workflow_runs.id"), nullable=False
+    )
     step_index: Mapped[int] = Column(Integer, nullable=False)
 
     step_type: Mapped[str] = Column(String(30), nullable=False)

@@ -325,11 +325,13 @@ def run_generation_workflow(
     topic: str = "",
     test_case_count: int = 5,
     conversation_id: int = None,
+    teacher_context: str = "",
 ) -> dict:
     """Run problem generation through the Supervisor Workflow framework.
 
     This is the Phase 2 entry point that uses the generic workflow engine
     instead of the hardcoded LangGraph pipeline above.
+    Returns a dict compatible with run_generation_pipeline's return format.
     """
     from app.agents.workflow import SupervisorAgent
 
@@ -344,7 +346,37 @@ def run_generation_workflow(
             "topic": topic,
             "test_case_count": test_case_count,
             "prompt": prompt,
+            "teacher_context": teacher_context,
         },
         conversation_id=conversation_id,
     )
-    return state
+
+    adapted = {
+        "status": state.get("status", "failed"),
+        "error": state.get("error"),
+        "final_draft": None,
+        "workflow_run_id": state.get("workflow_run_id"),
+        "generate_attempts": 1,
+        "dedup_attempts": 0,
+        "validation_passed": False,
+        "quality_review": None,
+        "similar_problems": [],
+    }
+
+    step_outputs = state.get("step_outputs") or state.get("final_result") or {}
+    if isinstance(step_outputs, dict):
+        for step_output in step_outputs.values():
+            if isinstance(step_output, dict) and "problem_data" in step_output:
+                adapted["final_draft"] = {
+                    "question_data": step_output["problem_data"],
+                    "validation_passed": step_output.get("validation_passed", False),
+                    "validation_results": step_output.get("validation_results", []),
+                    "quality_review": step_output.get("quality_review"),
+                    "similar_problems": step_output.get("similar_problems", []),
+                }
+                adapted["validation_passed"] = step_output.get("validation_passed", False)
+                adapted["quality_review"] = step_output.get("quality_review")
+                adapted["similar_problems"] = step_output.get("similar_problems", [])
+                break
+
+    return adapted
