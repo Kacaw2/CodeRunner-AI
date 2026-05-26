@@ -38,6 +38,15 @@ TOOL_PERMISSIONS: dict[tuple[str, str], set[str]] = {
     ("mcp", "get_problem_difficulty_stats"):  {"teacher", "admin"},
     ("mcp", "get_student_activity"):            {"teacher", "admin"},
     ("mcp", "get_class_statistics"):            {"teacher", "admin"},
+
+    # Phase 4: medium-risk read tools (teacher/admin only)
+    ("mcp", "get_agent_trace"):               {"teacher", "admin"},
+    ("mcp", "get_student_summary"):           {"teacher", "admin"},
+
+    # Phase 4: high-risk write tools (teacher/admin only)
+    ("mcp", "execute_code"):                  {"teacher", "admin"},
+    ("mcp", "save_generated_problem"):        {"teacher", "admin"},
+    ("mcp", "check_approval"):                {"teacher", "admin"},
 }
 
 

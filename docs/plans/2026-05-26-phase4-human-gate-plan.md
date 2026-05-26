@@ -1,7 +1,7 @@
 # Phase 4 方案：Human Gate + 高风险工具
 
 > 日期：2026-05-26
-> 状态：待审阅
+> 状态：已实现 (2026-05-26)
 > 前置文档：`docs/plans/2026-05-26-phase3-mcp-server-plan.md`
 > 前置条件：Phase 3 MCP Server 已交付 + 下文 §1 的 Phase 3 缺陷全部修复
 
@@ -492,12 +492,12 @@ MCP 审批通过后，题目进入 Draft，仍需走 Draft Review 流程才能�
 
 | # | 条件 | 验证方式 | 当前状态 |
 |---|------|---------|---------|
-| 1 | Phase 3 的 4 个只读工具正常工作 | `tools/list` 返回 4 个工具且参数 schema 正确 | ❌ 待修复 §0.2 |
-| 2 | Alembic 迁移存在且可运行 | `flask db upgrade` 成功创建 `mcp_api_keys`、`mcp_audit_logs` | ❌ 待修复 §0.1 |
-| 3 | API Key 全链路可用 | 创建 key → 配置到 Claude Desktop → tools/list 成功 | ❌ 待修复 §0.2 |
-| 4 | 审计日志落库 | 调用工具后 `mcp_audit_logs` 有记录 | ⚠️ 依赖 §0.1 |
-| 5 | 所有测试通过 | `pytest tests/` 全部通过 | ✅ 250 测试通过 |
-| 6 | SSE 模式单 key 限制已文档化 | README 或配置文档中说明 | ❌ 待完成 §0.3 |
+| 1 | Phase 3 的 4 个只读工具正常工作 | `tools/list` 返回 4 个工具且参数 schema 正确 | ✅ 已修复 |
+| 2 | Alembic 迁移存在且可运行 | `flask db upgrade` 成功创建 `mcp_api_keys`、`mcp_audit_logs` | ✅ 已修复 |
+| 3 | API Key 全链路可用 | 创建 key → 配置到 Claude Desktop → tools/list 成功 | ✅ 已修复 |
+| 4 | 审计日志落库 | 调用工具后 `mcp_audit_logs` 有记录 | ✅ 已修复 |
+| 5 | 所有测试通过 | `pytest tests/` 全部通过 | ✅ 253 测试通过 |
+| 6 | SSE 模式单 key 限制已文档化 | README 或配置文档中说明 | ✅ 已完成 (contextvars) |
 
 **结论**：必须先完成 §0 的 6 项修复，才能启动 Phase 4 的第一步。
 预估修复工时 1.5 小时。

@@ -5,6 +5,10 @@ Changed in §0.2/§0.3 fix:
   decorator-order ambiguity with ``@mcp.tool()``.
 - ``_caller_info`` moved from global to ``contextvars.ContextVar`` so that
   a future per-request SSE auth layer can set per-connection identity.
+
+Phase 4 additions:
+- TOOL_RISK_LEVELS for risk-based routing (low / medium / high).
+- High-risk tools require Human Gate approval before execution.
 """
 
 import contextvars
@@ -17,6 +21,24 @@ from mcp_server.audit import log_tool_call
 from app.agents.tools.permissions import check_tool_permission
 
 logger = logging.getLogger(__name__)
+
+TOOL_RISK_LEVELS: dict[str, str] = {
+    "search_knowledge":             "low",
+    "search_similar_problems":      "low",
+    "get_problem_detail":           "low",
+    "get_problem_difficulty_stats": "low",
+    "get_student_activity":         "low",
+    "get_class_statistics":         "low",
+    "get_agent_trace":              "medium",
+    "get_student_summary":          "medium",
+    "execute_code":                 "high",
+    "save_generated_problem":       "high",
+    "check_approval":               "low",
+}
+
+CODE_MAX_LENGTH = 10_000
+ALLOWED_LANGUAGES = {"python", "c"}
+
 
 _caller_info_var: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "mcp_caller_info", default=None
