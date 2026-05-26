@@ -6,6 +6,7 @@ from mcp.server import FastMCP
 
 from mcp_server.tools.knowledge import register_knowledge_tools
 from mcp_server.tools.problems import register_problem_tools
+from mcp_server.tools.analytics import register_analytics_tools
 
 logger = logging.getLogger(__name__)
 
@@ -20,5 +21,6 @@ def create_mcp_server() -> FastMCP:
     )
     register_knowledge_tools(mcp)
     register_problem_tools(mcp)
-    logger.info("MCP Server created with 4 tools registered")
+    register_analytics_tools(mcp)
+    logger.info("MCP Server created with 6 tools registered")
     return mcp

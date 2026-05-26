@@ -36,6 +36,8 @@ TOOL_PERMISSIONS: dict[tuple[str, str], set[str]] = {
     ("mcp", "search_similar_problems"):       {"teacher", "admin"},
     ("mcp", "get_problem_detail"):            {"teacher", "admin"},
     ("mcp", "get_problem_difficulty_stats"):  {"teacher", "admin"},
+    ("mcp", "get_student_activity"):            {"teacher", "admin"},
+    ("mcp", "get_class_statistics"):            {"teacher", "admin"},
 }
 
 

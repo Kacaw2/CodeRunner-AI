@@ -8,7 +8,7 @@ from app.agents.tools.core.knowledge import (
     search_similar_problems_impl,
     search_knowledge_impl,
 )
-from mcp_server.middleware import mcp_tool_middleware
+from mcp_server.middleware import run_mcp_guard
 
 
 def register_knowledge_tools(mcp: FastMCP):
@@ -20,10 +20,18 @@ def register_knowledge_tools(mcp: FastMCP):
             "content, and relevance score."
         ),
     )
-    @mcp_tool_middleware("search_knowledge")
     def search_knowledge(query: str, owner_id: int | None = None) -> str:
-        result = search_knowledge_impl(query, owner_id)
-        return json.dumps(result, ensure_ascii=False)
+        args = {"query": query, "owner_id": owner_id}
+        guard = run_mcp_guard("search_knowledge", args)
+        if guard.rejected:
+            return guard.error_json
+        try:
+            result = search_knowledge_impl(query, owner_id)
+            guard.record_success("search_knowledge", args)
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            guard.record_error("search_knowledge", args, e)
+            return json.dumps({"error": str(e)})
 
     @mcp.tool(
         name="search_similar_problems",
@@ -32,9 +40,17 @@ def register_knowledge_tools(mcp: FastMCP):
             "Returns a list of similar problems with similarity scores."
         ),
     )
-    @mcp_tool_middleware("search_similar_problems")
     def search_similar_problems(
         query: str, language: str = "python", limit: int = 5
     ) -> str:
-        result = search_similar_problems_impl(query, language, limit)
-        return json.dumps(result, ensure_ascii=False)
+        args = {"query": query, "language": language, "limit": limit}
+        guard = run_mcp_guard("search_similar_problems", args)
+        if guard.rejected:
+            return guard.error_json
+        try:
+            result = search_similar_problems_impl(query, language, limit)
+            guard.record_success("search_similar_problems", args)
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            guard.record_error("search_similar_problems", args, e)
+            return json.dumps({"error": str(e)})

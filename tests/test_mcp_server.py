@@ -81,15 +81,17 @@ def mock_auth_student(student_user):
 # ── MCP Server creation ──
 
 class TestMcpServerCreation:
-    def test_server_registers_four_tools(self):
+    def test_server_registers_all_tools(self):
         from mcp_server.server import create_mcp_server
         mcp = create_mcp_server()
         tools = list(mcp._tool_manager._tools.keys())
-        assert len(tools) == 4
+        assert len(tools) == 6
         assert "search_knowledge" in tools
         assert "search_similar_problems" in tools
         assert "get_problem_detail" in tools
         assert "get_problem_difficulty_stats" in tools
+        assert "get_student_activity" in tools
+        assert "get_class_statistics" in tools
 
 
 # ── Core logic extraction ──

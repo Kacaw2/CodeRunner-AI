@@ -176,7 +176,7 @@ services:
     volumes:
       - kb_data:/app/data/knowledge_base
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8200/sse"]
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8200)); s.close()\""]
       interval: 30s
       timeout: 10s
       retries: 3
