@@ -53,7 +53,8 @@ def _generate_problem(state: PipelineState) -> PipelineState:
     from app.agents.prompts.generator import GENERATOR_SYSTEM_PROMPT
     from app.agents.agents.generator import _extract_json
 
-    llm = AIConfig.get_llm()
+    from app.agents.model_router.tiers import ModelTier
+    llm = AIConfig.get_llm(tier=ModelTier.STRONG)
 
     system_parts = [GENERATOR_SYSTEM_PROMPT]
     if state.get("teacher_context"):
@@ -171,7 +172,8 @@ def _review_quality(state: PipelineState) -> PipelineState:
         state["quality_review"] = {"quality_score": 0, "issues": ["No problem to review"]}
         return state
 
-    llm = AIConfig.get_llm()
+    from app.agents.model_router.tiers import ModelTier
+    llm = AIConfig.get_llm(tier=ModelTier.BALANCED)
     question_json = json.dumps(question, indent=2, ensure_ascii=False)
 
     review_prompt = (

@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from app.agents.config import AIConfig, MAX_TOOL_ITERATIONS
 from app.agents.exceptions import LLMError, ToolError, retry_on_llm_error
+from app.agents.model_router.tiers import ModelTier
 from app.agents.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     name: str = ""
     description: str = ""
+    default_model_tier: ModelTier = ModelTier.BALANCED
 
     @abstractmethod
     def invoke(self, state: AgentState) -> AgentState:
@@ -150,7 +152,7 @@ class BaseAgent(ABC):
             trace.input_message = getattr(last_msg, "content", "")
         trace.input_context = state.get("context")
 
-        llm = AIConfig.get_llm()
+        llm = AIConfig.get_llm(tier=self.default_model_tier)
         llm_with_tools = llm.bind_tools(tools)
 
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
@@ -230,7 +232,7 @@ class BaseAgent(ABC):
             trace.input_message = getattr(last_msg, "content", "")
         trace.input_context = state.get("context")
 
-        llm = AIConfig.get_llm()
+        llm = AIConfig.get_llm(tier=self.default_model_tier)
         llm_with_tools = llm.bind_tools(tools)
 
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])

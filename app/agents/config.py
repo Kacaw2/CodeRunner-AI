@@ -31,14 +31,16 @@ class AIConfig:
             raise ConfigError("DEEPSEEK_API_KEY environment variable is not set")
 
     @classmethod
-    def get_llm(cls):
-        cls.validate()
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=cls.MODEL,
-            api_key=cls.API_KEY,
-            base_url=cls.BASE_URL,
-            max_tokens=cls.MAX_TOKENS,
-            temperature=cls.TEMPERATURE,
-            request_timeout=30,
-        )
+    def get_llm(cls, tier=None):
+        """Return an LLM instance.
+
+        When *tier* is provided, delegates to the ModelRouter so that each
+        tier resolves to the appropriate model/temperature/token config.
+        Without a tier this returns a BALANCED-tier instance, which preserves
+        the original single-model behaviour for callers that haven't been
+        migrated yet.
+        """
+        from app.agents.model_router import ModelTier, get_model_router
+        if tier is None:
+            tier = ModelTier.BALANCED
+        return get_model_router().get_llm(tier)

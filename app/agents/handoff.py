@@ -60,9 +60,10 @@ def detect_handoff(state: AgentState) -> AgentState:
     if target == current:
         return state
 
+    from app.agents.definitions import can_route_to
     user_role = state.get("user_role", "student")
-    if user_role == "student" and target == "generator":
-        logger.info("Blocked handoff to generator for student user")
+    if not can_route_to(target, user_role):
+        logger.info("Blocked handoff to '%s' for role '%s'", target, user_role)
         return state
 
     state["handoff_to"] = target

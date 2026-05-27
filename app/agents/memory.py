@@ -20,7 +20,8 @@ class MemoryService:
             return ""
 
         try:
-            llm = AIConfig.get_llm()
+            from app.agents.model_router.tiers import ModelTier
+            llm = AIConfig.get_llm(tier=ModelTier.FAST)
             transcript = "\n".join(
                 f"[{m.role}] {m.content[:500]}" for m in messages[-10:]
             )
@@ -138,7 +139,8 @@ class MemoryService:
                     role = getattr(m, "type", "unknown")
                     transcript_parts.append(f"[{role}] {content[:300]}")
             if transcript_parts:
-                llm = AIConfig.get_llm()
+                from app.agents.model_router.tiers import ModelTier
+                llm = AIConfig.get_llm(tier=ModelTier.FAST)
                 prompt = (
                     "Compress the following conversation history into a brief summary "
                     "(max 200 words). Preserve key facts, decisions, and context.\n\n"

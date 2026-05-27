@@ -7,6 +7,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.agents.agents.base import BaseAgent
 from app.agents.config import AIConfig
 from app.agents.exceptions import LLMError
+from app.agents.model_router.tiers import ModelTier
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
@@ -86,6 +87,7 @@ def _validate_solution(solution: str, language: str, test_cases: list,
 class GeneratorAgent(BaseAgent):
     name = "generator"
     description = "Problem generation agent for teachers"
+    default_model_tier = ModelTier.STRONG
 
     def _build_system_context(self, state: dict) -> str:
         from app.agents.memory import MemoryService
@@ -219,7 +221,7 @@ class GeneratorAgent(BaseAgent):
         """Streaming generator: yields tokens for each LLM round, plus validation events."""
         from app.agents.tracing import TraceCollector
 
-        llm = AIConfig.get_llm()
+        llm = AIConfig.get_llm(tier=self.default_model_tier)
         context = state.get("context", {})
         language = context.get("language", "python")
 

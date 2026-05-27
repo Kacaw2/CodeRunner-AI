@@ -404,12 +404,12 @@ class TestAnalyticsTools:
         assert result["status_distribution"]["AC"] == 2
 
     def test_analytics_tools_in_permissions(self):
-        from app.agents.tools.permissions import TOOL_PERMISSIONS
-        assert ("analytics", "get_student_activity") in TOOL_PERMISSIONS
-        assert ("analytics", "get_class_statistics") in TOOL_PERMISSIONS
-        assert ("analytics", "get_problem_difficulty_stats") in TOOL_PERMISSIONS
-        assert "student" in TOOL_PERMISSIONS[("analytics", "get_student_activity")]
-        assert "student" not in TOOL_PERMISSIONS[("analytics", "get_class_statistics")]
+        from app.agents.tools.permissions import check_tool_permission
+        assert check_tool_permission("analytics", "get_student_activity", "student") is True
+        assert check_tool_permission("analytics", "get_class_statistics", "teacher") is True
+        assert check_tool_permission("analytics", "get_problem_difficulty_stats", "student") is True
+        assert check_tool_permission("analytics", "get_student_activity", "student") is True
+        assert check_tool_permission("analytics", "get_class_statistics", "student") is False
 
     def test_analytics_agent_has_new_tools(self):
         from app.agents.agents.analytics import ANALYTICS_TOOLS

@@ -1,4 +1,5 @@
 from app.agents.agents.base import BaseAgent
+from app.agents.model_router.tiers import ModelTier
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
@@ -12,6 +13,7 @@ REVIEWER_TOOLS = [execute_code, get_problem_detail]
 class ReviewerAgent(BaseAgent):
     name = "reviewer"
     description = "Code review agent"
+    default_model_tier = ModelTier.BALANCED
 
     def _build_system_context(self, state: dict) -> str:
         context = state.get("context", {})

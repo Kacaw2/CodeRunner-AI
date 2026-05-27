@@ -1,4 +1,5 @@
 from app.agents.agents.base import BaseAgent
+from app.agents.model_router.tiers import ModelTier
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
@@ -15,6 +16,7 @@ TUTOR_TOOLS = [execute_code, get_problem_detail, get_student_submissions, get_su
 class TutorAgent(BaseAgent):
     name = "tutor"
     description = "Socratic tutoring agent for students"
+    default_model_tier = ModelTier.BALANCED
 
     def _build_system_context(self, state: dict) -> str:
         from app.agents.memory import MemoryService

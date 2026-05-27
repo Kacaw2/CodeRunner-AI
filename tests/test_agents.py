@@ -50,7 +50,7 @@ class TestBaseAgent:
     def test_run_tools_handles_tool_exception(self, app):
         with app.app_context():
             from app.agents.agents.base import BaseAgent
-            from app.agents.tools.permissions import TOOL_PERMISSIONS
+            from app.agents.tools.permissions import _ROLE_OVERRIDES
             from langchain_core.tools import tool
 
             @tool
@@ -58,8 +58,8 @@ class TestBaseAgent:
                 """A tool that always fails."""
                 raise RuntimeError("sandbox down")
 
-            # Register the tool in the permission matrix so it passes the check
-            TOOL_PERMISSIONS[("tutor", "broken_tool")] = {"student", "teacher", "admin"}
+            # Register the tool in the role override table so it passes the check
+            _ROLE_OVERRIDES[("tutor", "broken_tool")] = {"student", "teacher", "admin"}
             try:
                 agent = type("ConcreteAgent", (BaseAgent,), {"invoke": lambda s, st: st})()
                 tool_calls = [{"name": "broken_tool", "args": {"x": 1}, "id": "tc1"}]
@@ -67,7 +67,7 @@ class TestBaseAgent:
                                           {"user_id": 1, "agent_type": "tutor", "user_role": "student"})
                 assert "error" in results[0].content.lower() or "failed" in results[0].content.lower()
             finally:
-                TOOL_PERMISSIONS.pop(("tutor", "broken_tool"), None)
+                _ROLE_OVERRIDES.pop(("tutor", "broken_tool"), None)
 
 
 class TestTutorAgent:

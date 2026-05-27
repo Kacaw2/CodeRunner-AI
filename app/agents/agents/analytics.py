@@ -1,4 +1,5 @@
 from app.agents.agents.base import BaseAgent
+from app.agents.model_router.tiers import ModelTier
 from app.agents.security import SECURITY_PROMPT_ADDENDUM
 from app.agents.handoff import HANDOFF_PROMPT_ADDENDUM
 from app.agents.state import AgentState
@@ -21,6 +22,7 @@ ANALYTICS_TOOLS = [
 class AnalyticsAgent(BaseAgent):
     name = "analytics"
     description = "Learning analytics agent"
+    default_model_tier = ModelTier.STRONG
 
     def _build_system_context(self, state: dict) -> str:
         from app.agents.memory import MemoryService

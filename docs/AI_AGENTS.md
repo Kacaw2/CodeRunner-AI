@@ -2,7 +2,35 @@
 
 本文档描述 CodeRunner-AI 的 AI Agent 模块设计与实现现状。该模块在现有评测平台基础上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。
 
-> 最后更新: 2026-05-24 · Phase A/B/C 已完成，Phase D 待实现
+> 最后更新: 2026-05-28
+
+### 项目定位
+
+```
+面向在线编程教学场景的内部多 Agent 智能辅助系统
++ 外部 LLM Provider（DeepSeek API）
++ 标准化工具接入层（MCP，部分实现）
+```
+
+**重要术语约定**：
+- **Agent** = 项目内部定义的教学任务执行单元（Tutor / Reviewer / Generator / Analytics）
+- **LLM Provider** = 外部模型服务（DeepSeek）。DeepSeek 不是 Agent，是底层推理引擎
+- **MCP** = 工具协议层。当前为部分实现，尚未成为 Agent 的唯一工具边界
+
+### 当前实现 vs 目标架构
+
+| 能力 | 当前状态 | 目标状态 |
+|------|---------|---------|
+| 内部业务 Agent | ✅ Tutor / Reviewer / Generator / Analytics | 不变 |
+| 声明式 Agent 定义 | ✅ `definitions.py` — name, tools, roles, tier, risk | 不变 |
+| Model Router | ✅ 三层 tier (fast/balanced/strong)，DeepSeek provider | 多 provider 支持 |
+| Orchestrator | ✅ LangGraph StateGraph，基于 definition 路由 | Education Orchestrator 多步编排 |
+| 工具调用 | ⚠️ LangChain tool wrappers（直接绑定） | MCP 成为唯一工具边界 |
+| MCP Server | ⚠️ 初步实现，外部客户端读写 | Agent 内部也经 MCP 调用 |
+| Human Gate | ⚠️ 生成草稿审批流 | 与 AgentTask 状态机完整打通 |
+| Subagent 隔离 | ❌ Agent 共享上下文 | 独立上下文窗口和工具权限 |
+| 多模型路由 | ✅ tier 抽象，单 provider | 多 provider + 动态路由策略 |
+| Observability | ⚠️ TraceCollector + AgentRun/Step | 统一 trace/audit/approval 关联 |
 
 ---
 
@@ -20,18 +48,20 @@
     │  限流 (Redis) · 审计日志              │
     └────────────────┬────────────────────┘
                      │
-         ┌───────────▼────────────┐
-         │  AgentOrchestrator     │
-         │  (LangGraph StateGraph)│
-         │                       │
-         │  route → agent → respond
-         │  (意图分类 · Schema 校验 │
-         │   Handoff 检测)         │
-         └──┬──────┬──────┬──────┘
-            │      │      │
+         ┌───────────▼────────────────────┐
+         │  AgentOrchestrator              │
+         │  (LangGraph StateGraph)         │
+         │                                │
+         │  route → agent → respond        │
+         │  意图分类(FAST) · Schema 校验    │
+         │  Handoff 检测 · 角色权限         │
+         │                                │
+         │  ◆ 基于 AgentDefinition 路由     │
+         └──┬──────┬──────┬──────┬────────┘
+            │      │      │      │
      ┌──────▼┐ ┌──▼───┐ ┌▼────────┐ ┌──────────┐
      │ Tutor │ │Review│ │Generator│ │Analytics │
-     │ Agent │ │Agent │ │Agent    │ │Agent     │
+     │BALANCED│ │BALANCED│ │STRONG │ │STRONG    │
      └──┬────┘ └──┬───┘ └──┬──────┘ └──┬───────┘
         │         │        │           │
      ┌──▼─────────▼────────▼───────────▼──┐
@@ -40,16 +70,24 @@
      │  _stream_with_tools (SSE)           │
      │  TraceCollector · 消息压缩           │
      │  权限检查 · 安全参数注入             │
-     └────────────────┬───────────────────┘
-                      │
-     ┌────────────────▼───────────────────┐
+     └──────────────┬─────────────────────┘
+                    │
+     ┌──────────────▼─────────────────────┐
+     │        Model Router                 │
+     │  ModelTier: fast/balanced/strong    │
+     │  Provider: DeepSeek (当前唯一)       │
+     └──────────────┬─────────────────────┘
+                    │
+     ┌──────────────▼─────────────────────┐
      │          Tool Layer                 │
      │ execute_code · question_query       │
      │ submission_query · analytics_query  │
      │ knowledge_tools (RAG)               │
-     └────────────────┬───────────────────┘
-                      │
-     ┌────────────────▼───────────────────┐
+     │ (⚠️ 当前直接绑定 LangChain tools，    │
+     │  目标迁移至 MCP 唯一工具边界)         │
+     └──────────────┬─────────────────────┘
+                    │
+     ┌──────────────▼─────────────────────┐
      │     现有 Service 层（不改动）         │
      │  executor_service · question_service│
      │  submission_service · teacher_stats │
@@ -71,7 +109,8 @@
 
 | 组件 | 技术 | 用途 |
 |------|------|------|
-| LLM | DeepSeek API (deepseek-chat)，兼容 OpenAI 协议 | Agent 推理引擎 |
+| LLM Provider | DeepSeek API (deepseek-chat)，兼容 OpenAI 协议 | 外部 LLM Provider，非 Agent |
+| Model Router | `app/agents/model_router/` | 按 tier (fast/balanced/strong) 路由到 provider |
 | Agent 编排 | LangGraph | 状态图驱动的多 Agent 流转 |
 | LLM 集成 | langchain-openai + langchain-core | Tool Calling 标准抽象（通过 OpenAI 兼容接口） |
 | 向量数据库 | ChromaDB | 知识库语义搜索 (RAG) |
@@ -98,12 +137,13 @@ sentence-transformers>=2.2.0
 ```
 app/agents/
 ├── __init__.py              # 暴露 AgentOrchestrator
-├── orchestrator.py          # LangGraph 主编排器 (意图分类 · handoff · schema 校验)
+├── orchestrator.py          # LangGraph 主编排器 (基于 definition 路由 · handoff · schema 校验)
+├── definitions.py           # ★ 声明式 Agent 定义 (Phase C) — 名称、角色、工具、tier、风险
 ├── state.py                 # AgentState TypedDict
-├── config.py                # AIConfig + 限流参数 + 模型配置
+├── config.py                # AIConfig + 限流参数 (get_llm 委托 ModelRouter)
 ├── exceptions.py            # AIError / LLMError / RateLimitError / ConfigError
 ├── security.py              # 注入检测 · 输入消毒 · 输出过滤 · 动态安全 prompt
-├── handoff.py               # Agent 间交接检测与 prompt 附录
+├── handoff.py               # Agent 间交接检测与 prompt 附录 (基于 definition 权限检查)
 ├── tracing.py               # TraceCollector (AgentRun + AgentRunStep 写入)
 ├── memory.py                # MemoryService (记忆上下文 · 消息压缩 · 摘要 · 画像更新)
 ├── knowledge_base.py        # KnowledgeBase (ChromaDB 向量搜索)
@@ -113,22 +153,30 @@ app/agents/
 ├── generation_pipeline.py   # 多阶段生成管线 (生成→验证→去重→质量审查)
 ├── preference_learner.py    # 教师偏好自动学习
 ├── task_state.py            # 任务状态常量
+├── model_router/            # ★ Model Router (Phase B)
+│   ├── __init__.py          # 导出 ModelTier, ModelRouter, get_model_router
+│   ├── tiers.py             # ModelTier 枚举 (FAST / BALANCED / STRONG)
+│   ├── router.py            # ModelRouter — tier -> LLM 实例解析
+│   └── providers/
+│       ├── __init__.py
+│       ├── base.py          # BaseProvider 抽象接口
+│       └── deepseek.py      # DeepSeekProvider — 当前唯一 provider
 ├── agents/
 │   ├── __init__.py          # 导出四个 Agent 类
-│   ├── base.py              # BaseAgent 抽象基类 (统一调用管道)
-│   ├── tutor.py             # TutorAgent — 智能辅导
-│   ├── reviewer.py          # ReviewerAgent — 代码审查
-│   ├── generator.py         # GeneratorAgent — 自动出题 (含自验证循环)
-│   └── analytics.py         # AnalyticsAgent — 学习分析
+│   ├── base.py              # BaseAgent 抽象基类 (统一调用管道，default_model_tier)
+│   ├── tutor.py             # TutorAgent — 智能辅导 (BALANCED)
+│   ├── reviewer.py          # ReviewerAgent — 代码审查 (BALANCED)
+│   ├── generator.py         # GeneratorAgent — 自动出题 (STRONG，含自验证循环)
+│   └── analytics.py         # AnalyticsAgent — 学习分析 (STRONG)
 ├── tools/
 │   ├── __init__.py
 │   ├── code_executor.py     # execute_code — 沙箱执行
-│   ├── question_query.py    # get_question_detail — 题目查询
+│   ├── question_query.py    # get_problem_detail — 题目查询
 │   ├── submission_query.py  # get_student_submissions / get_submission_detail
 │   ├── analytics_query.py   # get_student_activity / get_class_statistics / ...
 │   ├── stats_query.py       # get_student_stats
-│   ├── knowledge_tools.py   # search_similar_questions / search_knowledge / search_error_patterns
-│   └── permissions.py       # check_tool_permission — 工具权限矩阵
+│   ├── knowledge_tools.py   # search_similar_problems / search_knowledge / search_error_patterns
+│   └── permissions.py       # check_tool_permission — 基于 definition + role override
 └── prompts/
     ├── __init__.py
     ├── tutor.py
@@ -136,6 +184,57 @@ app/agents/
     ├── generator.py
     └── analytics.py
 ```
+
+---
+
+## 三-B、Model Router（Phase B）
+
+Agent 不再直接绑定 DeepSeek 的具体配置。所有 LLM 调用经过 `ModelRouter` 按 tier 解析：
+
+| Tier | 用途 | 默认参数 |
+|------|------|---------|
+| `FAST` | 意图分类、消息压缩、对话摘要 | temperature=0.3, max_tokens=1024 |
+| `BALANCED` | 日常辅导 (Tutor)、代码 Review | temperature=0.7, max_tokens=2048 |
+| `STRONG` | 题目生成 (Generator)、综合分析 (Analytics) | temperature=0.5, max_tokens=4096 |
+
+**调用方式**：
+```python
+from app.agents.model_router import ModelTier, get_model_router
+llm = get_model_router().get_llm(ModelTier.STRONG)
+# 或通过 AIConfig 兼容入口：
+llm = AIConfig.get_llm(tier=ModelTier.FAST)
+```
+
+当前只有 DeepSeek 一个 provider。接口设计支持未来添加其他 provider（如 OpenAI、Anthropic）而不需要修改 Agent 代码。
+
+---
+
+## 三-C、声明式 Agent 定义（Phase C）
+
+每个 Agent 在 `definitions.py` 中声明完整定义，取代以前分散在类属性、权限表和编排器中的信息：
+
+```python
+AgentDefinition(
+    name="tutor",
+    description="Guide students through coding problems using Socratic method...",
+    default_model_tier=ModelTier.BALANCED,
+    allowed_roles=frozenset({"student", "teacher", "admin"}),
+    allowed_tools=("execute_code", "get_problem_detail", ...),
+    risk_level="low",
+    input_fields=("question_id", "submission_id", "code", ...),
+    output_format="free_text",
+)
+```
+
+**Orchestrator 基于 definition 做**：
+- 角色权限路由（`can_route_to(agent_name, user_role)`）
+- 意图分类 prompt 自动生成（从 description 字段）
+- Schema 校验跳过判断（`output_format == "free_text"` 则不校验）
+- Handoff 权限检查
+
+**权限系统基于 definition 做**：
+- `check_tool_permission()` 先查 role override 表，再查 definition 的 `allowed_tools` + `allowed_roles`
+- 新增 Agent 只需在 `definitions.py` 添加一条，不需要修改多处权限表
 
 ---
 
@@ -680,10 +779,17 @@ LLM 生成题目 + 测试用例 + 参考答案
 | Phase 2 | Tutor Agent + `/chat` + SSE 流式 + 前端聊天面板 | ✅ 完成 |
 | Phase 3 | Review + Generator + Analytics + 画像 + 知识库 + 评估框架 | ✅ 完成 |
 | Phase 4 | 生成管线 + 草稿工作流 + 批量生成 + 偏好学习 | ✅ 完成 |
-| Phase A | 安全修复：输出过滤、stream 追踪/handoff、Generator 统一管道、注入增强 | ✅ 完成 (A5 stream 路径待补) |
-| Phase B | 死代码激活：消息压缩、对话摘要、Schema 校验、TraceStep 写入、Token 采集 | ✅ 完成 |
-| Phase C | 启动集成：孤儿恢复、自动索引、画像自动更新、增量索引 | ✅ 完成 |
-| Phase D | RAG 深度集成：知识库种子数据、教师知识库管理 API | ❌ 未开始 |
+| Phase A (旧) | 安全修复：输出过滤、stream 追踪/handoff、Generator 统一管道、注入增强 | ✅ 完成 |
+| Phase B (旧) | 死代码激活：消息压缩、对话摘要、Schema 校验、TraceStep 写入、Token 采集 | ✅ 完成 |
+| Phase C (旧) | 启动集成：孤儿恢复、自动索引、画像自动更新、增量索引 | ✅ 完成 |
+| **架构 Phase A** | **文档和术语修正**：区分当前实现与目标架构，统一 LLM Provider 术语 | ✅ 完成 |
+| **架构 Phase B** | **Model Router**：三层 tier 抽象，DeepSeek provider，Agent 按 tier 获取 LLM | ✅ 完成 |
+| **架构 Phase C** | **Agent Definition**：声明式定义、基于 definition 路由/权限/校验 | ✅ 完成 |
+| 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
+| 架构 Phase E | MCP 唯一工具边界 | ❌ 未开始 |
+| 架构 Phase F | Human Gate 与 AgentTask 状态机打通 | ❌ 未开始 |
+| 架构 Phase G | Observability 和评估闭环 | ❌ 未开始 |
+| Phase D (旧) | RAG 深度集成：知识库种子数据、教师知识库管理 API | ❌ 未开始 |
 
 ---
 
@@ -694,6 +800,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 - Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](archive/completed/AGENT_ENHANCEMENT_GUIDE.md)
 - 模块审计报告：[ai-agents-module-audit.md](archive/superpowers/plans/ai-agents-module-audit.md)
 - 集成修复计划：[2026-05-23-agent-module-integration.md](archive/superpowers/plans/2026-05-23-agent-module-integration.md)
+- Agent 架构成熟化计划：[AGENT_ARCHITECTURE_MATURITY_PLAN.md](AGENT_ARCHITECTURE_MATURITY_PLAN.md)
 - 系统架构总览：[ARCHITECTURE.md](ARCHITECTURE.md)
 - 现有 REST API：[API.md](API.md)
 - 代码沙箱：[EXECUTOR.md](EXECUTOR.md)
