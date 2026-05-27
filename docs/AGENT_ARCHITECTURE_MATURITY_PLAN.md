@@ -429,6 +429,137 @@ coderunner.trace.get_agent_trace
 - Workflow `tool_call` 不能绕过 MCP。
 - 所有工具调用有 schema、audit、trace、error envelope。
 
+### Phase E2 - 顶层目录拆分（Agent Host / MCP 独立）
+
+目标：MCP 唯一工具边界落地后，把 Agent Runtime 和 MCP 从 `app/` 中拆出为独立顶层模块，形成清晰的三层物理边界。
+
+前置条件：Phase E 完成。Agent 不再直接 import `app.services.*`，所有工具调用经 MCP client。
+
+交付：
+
+- 顶层目录拆为三个独立模块：
+
+  ```text
+  CodeRunner-AI/
+  ├── app/                 # Flask 主业务系统（登录、题库、提交、页面）
+  ├── agent_host/          # FastAPI Agent Runtime（调度 Agent、任务状态机）
+  ├── mcp/                 # 标准化工具协议层（Agent 唯一工具入口）
+  ├── migrations/
+  ├── tests/
+  ├── docker/
+  ├── docs/
+  └── scripts/
+  ```
+
+- `app/` 保留业务系统，不放 Agent Runtime：
+
+  ```text
+  app/
+  ├── api/                 # Flask REST API
+  ├── web/                 # Flask 页面路由
+  ├── templates/
+  ├── static/
+  ├── models/              # SQLAlchemy models
+  ├── schemas/             # Flask/API schemas
+  ├── services/            # 题库、提交、用户、统计等业务服务
+  ├── auth/
+  ├── core/
+  └── utils/
+  ```
+
+- `agent_host/` 承载 Agent Runtime：
+
+  ```text
+  agent_host/
+  ├── main.py              # FastAPI app entry
+  ├── api/
+  │   ├── chat.py
+  │   ├── workflows.py
+  │   ├── tasks.py
+  │   └── health.py
+  ├── runtime/
+  │   ├── tasks.py         # AgentTask 状态机
+  │   ├── worker.py        # 队列/任务执行
+  │   ├── events.py        # SSE / Redis Streams
+  │   ├── checkpoints.py
+  │   └── recovery.py
+  ├── orchestrator/
+  │   ├── router.py        # 意图识别
+  │   ├── planner.py       # 多步任务计划
+  │   ├── dispatcher.py    # 调度 subagent
+  │   ├── aggregator.py    # 聚合结果
+  │   └── policies.py
+  ├── agents/
+  │   ├── tutor/
+  │   │   ├── definition.py
+  │   │   ├── prompts.py
+  │   │   └── schemas.py
+  │   ├── reviewer/
+  │   ├── generator/
+  │   ├── analytics/
+  │   └── safety/
+  ├── model_router/
+  │   ├── router.py
+  │   ├── policy.py
+  │   ├── usage.py
+  │   └── providers/
+  │       └── deepseek.py
+  ├── adapters/
+  │   └── flask_client.py  # 必要的 Flask API 调用适配
+  ├── core/
+  └── models/
+  ```
+
+- `mcp/` 放顶层，不放进 `app/` 或 `agent_host/`：
+
+  ```text
+  mcp/
+  ├── client/
+  │   ├── runtime.py       # ToolRuntime，Agent 唯一工具调用入口
+  │   ├── sessions.py
+  │   └── discovery.py
+  ├── server/
+  │   ├── shared/
+  │   ├── db/
+  │   ├── code/
+  │   ├── knowledge/
+  │   └── analytics/
+  ├── adapters/
+  ├── registry/
+  ├── schemas/
+  ├── auth/
+  ├── transport/
+  ├── policies/
+  ├── observability/
+  └── errors/
+  ```
+
+- 测试按模块拆分：
+
+  ```text
+  tests/
+  ├── app/                 # Flask 主业务测试
+  ├── agent_host/          # FastAPI runtime / workflow / task 测试
+  ├── mcp/                 # MCP schema / policy / server contract 测试
+  ├── integration/         # Flask + Agent Host + MCP 集成测试
+  └── e2e/
+  ```
+
+关键边界：
+
+- `app/` 不 import `agent_host/` 或 `mcp/`（通过 HTTP/SSE 通信）
+- `agent_host/` 依赖 `mcp/client`，不直接 import `app.services.*`
+- `mcp/server` 依赖 `app/services`（数据库、沙箱等域服务）
+- 三者可独立启动、独立测试、独立部署
+
+验收：
+
+- `agent_host/` 中不再出现 `from app.agents import ...` 或 `from app.services import ...`。
+- `mcp/` 可独立 import，不依赖 Flask app context。
+- `app/` 中删除 `agents/` 目录（或仅保留迁移期兼容入口）。
+- 三个模块各自有独立的测试套件且全部通过。
+- Docker compose 可独立启动 flask / agent_host / mcp_server 三个容器。
+
 ### Phase F - Human Gate 与 AgentTask 状态机打通
 
 目标：让高风险工具审批成为 Agent Runtime 的一等能力。
@@ -481,10 +612,11 @@ coderunner.trace.get_agent_trace
 推荐顺序：
 
 ```text
-Phase A 文档和术语修正
-  -> Phase B Model Router
-  -> Phase C Agent Definition
+Phase A 文档和术语修正              ✅ 已完成
+  -> Phase B Model Router           ✅ 已完成
+  -> Phase C Agent Definition       ✅ 已完成
   -> Phase E MCP 唯一工具边界
+  -> Phase E2 顶层目录拆分（Agent Host / MCP 独立）
   -> Phase F Human Gate 状态机
   -> Phase D Education Orchestrator 多步编排
   -> Phase G Observability / Eval
@@ -494,7 +626,8 @@ Phase A 文档和术语修正
 
 - Model Router 和 Agent Definition 是低风险抽象，能先整理边界。
 - MCP 唯一工具边界是最大架构收益，应尽早做，但需要配合测试。
-- 多步 Education Orchestrator 应在工具边界稳定后做，否则会放大旧工具层问题。
+- **目录拆分必须在 MCP 唯一边界之后**：拆分前 agents 直接 import app.services，搬到 agent_host/ 会产生跨模块耦合；MCP 收敛后 agents 只依赖 mcp.client，拆分是干净的。
+- 多步 Education Orchestrator 应在工具边界和目录结构稳定后做，否则会放大旧工具层问题。
 - Observability / Eval 可以贯穿实现，但完整 dashboard 可后置。
 
 ## 9. 不建议做的事

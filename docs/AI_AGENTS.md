@@ -787,6 +787,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | **架构 Phase C** | **Agent Definition**：声明式定义、基于 definition 路由/权限/校验 | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
 | 架构 Phase E | MCP 唯一工具边界 | ❌ 未开始 |
+| 架构 Phase E2 | 顶层目录拆分（app / agent_host / mcp 独立） | ❌ 未开始（依赖 Phase E） |
 | 架构 Phase F | Human Gate 与 AgentTask 状态机打通 | ❌ 未开始 |
 | 架构 Phase G | Observability 和评估闭环 | ❌ 未开始 |
 | Phase D (旧) | RAG 深度集成：知识库种子数据、教师知识库管理 API | ❌ 未开始 |
