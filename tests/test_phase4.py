@@ -58,7 +58,7 @@ def student_user(db_session):
 class TestGenerationPipeline:
 
     def test_pipeline_state_type_has_all_fields(self):
-        from app.agents.generation_pipeline import PipelineState
+        from agent_host.generation_pipeline import PipelineState
         import typing
         hints = typing.get_type_hints(PipelineState)
         required_fields = [
@@ -71,14 +71,14 @@ class TestGenerationPipeline:
             assert field in hints, f"Missing field: {field}"
 
     def test_build_generation_pipeline_compiles(self):
-        from app.agents.generation_pipeline import build_generation_pipeline
+        from agent_host.generation_pipeline import build_generation_pipeline
         graph = build_generation_pipeline()
         compiled = graph.compile()
         assert compiled is not None
 
-    @patch("app.agents.agents.generator._validate_solution")
+    @patch("agent_host.agents.generator._validate_solution")
     def test_validate_problem_passes_on_all_ac(self, mock_validate):
-        from app.agents.generation_pipeline import _validate_problem
+        from agent_host.generation_pipeline import _validate_problem
 
         mock_validate.return_value = [
             {"index": 0, "passed": True, "status": "AC"},
@@ -101,7 +101,7 @@ class TestGenerationPipeline:
         assert result["generated_problem"]["verified"] is True
 
     def test_validate_problem_fails_with_no_problem(self):
-        from app.agents.generation_pipeline import _validate_problem
+        from agent_host.generation_pipeline import _validate_problem
 
         state = {
             "generated_problem": None,
@@ -112,7 +112,7 @@ class TestGenerationPipeline:
         assert result["validation_passed"] is False
 
     def test_finalize_draft_assembles_result(self):
-        from app.agents.generation_pipeline import _finalize_draft
+        from agent_host.generation_pipeline import _finalize_draft
 
         state = {
             "generated_problem": {"title": "Test", "verified": True},
@@ -133,7 +133,7 @@ class TestGenerationPipeline:
         assert result["final_draft"]["problem_data"]["title"] == "Test"
 
     def test_finalize_draft_fails_without_question(self):
-        from app.agents.generation_pipeline import _finalize_draft
+        from agent_host.generation_pipeline import _finalize_draft
 
         state = {
             "generated_problem": None,
@@ -158,7 +158,7 @@ class TestGenerationPipeline:
 class TestPreferenceLearner:
 
     def test_learn_from_generation_creates_preference(self, app, teacher_user, db_session):
-        from app.agents.preference_learner import learn_from_generation
+        from agent_host.preference_learner import learn_from_generation
         from app.models.student_profile import TeacherPreference
 
         learn_from_generation(
@@ -174,7 +174,7 @@ class TestPreferenceLearner:
         assert "trees" in pref.preferred_topics
 
     def test_learn_updates_existing_preference(self, app, teacher_user, db_session):
-        from app.agents.preference_learner import learn_from_generation
+        from agent_host.preference_learner import learn_from_generation
         from app.models.student_profile import TeacherPreference
 
         pref = TeacherPreference(teacher_id=teacher_user.id, preferred_language="c")
@@ -192,7 +192,7 @@ class TestPreferenceLearner:
         assert "arrays" in pref.preferred_topics
 
     def test_learn_caps_topic_list(self, app, teacher_user, db_session):
-        from app.agents.preference_learner import learn_from_generation
+        from agent_host.preference_learner import learn_from_generation
         from app.models.student_profile import TeacherPreference
 
         pref = TeacherPreference(
@@ -329,8 +329,8 @@ class TestEvalJudges:
 class TestAnalyticsTools:
 
     def test_get_student_activity_returns_structure(self, app, student_user, db_session):
-        from app.agents.tools.analytics_query import get_student_activity
-        result = get_student_activity.invoke({"student_id": student_user.id, "days": 30})
+        from app.agents.tools.core.analytics import get_student_activity_impl
+        result = get_student_activity_impl(student_id=student_user.id, days=30)
         assert "student_id" in result
         assert "total_submissions" in result
         assert "daily_activity" in result
@@ -340,7 +340,7 @@ class TestAnalyticsTools:
         from app.models.submission import Submission
         from app.models.problem import Problem
         from app.models.question import Question
-        from app.agents.tools.analytics_query import get_student_activity
+        from app.agents.tools.core.analytics import get_student_activity_impl
 
         problem = Problem(slug="test-q-activity", title="Test Q", description="Desc", created_by=1)
         db_session.add(problem)
@@ -360,25 +360,25 @@ class TestAnalyticsTools:
             db_session.add(sub)
         db_session.commit()
 
-        result = get_student_activity.invoke({"student_id": student_user.id, "days": 30})
+        result = get_student_activity_impl(student_id=student_user.id, days=30)
         assert result["total_submissions"] == 3
         assert result["total_accepted"] == 2
 
     def test_get_class_statistics_no_classrooms(self, app, teacher_user):
-        from app.agents.tools.analytics_query import get_class_statistics
-        result = get_class_statistics.invoke({"teacher_id": teacher_user.id})
+        from app.agents.tools.core.analytics import get_class_statistics_impl
+        result = get_class_statistics_impl(teacher_id=teacher_user.id)
         assert result["classrooms"] == []
 
     def test_get_problem_difficulty_stats_no_submissions(self, app, db_session):
-        from app.agents.tools.analytics_query import get_problem_difficulty_stats
-        result = get_problem_difficulty_stats.invoke({"problem_id": 99999})
+        from app.agents.tools.core.analytics import get_problem_difficulty_stats_impl
+        result = get_problem_difficulty_stats_impl(problem_id=99999)
         assert result["total_submissions"] == 0
 
     def test_get_problem_difficulty_stats_with_data(self, app, student_user, db_session):
         from app.models.submission import Submission
         from app.models.problem import Problem
         from app.models.question import Question
-        from app.agents.tools.analytics_query import get_problem_difficulty_stats
+        from app.agents.tools.core.analytics import get_problem_difficulty_stats_impl
 
         problem = Problem(slug="stats-q", title="Stats Q", description="Desc", created_by=1)
         db_session.add(problem)
@@ -398,25 +398,23 @@ class TestAnalyticsTools:
             db_session.add(sub)
         db_session.commit()
 
-        result = get_problem_difficulty_stats.invoke({"problem_id": problem.id})
+        result = get_problem_difficulty_stats_impl(problem_id=problem.id)
         assert result["total_submissions"] == 5
         assert result["unique_students"] == 1
         assert result["status_distribution"]["AC"] == 2
 
-    def test_analytics_tools_in_permissions(self):
-        from app.agents.tools.permissions import check_tool_permission
-        assert check_tool_permission("analytics", "get_student_activity", "student") is True
-        assert check_tool_permission("analytics", "get_class_statistics", "teacher") is True
-        assert check_tool_permission("analytics", "get_problem_difficulty_stats", "student") is True
-        assert check_tool_permission("analytics", "get_student_activity", "student") is True
-        assert check_tool_permission("analytics", "get_class_statistics", "student") is False
+    def test_analytics_tools_in_rbac(self):
+        from mcp.policies.rbac import _AGENT_TOOL_ALLOW, _ROLE_OVERRIDES
+        assert "coderunner.analytics.student_activity" in _AGENT_TOOL_ALLOW["analytics"]
+        assert "coderunner.analytics.class_statistics" in _AGENT_TOOL_ALLOW["analytics"]
+        assert "coderunner.analytics.problem_difficulty" in _AGENT_TOOL_ALLOW["analytics"]
+        assert "student" not in _ROLE_OVERRIDES["coderunner.analytics.class_statistics"]
 
-    def test_analytics_agent_has_new_tools(self):
-        from app.agents.agents.analytics import ANALYTICS_TOOLS
-        tool_names = [t.name for t in ANALYTICS_TOOLS]
-        assert "get_student_activity" in tool_names
-        assert "get_class_statistics" in tool_names
-        assert "get_problem_difficulty_stats" in tool_names
+    def test_analytics_agent_has_mcp_tools(self):
+        from agent_host.agents.analytics import ANALYTICS_MCP_TOOLS
+        assert "coderunner.analytics.student_activity" in ANALYTICS_MCP_TOOLS
+        assert "coderunner.analytics.class_statistics" in ANALYTICS_MCP_TOOLS
+        assert "coderunner.analytics.problem_difficulty" in ANALYTICS_MCP_TOOLS
 
 
 # ── Task 20: Agent handoff ───────────────────────────────────
@@ -424,7 +422,7 @@ class TestAnalyticsTools:
 class TestHandoff:
 
     def test_handoff_pattern_detected(self):
-        from app.agents.handoff import detect_handoff
+        from agent_host.handoff import detect_handoff
         state = {
             "agent_type": "tutor",
             "user_role": "student",
@@ -437,7 +435,7 @@ class TestHandoff:
         assert "[HANDOFF:" not in result["final_response"]
 
     def test_handoff_not_triggered_without_marker(self):
-        from app.agents.handoff import detect_handoff
+        from agent_host.handoff import detect_handoff
         state = {
             "agent_type": "tutor",
             "user_role": "student",
@@ -448,7 +446,7 @@ class TestHandoff:
         assert result.get("handoff_to") is None
 
     def test_handoff_blocked_for_student_to_generator(self):
-        from app.agents.handoff import detect_handoff
+        from agent_host.handoff import detect_handoff
         state = {
             "agent_type": "tutor",
             "user_role": "student",
@@ -459,7 +457,7 @@ class TestHandoff:
         assert result.get("handoff_to") is None
 
     def test_handoff_blocked_for_same_agent(self):
-        from app.agents.handoff import detect_handoff
+        from agent_host.handoff import detect_handoff
         state = {
             "agent_type": "tutor",
             "user_role": "student",
@@ -470,7 +468,7 @@ class TestHandoff:
         assert result.get("handoff_to") is None
 
     def test_check_handoff_routes_correctly(self):
-        from app.agents.orchestrator import _check_handoff
+        from agent_host.orchestrator import _check_handoff
         state = {
             "agent_type": "tutor",
             "handoff_to": "reviewer",
@@ -483,7 +481,7 @@ class TestHandoff:
         assert state["handoff_to"] is None
 
     def test_check_handoff_blocked_by_max(self):
-        from app.agents.orchestrator import _check_handoff
+        from agent_host.orchestrator import _check_handoff
         state = {
             "agent_type": "reviewer",
             "handoff_to": "analytics",
@@ -494,7 +492,7 @@ class TestHandoff:
         assert result == "respond"
 
     def test_check_handoff_blocked_by_loop(self):
-        from app.agents.orchestrator import _check_handoff
+        from agent_host.orchestrator import _check_handoff
         state = {
             "agent_type": "reviewer",
             "handoff_to": "tutor",
@@ -505,7 +503,7 @@ class TestHandoff:
         assert result == "respond"
 
     def test_check_handoff_returns_respond_when_no_handoff(self):
-        from app.agents.orchestrator import _check_handoff
+        from agent_host.orchestrator import _check_handoff
         state = {
             "agent_type": "tutor",
             "handoff_to": None,
@@ -516,15 +514,15 @@ class TestHandoff:
         assert result == "respond"
 
     def test_orchestrator_graph_compiles_with_handoff(self):
-        from app.agents.orchestrator import build_graph
+        from agent_host.orchestrator import build_graph
         graph = build_graph()
         compiled = graph.compile()
         assert compiled is not None
 
     def test_handoff_addendum_in_agent_prompts(self, app):
-        from app.agents.agents.tutor import TutorAgent
-        from app.agents.agents.reviewer import ReviewerAgent
-        from app.agents.agents.analytics import AnalyticsAgent
+        from agent_host.agents.tutor import TutorAgent
+        from agent_host.agents.reviewer import ReviewerAgent
+        from agent_host.agents.analytics import AnalyticsAgent
 
         for AgentCls in [TutorAgent, ReviewerAgent, AnalyticsAgent]:
             agent = AgentCls()
@@ -536,7 +534,7 @@ class TestHandoff:
             assert "HANDOFF" in ctx, f"{AgentCls.__name__} missing HANDOFF in system context"
 
     def test_state_has_handoff_fields(self):
-        from app.agents.state import AgentState
+        from agent_host.state import AgentState
         import typing
         hints = typing.get_type_hints(AgentState)
         assert "handoff_to" in hints

@@ -1,8 +1,29 @@
-"""MCP Server entry point — tool registration and lifecycle."""
+"""MCP Server entry point — tool registration and lifecycle.
+
+Note: The local mcp/ package (Phase 5 kernel) shadows the third-party
+``mcp`` SDK.  We temporarily adjust sys.path to import FastMCP.
+"""
 
 import logging
+import os
+import sys
 
-from mcp.server import FastMCP
+def _import_fastmcp():
+    """Import FastMCP from the installed mcp SDK, bypassing the local mcp/ shadow."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    saved_path = sys.path[:]
+    saved_modules = {k: v for k, v in sys.modules.items() if k == "mcp" or k.startswith("mcp.")}
+    try:
+        for k in saved_modules:
+            del sys.modules[k]
+        sys.path = [p for p in sys.path if os.path.abspath(p) != project_root]
+        from mcp.server import FastMCP as _FastMCP
+        return _FastMCP
+    finally:
+        sys.path = saved_path
+        sys.modules.update(saved_modules)
+
+FastMCP = _import_fastmcp()
 
 from mcp_server.tools.knowledge import register_knowledge_tools
 from mcp_server.tools.problems import register_problem_tools

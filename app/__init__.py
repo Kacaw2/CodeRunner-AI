@@ -70,7 +70,7 @@ def _ensure_tables(app):
 def _recover_orphaned_tasks(app):
     """C1: Resume tasks that were running when the server last crashed."""
     try:
-        from app.agents.recovery import recover_orphaned_tasks
+        from agent_host.recovery import recover_orphaned_tasks
         recovered = recover_orphaned_tasks()
         if recovered:
             app.logger.info("Startup: recovered %d orphaned tasks", recovered)
@@ -85,7 +85,7 @@ def _async_index_knowledge_base(app):
     def _do_index():
         with app.app_context():
             try:
-                from app.agents.knowledge_base import index_all_problems
+                from agent_host.knowledge_base import index_all_problems
                 count = index_all_problems()
                 app.logger.info("Knowledge base indexing complete: %d questions", count)
             except Exception as e:

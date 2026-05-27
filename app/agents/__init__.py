@@ -1,3 +1,4 @@
-from app.agents.orchestrator import AgentOrchestrator
+"""app.agents — domain tool implementations live in tools/core/.
 
-__all__ = ["AgentOrchestrator"]
+Agent runtime has moved to agent_host/.
+"""

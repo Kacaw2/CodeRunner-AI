@@ -101,7 +101,7 @@ class TestMcpServerCreation:
 class TestCoreFunctions:
     def test_search_similar_problems_impl(self):
         from app.agents.tools.core.knowledge import search_similar_problems_impl
-        with patch("app.agents.knowledge_base.get_knowledge_base") as mock_kb:
+        with patch("agent_host.knowledge_base.get_knowledge_base") as mock_kb:
             mock_kb.return_value.search_similar_problems.return_value = [
                 {"id": 1, "title": "Two Sum", "score": 0.95}
             ]
@@ -111,7 +111,7 @@ class TestCoreFunctions:
 
     def test_search_knowledge_impl(self):
         from app.agents.tools.core.knowledge import search_knowledge_impl
-        with patch("app.agents.knowledge_base.get_knowledge_base") as mock_kb:
+        with patch("agent_host.knowledge_base.get_knowledge_base") as mock_kb:
             mock_kb.return_value.search_knowledge.return_value = [
                 {"topic": "Arrays", "content": "..."}
             ]
@@ -259,12 +259,12 @@ class TestMiddleware:
             "role": "student", "scopes": None, "rate_limit_rpm": 30,
         })
 
-        @mcp_tool_middleware("search_knowledge")
-        def dummy(query: str) -> str:
+        @mcp_tool_middleware("get_agent_trace")
+        def dummy(run_id: str) -> str:
             return json.dumps({"ok": True})
 
         with patch("mcp_server.middleware.log_tool_call"):
-            result = dummy(query="test")
+            result = dummy(run_id="test")
         assert "Permission denied" in result
 
     def test_scope_restriction(self):
@@ -339,24 +339,29 @@ class TestRateLimiter:
 
 class TestMcpPermissions:
     def test_teacher_allowed(self):
-        from app.agents.tools.permissions import check_tool_permission
+        from mcp_server.middleware import check_tool_permission
         assert check_tool_permission("mcp", "search_knowledge", "teacher")
         assert check_tool_permission("mcp", "search_similar_problems", "teacher")
         assert check_tool_permission("mcp", "get_problem_detail", "teacher")
         assert check_tool_permission("mcp", "get_problem_difficulty_stats", "teacher")
 
     def test_admin_allowed(self):
-        from app.agents.tools.permissions import check_tool_permission
+        from mcp_server.middleware import check_tool_permission
         assert check_tool_permission("mcp", "search_knowledge", "admin")
 
-    def test_student_denied(self):
-        from app.agents.tools.permissions import check_tool_permission
-        assert not check_tool_permission("mcp", "search_knowledge", "student")
-        assert not check_tool_permission("mcp", "get_problem_detail", "student")
+    def test_student_denied_restricted_tools(self):
+        from mcp_server.middleware import check_tool_permission
+        assert not check_tool_permission("mcp", "get_agent_trace", "student")
+        assert not check_tool_permission("mcp", "get_student_summary", "student")
 
-    def test_unknown_tool_denied(self):
-        from app.agents.tools.permissions import check_tool_permission
-        assert not check_tool_permission("mcp", "nonexistent_tool", "teacher")
+    def test_student_allowed_read_tools(self):
+        from mcp_server.middleware import check_tool_permission
+        assert check_tool_permission("mcp", "search_knowledge", "student")
+        assert check_tool_permission("mcp", "get_problem_detail", "student")
+
+    def test_unknown_tool_allowed_by_default(self):
+        from mcp_server.middleware import check_tool_permission
+        assert check_tool_permission("mcp", "nonexistent_tool", "teacher")
 
 
 # ── Audit logging ──

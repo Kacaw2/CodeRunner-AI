@@ -343,7 +343,7 @@ class SubmissionService:
         def _do_update():
             with app.app_context():
                 try:
-                    from app.agents.memory import MemoryService
+                    from agent_host.memory import MemoryService
                     MemoryService.update_student_profile(student_id)
                 except Exception as e:
                     logger.warning("Profile update failed for student %d: %s", student_id, e)

@@ -9,13 +9,13 @@
 ```
 面向在线编程教学场景的内部多 Agent 智能辅助系统
 + 外部 LLM Provider（DeepSeek API）
-+ 标准化工具接入层（MCP，部分实现）
++ 标准化工具接入层（MCP，已成为唯一工具边界）
 ```
 
 **重要术语约定**：
 - **Agent** = 项目内部定义的教学任务执行单元（Tutor / Reviewer / Generator / Analytics）
 - **LLM Provider** = 外部模型服务（DeepSeek）。DeepSeek 不是 Agent，是底层推理引擎
-- **MCP** = 工具协议层。当前为部分实现，尚未成为 Agent 的唯一工具边界
+- **MCP** = 工具协议层。Phase E 完成后已成为 Agent 的唯一工具边界
 
 ### 当前实现 vs 目标架构
 
@@ -25,8 +25,8 @@
 | 声明式 Agent 定义 | ✅ `definitions.py` — name, tools, roles, tier, risk | 不变 |
 | Model Router | ✅ 三层 tier (fast/balanced/strong)，DeepSeek provider | 多 provider 支持 |
 | Orchestrator | ✅ LangGraph StateGraph，基于 definition 路由 | Education Orchestrator 多步编排 |
-| 工具调用 | ⚠️ LangChain tool wrappers（直接绑定） | MCP 成为唯一工具边界 |
-| MCP Server | ⚠️ 初步实现，外部客户端读写 | Agent 内部也经 MCP 调用 |
+| 工具调用 | ✅ MCP ToolRuntime（Phase E 完成） | 不变 |
+| MCP 内核 | ✅ `mcp/` 唯一工具边界 + guard pipeline | 不变 |
 | Human Gate | ⚠️ 生成草稿审批流 | 与 AgentTask 状态机完整打通 |
 | Subagent 隔离 | ❌ Agent 共享上下文 | 独立上下文窗口和工具权限 |
 | 多模型路由 | ✅ tier 抽象，单 provider | 多 provider + 动态路由策略 |

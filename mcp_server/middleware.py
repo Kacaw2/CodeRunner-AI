@@ -18,7 +18,27 @@ import time
 
 from mcp_server.rate_limiter import check_rate_limit
 from mcp_server.audit import log_tool_call
-from app.agents.tools.permissions import check_tool_permission
+
+
+_LEGACY_TO_MCP = {
+    "get_agent_trace": "coderunner.trace.get_agent_trace",
+    "get_student_summary": "coderunner.student.get_summary",
+    "execute_code": "coderunner.code.execute",
+    "save_generated_problem": "coderunner.problem.save_generated",
+    "get_student_stats": "coderunner.analytics.student_stats",
+    "get_class_statistics": "coderunner.analytics.class_statistics",
+    "get_problem_difficulty_stats": "coderunner.analytics.problem_difficulty",
+}
+
+
+def check_tool_permission(agent_type: str, tool_name: str, user_role: str) -> bool:
+    """Compatibility shim — delegates to mcp.policies.rbac."""
+    from mcp.policies.rbac import _ROLE_OVERRIDES
+    mcp_name = _LEGACY_TO_MCP.get(tool_name, f"coderunner.{tool_name}")
+    override = _ROLE_OVERRIDES.get(mcp_name)
+    if override is not None:
+        return user_role in override
+    return True
 
 logger = logging.getLogger(__name__)
 

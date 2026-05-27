@@ -75,24 +75,24 @@ DeepSeek API 作为外部 LLM Provider，提供底层推理与生成能力；
 | 内部业务 Agent | 已有 Tutor / Reviewer / Generator / Analytics |
 | Orchestrator | 已有 `AgentOrchestrator`，基于 LangGraph `StateGraph` |
 | LLM Provider | DeepSeek API，使用 OpenAI-compatible `ChatOpenAI` |
-| 工具调用 | Agent 通过 LangChain tool wrappers 调用代码执行、题目、提交、RAG、统计 |
+| 工具调用 | Agent 通过 MCP ToolRuntime 调用工具（Phase E 完成） |
 | RAG | 已有 ChromaDB + sentence-transformers 知识库路径 |
 | Trace | 已有 `TraceCollector` 和 AgentRun / AgentRunStep 写入 |
 | 异步任务 | 已有 ChatTask / Redis / SSE 恢复方向 |
-| MCP | 已有初步 `mcp_server/`，但未成为 Agent 唯一工具边界 |
+| MCP | `mcp/` 内核已成为 Agent 唯一工具边界（Phase E 完成），`mcp_server/` 保留为兼容层 |
 
 当前主要不足：
 
 | 不足 | 影响 |
 |---|---|
-| Agent 仍直接绑定 LangChain tools | 工具边界分散，权限、审计、schema 不统一 |
-| Workflow 仍可直接 `get_all_tools()` / `tool.invoke()` | 可能绕过 MCP、安全策略和审计 |
+| ~~Agent 仍直接绑定 LangChain tools~~ | ✅ Phase E 完成：全部通过 MCP ToolRuntime |
+| ~~Workflow 仍可直接 `get_all_tools()` / `tool.invoke()`~~ | ✅ Phase E 完成：Workflow 经 MCP 调用 |
 | DeepSeek 配置是单模型入口 | 无法按任务复杂度做成本/速度/能力路由 |
 | Agent 间 handoff 较轻量 | 不等同于独立 subagent 执行和结果聚合 |
-| Agent Host 仍部分依赖 Flask 执行路径 | Runtime 边界不够清晰 |
-| MCP Server 仍是单体实验形态 | 还不是标准工具协议层 |
+| ~~Agent Host 仍部分依赖 Flask 执行路径~~ | ✅ Phase E2 完成：agent_host/ 独立顶层模块 |
+| ~~MCP Server 仍是单体实验形态~~ | ✅ Phase E 完成：mcp/ 标准化工具协议内核 |
 | Human Gate 与 AgentTask 状态未完全打通 | 高风险工具审批后的恢复执行不够成熟 |
-| 权限策略分散 | Agent、工具、API、MCP 之间容易出现重复或绕过 |
+| ~~权限策略分散~~ | ✅ Phase E 完成：MCP guard pipeline 统一 RBAC/scope/risk |
 
 ## 4. 目标架构
 
@@ -615,8 +615,8 @@ coderunner.trace.get_agent_trace
 Phase A 文档和术语修正              ✅ 已完成
   -> Phase B Model Router           ✅ 已完成
   -> Phase C Agent Definition       ✅ 已完成
-  -> Phase E MCP 唯一工具边界
-  -> Phase E2 顶层目录拆分（Agent Host / MCP 独立）
+  -> Phase E MCP 唯一工具边界        ✅ 已完成
+  -> Phase E2 顶层目录拆分            ✅ 已完成
   -> Phase F Human Gate 状态机
   -> Phase D Education Orchestrator 多步编排
   -> Phase G Observability / Eval

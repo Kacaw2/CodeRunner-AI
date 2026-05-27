@@ -99,13 +99,13 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
 
             context = {"conversation_id": task.conversation_id}
 
-            # Set up DB session context var for tools
-            from app.agents.tools.db_context import set_current_session
-            token = set_current_session(session)
+            # Bootstrap MCP ToolRuntime with session factory
+            from mcp.server.shared.bootstrap import bootstrap_tool_runtime
+            bootstrap_tool_runtime(session_factory=lambda: session)
 
             try:
                 # ── Try Supervisor workflow first ──
-                from app.agents.workflow.supervisor import SupervisorAgent
+                from agent_host.workflow.supervisor import SupervisorAgent
 
                 supervisor = SupervisorAgent(session=session)
                 wf_result = supervisor.invoke_from_chat(
@@ -125,10 +125,10 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
                     resolved_agent_type = "supervisor"
                 else:
                     # ── Single agent path ──
-                    from app.agents.agents import (
+                    from agent_host.agents import (
                         TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent,
                     )
-                    from app.agents.orchestrator import _classify_intent, MAX_HANDOFFS
+                    from agent_host.orchestrator import _classify_intent, MAX_HANDOFFS
 
                     _AGENT_MAP = {
                         "tutor": TutorAgent,
@@ -223,7 +223,7 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
                         full_response = state.get("final_response", "")
 
                 # ── Filter output ──
-                from app.agents.security import filter_output
+                from agent_host.security import filter_output
                 filtered = filter_output(full_response, resolved_agent_type, user_role)
 
                 # ── Save assistant message ──
@@ -247,7 +247,8 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
                 redis_buffer.ct_set_status(task_id, "completed", resolved_agent_type)
 
             finally:
-                set_current_session(None)
+                from mcp.client.runtime import reset_tool_runtime
+                reset_tool_runtime()
 
     except Exception as e:
         logger.exception("ChatTask %s failed", task_id)
@@ -353,14 +354,14 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
             user = session.get(User, run.user_id)
             user_role = user.role if user else "teacher"
 
-            # Set DB session context var for tools
-            from app.agents.tools.db_context import set_current_session
-            token = set_current_session(session)
+            # Bootstrap MCP ToolRuntime with session factory
+            from mcp.server.shared.bootstrap import bootstrap_tool_runtime
+            bootstrap_tool_runtime(session_factory=lambda: session)
 
             try:
                 plan = run.plan_json if isinstance(run.plan_json, dict) else None
                 if plan and plan.get("steps"):
-                    from app.agents.workflow.engine import WorkflowEngine
+                    from agent_host.workflow.engine import WorkflowEngine
 
                     state = WorkflowEngine(session=session).execute(
                         plan=plan,
@@ -371,7 +372,7 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
                         workflow_run_id=run_id,
                     )
                 else:
-                    from app.agents.workflow.supervisor import SupervisorAgent
+                    from agent_host.workflow.supervisor import SupervisorAgent
 
                     supervisor = SupervisorAgent(session=session)
                     state = supervisor.run_workflow(
@@ -400,7 +401,8 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
                     _fail_workflow(run_id, state.get("error", "Workflow failed"))
 
             finally:
-                set_current_session(None)
+                from mcp.client.runtime import reset_tool_runtime
+                reset_tool_runtime()
 
     except Exception as e:
         logger.exception("WorkflowRun %s failed", run_id)

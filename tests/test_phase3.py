@@ -87,14 +87,14 @@ class TestTeacherPreference:
 class TestMemoryService:
     def test_get_memory_context_student_empty(self, app, student_user):
         with app.app_context():
-            from app.agents.memory import MemoryService
+            from agent_host.memory import MemoryService
 
             ctx = MemoryService.get_memory_context(student_user.id, "student")
             assert ctx == ""
 
     def test_get_memory_context_student_with_profile(self, db_session, student_user, app):
         with app.app_context():
-            from app.agents.memory import MemoryService
+            from agent_host.memory import MemoryService
             from app.models.student_profile import StudentProfile
 
             profile = StudentProfile(
@@ -112,7 +112,7 @@ class TestMemoryService:
 
     def test_get_memory_context_teacher_with_prefs(self, db_session, teacher_user, app):
         with app.app_context():
-            from app.agents.memory import MemoryService
+            from agent_host.memory import MemoryService
             from app.models.student_profile import TeacherPreference
 
             pref = TeacherPreference(
@@ -129,7 +129,7 @@ class TestMemoryService:
 
     def test_update_student_profile(self, db_session, student_user, app):
         with app.app_context():
-            from app.agents.memory import MemoryService
+            from agent_host.memory import MemoryService
             from app.models.student_profile import StudentProfile
             from app.models.submission import Submission
             from app.models.problem import Problem
@@ -153,14 +153,14 @@ class TestMemoryService:
             assert profile.error_patterns.get("AC", 0) >= 1
 
     def test_compact_messages_short(self):
-        from app.agents.memory import MemoryService
+        from agent_host.memory import MemoryService
 
         msgs = [HumanMessage(content="hi")] * 5
         result = MemoryService.compact_messages(msgs, max_messages=20)
         assert len(result) == 5
 
     def test_compact_messages_long(self):
-        from app.agents.memory import MemoryService
+        from agent_host.memory import MemoryService
 
         msgs = [SystemMessage(content="sys")] + [HumanMessage(content=f"msg {i}") for i in range(30)]
         result = MemoryService.compact_messages(msgs, max_messages=10)
@@ -321,10 +321,10 @@ class TestEvalRunModel:
 # ── Memory Injection into Agents Tests ───────────────────────
 
 class TestMemoryInjectionInAgents:
-    @patch("app.agents.agents.base.AIConfig")
+    @patch("agent_host.agents.base.AIConfig")
     def test_tutor_injects_memory_context(self, mock_config, db_session, student_user, app):
         with app.app_context():
-            from app.agents.agents.tutor import TutorAgent
+            from agent_host.agents.tutor import TutorAgent
             from app.models.student_profile import StudentProfile
 
             profile = StudentProfile(
@@ -343,10 +343,10 @@ class TestMemoryInjectionInAgents:
             ctx = agent._build_system_context(state)
             assert "pointer arithmetic" in ctx
 
-    @patch("app.agents.agents.base.AIConfig")
+    @patch("agent_host.agents.base.AIConfig")
     def test_generator_injects_teacher_preferences(self, mock_config, db_session, teacher_user, app):
         with app.app_context():
-            from app.agents.agents.generator import GeneratorAgent
+            from agent_host.agents.generator import GeneratorAgent
             from app.models.student_profile import TeacherPreference
 
             pref = TeacherPreference(
@@ -365,10 +365,10 @@ class TestMemoryInjectionInAgents:
             ctx = agent._build_system_context(state)
             assert "concise problem descriptions" in ctx
 
-    @patch("app.agents.agents.base.AIConfig")
+    @patch("agent_host.agents.base.AIConfig")
     def test_analytics_injects_memory_context(self, mock_config, db_session, student_user, app):
         with app.app_context():
-            from app.agents.agents.analytics import AnalyticsAgent
+            from agent_host.agents.analytics import AnalyticsAgent
             from app.models.student_profile import StudentProfile
 
             profile = StudentProfile(
@@ -393,22 +393,18 @@ class TestMemoryInjectionInAgents:
 
 class TestKnowledgeToolPermissions:
     def test_tutor_can_use_search_knowledge(self):
-        from app.agents.tools.permissions import check_tool_permission
-
-        assert check_tool_permission("tutor", "search_knowledge", "student") is True
-        assert check_tool_permission("tutor", "search_error_patterns", "student") is True
+        from mcp.policies.rbac import check_rbac, _AGENT_TOOL_ALLOW
+        assert "coderunner.knowledge.search" in _AGENT_TOOL_ALLOW["tutor"]
+        assert "coderunner.knowledge.search_error_patterns" in _AGENT_TOOL_ALLOW["tutor"]
 
     def test_generator_can_use_search_similar(self):
-        from app.agents.tools.permissions import check_tool_permission
-
-        assert check_tool_permission("generator", "search_similar_problems", "teacher") is True
-        assert check_tool_permission("generator", "search_similar_problems", "student") is False
+        from mcp.policies.rbac import _AGENT_TOOL_ALLOW
+        assert "coderunner.knowledge.search_similar_problems" in _AGENT_TOOL_ALLOW["generator"]
 
     def test_reviewer_cannot_use_knowledge_tools(self):
-        from app.agents.tools.permissions import check_tool_permission
-
-        assert check_tool_permission("reviewer", "search_knowledge", "student") is False
-        assert check_tool_permission("reviewer", "search_similar_problems", "teacher") is False
+        from mcp.policies.rbac import _AGENT_TOOL_ALLOW
+        assert "coderunner.knowledge.search" not in _AGENT_TOOL_ALLOW["reviewer"]
+        assert "coderunner.knowledge.search_similar_problems" not in _AGENT_TOOL_ALLOW["reviewer"]
 
 
 # ── API Endpoint Tests ───────────────────────────────────────

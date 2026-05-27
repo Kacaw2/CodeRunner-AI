@@ -129,6 +129,7 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       FLASK_BASE_URL: http://web:9900
       AGENT_HOST_PORT: 8100
+      MCP_INTERNAL_SERVICE_TOKEN: ${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}
       DEBUG: ${DEBUG:-False}
     ports:
       - "${AGENT_HOST_PORT:-8100}:8100"

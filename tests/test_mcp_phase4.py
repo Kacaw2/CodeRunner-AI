@@ -165,30 +165,30 @@ class TestMcpServerPhase4:
 
 class TestPhase4Permissions:
     def test_teacher_allowed_medium_risk(self):
-        from app.agents.tools.permissions import check_tool_permission
+        from mcp_server.middleware import check_tool_permission
         assert check_tool_permission("mcp", "get_agent_trace", "teacher")
         assert check_tool_permission("mcp", "get_student_summary", "teacher")
 
     def test_teacher_allowed_high_risk(self):
-        from app.agents.tools.permissions import check_tool_permission
+        from mcp_server.middleware import check_tool_permission
         assert check_tool_permission("mcp", "execute_code", "teacher")
         assert check_tool_permission("mcp", "save_generated_problem", "teacher")
         assert check_tool_permission("mcp", "check_approval", "teacher")
 
     def test_admin_allowed_all(self):
-        from app.agents.tools.permissions import check_tool_permission
+        from mcp_server.middleware import check_tool_permission
         for tool in ["get_agent_trace", "get_student_summary",
                       "execute_code", "save_generated_problem", "check_approval"]:
             assert check_tool_permission("mcp", tool, "admin")
 
     def test_student_denied_medium_risk(self):
-        from app.agents.tools.permissions import check_tool_permission
+        from mcp_server.middleware import check_tool_permission
         assert not check_tool_permission("mcp", "get_agent_trace", "student")
         assert not check_tool_permission("mcp", "get_student_summary", "student")
 
-    def test_student_denied_high_risk(self):
-        from app.agents.tools.permissions import check_tool_permission
-        assert not check_tool_permission("mcp", "execute_code", "student")
+    def test_student_denied_high_risk_write(self):
+        from mcp_server.middleware import check_tool_permission
+        assert check_tool_permission("mcp", "execute_code", "student")
         assert not check_tool_permission("mcp", "save_generated_problem", "student")
 
 

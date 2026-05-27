@@ -21,6 +21,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=appuser:appuser agent_host/ ./agent_host/
+COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser mcp/ ./mcp/
+COPY --chown=appuser:appuser mcp_server/ ./mcp_server/
 COPY --chown=appuser:appuser .env* ./
 
 USER appuser

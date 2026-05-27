@@ -6,7 +6,7 @@ def search_similar_problems_impl(
     language: str = "python",
     limit: int = 5,
 ) -> dict:
-    from app.agents.knowledge_base import get_knowledge_base
+    from agent_host.knowledge_base import get_knowledge_base
 
     try:
         kb = get_knowledge_base()
@@ -20,7 +20,7 @@ def search_knowledge_impl(
     query: str,
     owner_id: int = None,
 ) -> dict:
-    from app.agents.knowledge_base import get_knowledge_base
+    from agent_host.knowledge_base import get_knowledge_base
 
     try:
         kb = get_knowledge_base()
@@ -32,7 +32,7 @@ def search_knowledge_impl(
 
 
 def search_error_patterns_impl(query: str) -> dict:
-    from app.agents.knowledge_base import get_knowledge_base
+    from agent_host.knowledge_base import get_knowledge_base
 
     try:
         kb = get_knowledge_base()

@@ -1,10 +1,21 @@
 """Integration checks for the FastAPI Agent Host boundary."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_agent_host_image_includes_packages_used_by_worker():
+    dockerfile = (ROOT / "docker" / "Dockerfile.agent_host").read_text(encoding="utf-8")
+
+    assert "COPY --chown=appuser:appuser app/ ./app/" in dockerfile
+    assert "COPY --chown=appuser:appuser mcp_server/ ./mcp_server/" in dockerfile
 
 
 def test_agent_host_chat_task_model_matches_flask_conversation_contract():

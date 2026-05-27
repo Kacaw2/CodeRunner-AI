@@ -65,7 +65,7 @@ def main():
 
     # ── Pre-warm knowledge base ──
     try:
-        from app.agents.knowledge_base import get_knowledge_base
+        from agent_host.knowledge_base import get_knowledge_base
         get_knowledge_base()
         logger.info("Knowledge base pre-loaded")
     except Exception as e:

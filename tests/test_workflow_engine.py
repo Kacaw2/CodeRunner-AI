@@ -3,8 +3,8 @@
 
 def test_workflow_engine_can_execute_into_existing_run(app, db_session, teacher_user):
     with app.app_context():
-        from app.agents.workflow.engine import WorkflowEngine
-        from app.agents.workflow.registry import register_step_handler
+        from agent_host.workflow.engine import WorkflowEngine
+        from agent_host.workflow.registry import register_step_handler
         from app.models.workflow import WorkflowRun, WorkflowStep
 
         run = WorkflowRun(
