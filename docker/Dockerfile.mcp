@@ -1,4 +1,4 @@
-# Dockerfile for MCP domain servers
+# Dockerfile for MCP gateway (stand-alone variant)
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -20,8 +20,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=appuser:appuser mcp/ ./mcp/
 COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser core/ ./core/
+COPY --chown=appuser:appuser tools/ ./tools/
+COPY --chown=appuser:appuser knowledge/ ./knowledge/
+COPY --chown=appuser:appuser mcp_gateway/ ./mcp_gateway/
 COPY --chown=appuser:appuser .env* ./
 
 USER appuser

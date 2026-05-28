@@ -136,7 +136,7 @@ class EvalRunner:
         }
 
     def _get_agent(self, agent_type: str):
-        from agent_host.agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
+        from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
 
         agent_map = {
             "tutor": TutorAgent,

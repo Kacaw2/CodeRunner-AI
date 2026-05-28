@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from agent_host.exceptions import (
+from core.exceptions import (
     AIError,
     LLMError,
     ToolError,

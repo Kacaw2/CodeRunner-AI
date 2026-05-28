@@ -6,9 +6,9 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context, cu
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
 from app.models.ai_conversation import AIConversation, AIMessage
-from agent_host.agents_config import AGENT_RATE_LIMITS
-from agent_host.exceptions import AIError, RateLimitError, ConfigError
-from agent_host.security import detect_injection, sanitize_user_input, filter_output
+from agents.config import AGENT_RATE_LIMITS
+from core.exceptions import AIError, RateLimitError, ConfigError
+from core.security import detect_injection, sanitize_user_input, filter_output
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ def _maybe_index_problem(problem):
     if not problem:
         return
     try:
-        from agent_host.knowledge_base import get_knowledge_base
+        from knowledge.store import get_knowledge_base
         kb = get_knowledge_base()
         kb.index_problem(problem)
     except Exception as e:
@@ -126,7 +126,7 @@ def _maybe_generate_summary(conv_id: int):
             def _generate(app_obj, cid):
                 with app_obj.app_context():
                     try:
-                        from agent_host.memory import MemoryService
+                        from memory.service import MemoryService
                         summary = MemoryService.generate_conversation_summary(cid)
                         if summary:
                             c = AIConversation.query.get(cid)
@@ -306,7 +306,7 @@ def chat():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agent_host.orchestrator import AgentOrchestrator
+        from graph.runner import AgentOrchestrator
 
         orch = AgentOrchestrator()
         state = orch.run({
@@ -403,8 +403,8 @@ def chat_stream():
 
     def generate():
         from langchain_core.messages import HumanMessage
-        from agent_host.agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
-        from agent_host.orchestrator import _classify_intent, MAX_HANDOFFS
+        from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
+        from graph.runner import _classify_intent, MAX_HANDOFFS
 
         _AGENT_MAP = {
             "tutor": TutorAgent,
@@ -607,7 +607,7 @@ def chat_async():
         db.session.commit()
 
         # Submit to background worker
-        from agent_host.chat_worker import submit_chat_task
+        from workers.chat import submit_chat_task
         submit_chat_task(task.id, current_app._get_current_object())
 
         resp = jsonify({
@@ -645,7 +645,7 @@ def chat_task_stream(task_id):
     last_event = request.args.get("last_event", 0, type=int)
 
     def generate():
-        from agent_host.chat_worker import (
+        from workers.chat import (
             get_task_events, get_task_event_count, get_task_status_from_redis,
         )
 
@@ -830,7 +830,7 @@ def review_code():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agent_host.agents import ReviewerAgent
+        from agents import ReviewerAgent
 
         agent = ReviewerAgent()
         state = {
@@ -906,7 +906,7 @@ def generate_question():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agent_host.agents import GeneratorAgent
+        from agents import GeneratorAgent
 
         agent = GeneratorAgent()
         state = {
@@ -1048,7 +1048,7 @@ def generate_batch():
                                {"Retry-After": str(e.retry_after)})
 
     from app.models.agent_task import AgentTask
-    from agent_host.batch_runner import decompose_batch_params, BatchTaskRunner
+    from workers.batch import decompose_batch_params, BatchTaskRunner
 
     params = {
         "topic": topic,
@@ -1111,10 +1111,10 @@ def generate_pipeline():
 
     user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
 
-    from agent_host.memory import MemoryService
+    from memory.service import MemoryService
     teacher_ctx = MemoryService.get_memory_context(user.id, user_role)
 
-    from agent_host.generation_pipeline import run_generation_workflow
+    from workers.generation_pipeline import run_generation_workflow
     try:
         result = run_generation_workflow(
             teacher_id=user.id,
@@ -1197,7 +1197,7 @@ def retry_task(task_id):
     """Retry a failed task or a specific step within a batch."""
     user = get_current_user_or_401()
     from app.models.agent_task import AgentTask
-    from agent_host.batch_runner import BatchTaskRunner
+    from workers.batch import BatchTaskRunner
 
     task = AgentTask.query.filter_by(id=task_id, user_id=user.id).first()
     if not task:
@@ -1325,7 +1325,7 @@ def _publish_draft(draft, created_by: int):
 
 def _trigger_revision(draft):
     """Use the Generator agent to revise based on teacher feedback."""
-    from agent_host.agents.generator import GeneratorAgent
+    from agents.generator.agent import GeneratorAgent
     from langchain_core.messages import HumanMessage as LCHumanMessage
 
     original_json = json.dumps(draft.question_data, indent=2, ensure_ascii=False)
@@ -1483,7 +1483,7 @@ def analytics_report(student_id):
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agent_host.agents import AnalyticsAgent
+        from agents import AnalyticsAgent
 
         agent = AnalyticsAgent()
         state = {
@@ -1591,7 +1591,7 @@ def refresh_profile():
     if user_role != "student":
         return _error_response("forbidden", "Only students have learning profiles", 403)
 
-    from agent_host.memory import MemoryService
+    from memory.service import MemoryService
     try:
         MemoryService.update_student_profile(user.id)
         from app.models.student_profile import StudentProfile
@@ -1608,7 +1608,7 @@ def refresh_profile():
 def _learn_teacher_preferences(teacher_id: int, request_params: dict, question_data: dict):
     """Background call to update teacher preferences after a successful generation."""
     try:
-        from agent_host.preference_learner import learn_from_generation
+        from memory.preference import learn_from_generation
         learn_from_generation(teacher_id, request_params, question_data)
     except Exception as e:
         logger.debug("Preference learning skipped: %s", e)
@@ -1620,7 +1620,7 @@ def refresh_teacher_style():
     """Refresh the teacher's AI style summary based on generation history."""
     user = get_current_user_or_401()
     try:
-        from agent_host.preference_learner import refresh_teacher_style_summary
+        from memory.preference import refresh_teacher_style_summary
         refresh_teacher_style_summary(user.id)
 
         from app.models.student_profile import TeacherPreference
@@ -1640,7 +1640,7 @@ def refresh_class_analysis():
     """Analyze students' weak areas across teacher's classrooms."""
     user = get_current_user_or_401()
     try:
-        from agent_host.preference_learner import analyze_class_weak_areas
+        from memory.preference import analyze_class_weak_areas
         analyze_class_weak_areas(user.id)
 
         from app.models.student_profile import TeacherPreference
@@ -1662,7 +1662,7 @@ def refresh_class_analysis():
 def index_problems():
     """Index all problems into the knowledge base vector store. Teacher/admin only."""
     try:
-        from agent_host.knowledge_base import index_all_problems
+        from knowledge.store import index_all_problems
     except ImportError:
         return _error_response("kb_unavailable",
                                "Knowledge base is unavailable. Please install chromadb and sentence-transformers.", 503)
@@ -1685,7 +1685,7 @@ _KB_UNAVAILABLE_MSG = (
 def _get_kb_or_503():
     """Get the KnowledgeBase singleton, or return a 503 error response."""
     try:
-        from agent_host.knowledge_base import get_knowledge_base
+        from knowledge.store import get_knowledge_base
         return get_knowledge_base(), None
     except ImportError:
         return None, _error_response("kb_unavailable", _KB_UNAVAILABLE_MSG, 503)
@@ -1925,7 +1925,7 @@ def create_workflow():
     conversation_id = data.get("conversation_id")
 
     try:
-        from agent_host.workflow import SupervisorAgent
+        from graph import SupervisorAgent
 
         supervisor = SupervisorAgent()
         state = supervisor.run_workflow(
@@ -1992,7 +1992,7 @@ def list_workflows():
 def get_workflow(workflow_run_id):
     """Get detailed status of a workflow run including all steps."""
     user = get_current_user_or_401()
-    from agent_host.workflow import SupervisorAgent
+    from graph import SupervisorAgent
 
     supervisor = SupervisorAgent()
     result = supervisor.get_workflow_status(workflow_run_id)
@@ -2032,7 +2032,7 @@ def approve_workflow_step(workflow_run_id):
     feedback = data.get("feedback", data.get("notes", ""))
 
     try:
-        from agent_host.workflow import SupervisorAgent
+        from graph import SupervisorAgent
         supervisor = SupervisorAgent()
         state = supervisor.resume_workflow(workflow_run_id, approved, feedback)
 

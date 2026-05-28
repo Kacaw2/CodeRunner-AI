@@ -78,7 +78,7 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20}
       REDIS_URL: redis://redis:6379/0
-      AGENT_HOST_URL: http://agent_host:8100
+      AGENT_HOST_URL: http://workers:8100
       USE_AGENT_HOST_PROXY: ${USE_AGENT_HOST_PROXY:-true}
 
       MAX_CONTENT_LENGTH: 16777216
@@ -108,11 +108,11 @@ services:
     env_file:
       - .env
 
-  agent_host:
+  workers:
     build:
       context: .
-      dockerfile: docker/Dockerfile.agent_host
-    container_name: educode_agent_host
+      dockerfile: docker/Dockerfile.workers
+    container_name: educode_workers
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
@@ -151,13 +151,13 @@ services:
     env_file:
       - .env
 
-  mcp_server:
+  mcp_gateway:
     build:
       context: .
-      dockerfile: docker/Dockerfile.agent_host
-    container_name: educode_mcp_server
+      dockerfile: docker/Dockerfile.workers
+    container_name: educode_mcp_gateway
     restart: unless-stopped
-    entrypoint: ["python", "-m", "mcp_server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8200"]
+    entrypoint: ["python", "-m", "mcp_gateway", "--transport", "sse", "--host", "0.0.0.0", "--port", "8200"]
     environment:
       TZ: Asia/Shanghai
       MYSQL_USER: ${MYSQL_USER:-educode}

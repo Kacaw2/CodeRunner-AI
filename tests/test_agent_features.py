@@ -1,0 +1,423 @@
+"""Tests for advanced agent features: generation pipeline, preference learning,
+analytics tool coverage, and agent handoff."""
+
+import json
+import pytest
+from unittest.mock import patch, MagicMock
+from datetime import datetime, timedelta
+
+
+# ── Fixtures ─────────────────────────────────────────────────
+
+@pytest.fixture
+def app():
+    from app import create_app
+    app = create_app("testing")
+    with app.app_context():
+        from app.core.extensions import db
+        db.create_all()
+        yield app
+        db.session.remove()
+        db.drop_all()
+
+
+@pytest.fixture
+def db_session(app):
+    from app.core.extensions import db
+    yield db.session
+
+
+@pytest.fixture
+def teacher_user(db_session):
+    from app.models.user import User, UserRole
+    user = User(username="teacher4", password="hashed", email="t4@test.com", role=UserRole.TEACHER)
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
+@pytest.fixture
+def student_user(db_session):
+    from app.models.user import User, UserRole
+    user = User(username="student4", password="hashed", email="s4@test.com", role=UserRole.STUDENT)
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
+# ── Task 16: Multi-agent generation pipeline ─────────────────
+
+class TestGenerationPipeline:
+
+    def test_pipeline_state_type_has_all_fields(self):
+        from workers.generation_pipeline import PipelineState
+        import typing
+        hints = typing.get_type_hints(PipelineState)
+        required_fields = [
+            "teacher_id", "language", "difficulty", "topic", "prompt",
+            "generated_problem", "validation_results", "validation_passed",
+            "similar_problems", "is_duplicate", "dedup_attempts",
+            "quality_review", "generate_attempts", "final_draft", "error", "status",
+        ]
+        for field in required_fields:
+            assert field in hints, f"Missing field: {field}"
+
+    def test_build_generation_pipeline_compiles(self):
+        from workers.generation_pipeline import build_generation_pipeline
+        graph = build_generation_pipeline()
+        compiled = graph.compile()
+        assert compiled is not None
+
+    @patch("agents.generator.agent._validate_solution")
+    def test_validate_problem_passes_on_all_ac(self, mock_validate):
+        from workers.generation_pipeline import _validate_problem
+
+        mock_validate.return_value = [
+            {"index": 0, "passed": True, "status": "AC"},
+            {"index": 1, "passed": True, "status": "AC"},
+        ]
+
+        state = {
+            "generated_problem": {
+                "solution": "print(1)",
+                "test_cases": [{"input": "", "expected_output": "1"}] * 2,
+                "programming_language": "python",
+            },
+            "language": "python",
+            "validation_results": [],
+            "validation_passed": False,
+        }
+
+        result = _validate_problem(state)
+        assert result["validation_passed"] is True
+        assert result["generated_problem"]["verified"] is True
+
+    def test_validate_problem_fails_with_no_problem(self):
+        from workers.generation_pipeline import _validate_problem
+
+        state = {
+            "generated_problem": None,
+            "validation_results": [],
+            "validation_passed": False,
+        }
+        result = _validate_problem(state)
+        assert result["validation_passed"] is False
+
+    def test_finalize_draft_assembles_result(self):
+        from workers.generation_pipeline import _finalize_draft
+
+        state = {
+            "generated_problem": {"title": "Test", "verified": True},
+            "validation_results": [{"passed": True}],
+            "validation_passed": True,
+            "similar_problems": [],
+            "quality_review": {"quality_score": 4},
+            "generate_attempts": 1,
+            "dedup_attempts": 0,
+            "final_draft": None,
+            "status": "running",
+            "error": None,
+        }
+
+        result = _finalize_draft(state)
+        assert result["status"] == "completed"
+        assert result["final_draft"] is not None
+        assert result["final_draft"]["problem_data"]["title"] == "Test"
+
+    def test_finalize_draft_fails_without_question(self):
+        from workers.generation_pipeline import _finalize_draft
+
+        state = {
+            "generated_problem": None,
+            "validation_results": [],
+            "validation_passed": False,
+            "similar_problems": [],
+            "quality_review": None,
+            "generate_attempts": 3,
+            "dedup_attempts": 0,
+            "final_draft": None,
+            "status": "running",
+            "error": "Failed",
+        }
+
+        result = _finalize_draft(state)
+        assert result["status"] == "failed"
+        assert result["final_draft"] is None
+
+
+# ── Task 17: Teacher preference learning ─────────────────────
+
+class TestPreferenceLearner:
+
+    def test_learn_from_generation_creates_preference(self, app, teacher_user, db_session):
+        from memory.preference import learn_from_generation
+        from app.models.student_profile import TeacherPreference
+
+        learn_from_generation(
+            teacher_id=teacher_user.id,
+            request_params={"language": "python", "difficulty": "hard", "topic": "trees"},
+            generated_question={"programming_language": "python", "difficulty": "hard"},
+        )
+
+        pref = TeacherPreference.query.filter_by(teacher_id=teacher_user.id).first()
+        assert pref is not None
+        assert pref.preferred_language == "python"
+        assert pref.preferred_difficulty == "hard"
+        assert "trees" in pref.preferred_topics
+
+    def test_learn_updates_existing_preference(self, app, teacher_user, db_session):
+        from memory.preference import learn_from_generation
+        from app.models.student_profile import TeacherPreference
+
+        pref = TeacherPreference(teacher_id=teacher_user.id, preferred_language="c")
+        db_session.add(pref)
+        db_session.commit()
+
+        learn_from_generation(
+            teacher_id=teacher_user.id,
+            request_params={"language": "python", "difficulty": "medium", "topic": "arrays"},
+            generated_question={"programming_language": "python"},
+        )
+
+        db_session.refresh(pref)
+        assert pref.preferred_language == "python"
+        assert "arrays" in pref.preferred_topics
+
+    def test_learn_caps_topic_list(self, app, teacher_user, db_session):
+        from memory.preference import learn_from_generation
+        from app.models.student_profile import TeacherPreference
+
+        pref = TeacherPreference(
+            teacher_id=teacher_user.id,
+            preferred_topics=[f"topic_{i}" for i in range(20)],
+        )
+        db_session.add(pref)
+        db_session.commit()
+
+        learn_from_generation(
+            teacher_id=teacher_user.id,
+            request_params={"topic": "new_topic"},
+            generated_question={},
+        )
+
+        db_session.refresh(pref)
+        assert len(pref.preferred_topics) <= 20
+        assert "new_topic" in pref.preferred_topics
+
+
+# ── Task 19: Analytics tools ─────────────────────────────────
+
+class TestAnalyticsTools:
+
+    def test_get_student_activity_returns_structure(self, app, student_user, db_session):
+        from tools.analytics.queries import get_student_activity_impl
+        result = get_student_activity_impl(student_id=student_user.id, days=30)
+        assert "student_id" in result
+        assert "total_submissions" in result
+        assert "daily_activity" in result
+        assert result["total_submissions"] == 0
+
+    def test_get_student_activity_with_submissions(self, app, student_user, db_session):
+        from app.models.submission import Submission
+        from app.models.problem import Problem
+        from app.models.question import Question
+        from tools.analytics.queries import get_student_activity_impl
+
+        problem = Problem(slug="test-q-activity", title="Test Q", description="Desc", created_by=1)
+        db_session.add(problem)
+        db_session.flush()
+        q = Question(problem_id=problem.id, programming_language="python")
+        db_session.add(q)
+        db_session.flush()
+
+        for i in range(3):
+            sub = Submission(
+                student_id=student_user.id,
+                question_id=q.id,
+                code="print(1)",
+                status="completed" if i < 2 else "error",
+                submitted_at=datetime.utcnow(),
+            )
+            db_session.add(sub)
+        db_session.commit()
+
+        result = get_student_activity_impl(student_id=student_user.id, days=30)
+        assert result["total_submissions"] == 3
+        assert result["total_accepted"] == 2
+
+    def test_get_class_statistics_no_classrooms(self, app, teacher_user):
+        from tools.analytics.queries import get_class_statistics_impl
+        result = get_class_statistics_impl(teacher_id=teacher_user.id)
+        assert result["classrooms"] == []
+
+    def test_get_problem_difficulty_stats_no_submissions(self, app, db_session):
+        from tools.analytics.queries import get_problem_difficulty_stats_impl
+        result = get_problem_difficulty_stats_impl(problem_id=99999)
+        assert result["total_submissions"] == 0
+
+    def test_get_problem_difficulty_stats_with_data(self, app, student_user, db_session):
+        from app.models.submission import Submission
+        from app.models.problem import Problem
+        from app.models.question import Question
+        from tools.analytics.queries import get_problem_difficulty_stats_impl
+
+        problem = Problem(slug="stats-q", title="Stats Q", description="Desc", created_by=1)
+        db_session.add(problem)
+        db_session.flush()
+        q = Question(problem_id=problem.id, programming_language="python")
+        db_session.add(q)
+        db_session.flush()
+
+        for status in ["completed", "completed", "error", "error", "error"]:
+            sub = Submission(
+                student_id=student_user.id,
+                question_id=q.id,
+                code="x",
+                status=status,
+                submitted_at=datetime.utcnow(),
+            )
+            db_session.add(sub)
+        db_session.commit()
+
+        result = get_problem_difficulty_stats_impl(problem_id=problem.id)
+        assert result["total_submissions"] == 5
+        assert result["unique_students"] == 1
+        assert result["status_distribution"]["AC"] == 2
+
+    def test_analytics_tools_in_rbac(self):
+        from tools.protocol.policies.rbac import _AGENT_TOOL_ALLOW, _ROLE_OVERRIDES
+        assert "coderunner.analytics.student_activity" in _AGENT_TOOL_ALLOW["analytics"]
+        assert "coderunner.analytics.class_statistics" in _AGENT_TOOL_ALLOW["analytics"]
+        assert "coderunner.analytics.problem_difficulty" in _AGENT_TOOL_ALLOW["analytics"]
+        assert "student" not in _ROLE_OVERRIDES["coderunner.analytics.class_statistics"]
+
+    def test_analytics_agent_has_mcp_tools(self):
+        from agents.analytics.agent import ANALYTICS_MCP_TOOLS
+        assert "coderunner.analytics.student_activity" in ANALYTICS_MCP_TOOLS
+        assert "coderunner.analytics.class_statistics" in ANALYTICS_MCP_TOOLS
+        assert "coderunner.analytics.problem_difficulty" in ANALYTICS_MCP_TOOLS
+
+
+# ── Task 20: Agent handoff ───────────────────────────────────
+
+class TestHandoff:
+
+    def test_handoff_pattern_detected(self):
+        from graph.handoff import detect_handoff
+        state = {
+            "agent_type": "tutor",
+            "user_role": "student",
+            "final_response": "I can help, but for a detailed review: [HANDOFF: reviewer | Student needs a code review]",
+            "previous_agents": [],
+        }
+        result = detect_handoff(state)
+        assert result["handoff_to"] == "reviewer"
+        assert result["handoff_reason"] == "Student needs a code review"
+        assert "[HANDOFF:" not in result["final_response"]
+
+    def test_handoff_not_triggered_without_marker(self):
+        from graph.handoff import detect_handoff
+        state = {
+            "agent_type": "tutor",
+            "user_role": "student",
+            "final_response": "Here's a hint for your code.",
+            "previous_agents": [],
+        }
+        result = detect_handoff(state)
+        assert result.get("handoff_to") is None
+
+    def test_handoff_blocked_for_student_to_generator(self):
+        from graph.handoff import detect_handoff
+        state = {
+            "agent_type": "tutor",
+            "user_role": "student",
+            "final_response": "[HANDOFF: generator | Create a problem]",
+            "previous_agents": [],
+        }
+        result = detect_handoff(state)
+        assert result.get("handoff_to") is None
+
+    def test_handoff_blocked_for_same_agent(self):
+        from graph.handoff import detect_handoff
+        state = {
+            "agent_type": "tutor",
+            "user_role": "student",
+            "final_response": "[HANDOFF: tutor | Retry myself]",
+            "previous_agents": [],
+        }
+        result = detect_handoff(state)
+        assert result.get("handoff_to") is None
+
+    def test_check_handoff_routes_correctly(self):
+        from graph.runner import _check_handoff
+        state = {
+            "agent_type": "tutor",
+            "handoff_to": "reviewer",
+            "handoff_reason": "Need code review",
+            "previous_agents": ["tutor"],
+        }
+        result = _check_handoff(state)
+        assert result == "reviewer"
+        assert state["agent_type"] == "reviewer"
+        assert state["handoff_to"] is None
+
+    def test_check_handoff_blocked_by_max(self):
+        from graph.runner import _check_handoff
+        state = {
+            "agent_type": "reviewer",
+            "handoff_to": "analytics",
+            "handoff_reason": "Need data",
+            "previous_agents": ["tutor", "reviewer"],
+        }
+        result = _check_handoff(state)
+        assert result == "respond"
+
+    def test_check_handoff_blocked_by_loop(self):
+        from graph.runner import _check_handoff
+        state = {
+            "agent_type": "reviewer",
+            "handoff_to": "tutor",
+            "handoff_reason": "Go back",
+            "previous_agents": ["tutor"],
+        }
+        result = _check_handoff(state)
+        assert result == "respond"
+
+    def test_check_handoff_returns_respond_when_no_handoff(self):
+        from graph.runner import _check_handoff
+        state = {
+            "agent_type": "tutor",
+            "handoff_to": None,
+            "handoff_reason": None,
+            "previous_agents": [],
+        }
+        result = _check_handoff(state)
+        assert result == "respond"
+
+    def test_orchestrator_graph_compiles_with_handoff(self):
+        from graph.runner import build_graph
+        graph = build_graph()
+        compiled = graph.compile()
+        assert compiled is not None
+
+    def test_handoff_addendum_in_agent_prompts(self, app):
+        from agents.tutor.agent import TutorAgent
+        from agents.reviewer.agent import ReviewerAgent
+        from agents.analytics.agent import AnalyticsAgent
+
+        for AgentCls in [TutorAgent, ReviewerAgent, AnalyticsAgent]:
+            agent = AgentCls()
+            ctx = agent._build_system_context({
+                "user_id": 1,
+                "user_role": "student",
+                "context": {},
+            })
+            assert "HANDOFF" in ctx, f"{AgentCls.__name__} missing HANDOFF in system context"
+
+    def test_state_has_handoff_fields(self):
+        from core.state import AgentState
+        import typing
+        hints = typing.get_type_hints(AgentState)
+        assert "handoff_to" in hints
+        assert "handoff_reason" in hints
+        assert "previous_agents" in hints

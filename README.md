@@ -99,26 +99,30 @@ CodeRunner/
 │   ├── __init__.py                # create_app() 工厂 + 蓝图注册
 │   ├── core/                      # config / extensions / executor / init_db
 │   ├── auth/                      # decorators (API/Web 双轨) + utils (JWT/密码)
-│   ├── agents/                    # AI Agent 系统（orchestrator / tutor / reviewer / generator / workflow）
 │   ├── api/
 │   │   ├── public/                # 公开 API（health / quizzes / metrics）
-│   │   └── v1/                    # 受保护 API（auth / classrooms / ai / ...）
+│   │   └── v1/                    # 受保护 API（auth / classrooms / ai / agents/ ...）
 │   ├── models/                    # ORM 模型
 │   ├── schemas/                   # Marshmallow schema
 │   ├── services/                  # 业务逻辑层
 │   ├── web/                       # Jinja2 路由
 │   ├── templates/                 # HTML 模板
 │   └── static/                    # CSS + JS
-├── agent_host/                    # FastAPI Agent Host 微服务（:8100）
-│   ├── main.py                    # FastAPI 入口 + lifespan
-│   ├── core/                      # config / db(standalone SQLAlchemy) / auth(JWT)
-│   ├── api/                       # chat / workflows / traces 端点
-│   ├── adapters/                  # HTTP adapter 调用 Flask 后端
-│   ├── models/                    # 独立 ORM 模型（共享同一数据库）
-│   └── worker/                    # redis_buffer + task_runner (ThreadPool)
+├── core/                          # 平台基建：config / db / auth / observability / exceptions
+├── tools/                         # 工具实现（业务逻辑）
+│   ├── code/ problems/ analytics/ students/ traces/ knowledge_search/
+│   └── protocol/                  # 工具协议层（registry/runtime/transports/policies/adapters/schemas）
+├── mcp_gateway/                   # 对外 MCP 服务（python -m mcp_gateway）
+├── agents/                        # tutor / reviewer / generator / analytics
+├── graph/                         # LangGraph 编排（engine/planner/supervisor/handoff/runner/recovery）
+├── memory/                        # 会话短期/长期记忆 + preference learning
+├── knowledge/                     # RAG 向量库 store / retriever
+├── models/                        # LLM router + providers
+├── workers/                       # FastAPI Agent Host 守护进程（chat/batch/task_runner）
 ├── docker/
 │   ├── Dockerfile                 # Flask 镜像
-│   ├── Dockerfile.agent_host      # Agent Host 镜像
+│   ├── Dockerfile.workers         # Workers + MCP Gateway 镜像
+│   ├── Dockerfile.mcp             # MCP Gateway 独立镜像
 │   ├── entrypoint.sh
 │   └── init.sql
 ├── migrations/                    # Alembic 迁移

@@ -1,0 +1,42 @@
+# Dockerfile for worker daemon (FastAPI Agent Host) — also serves MCP Gateway via different entrypoint.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    default-mysql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser core/ ./core/
+COPY --chown=appuser:appuser tools/ ./tools/
+COPY --chown=appuser:appuser agents/ ./agents/
+COPY --chown=appuser:appuser graph/ ./graph/
+COPY --chown=appuser:appuser memory/ ./memory/
+COPY --chown=appuser:appuser knowledge/ ./knowledge/
+COPY --chown=appuser:appuser models/ ./models/
+COPY --chown=appuser:appuser workers/ ./workers/
+COPY --chown=appuser:appuser mcp_gateway/ ./mcp_gateway/
+COPY --chown=appuser:appuser .env* ./
+
+USER appuser
+
+EXPOSE 8100
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8100/api/health || exit 1
+
+CMD ["python", "-m", "uvicorn", "workers.__main__:app", "--host", "0.0.0.0", "--port", "8100"]

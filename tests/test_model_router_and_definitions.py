@@ -9,14 +9,14 @@ import pytest
 
 class TestModelTier:
     def test_tier_values(self):
-        from agent_host.model_router.tiers import ModelTier
+        from models.tiers import ModelTier
 
         assert ModelTier.FAST.value == "fast"
         assert ModelTier.BALANCED.value == "balanced"
         assert ModelTier.STRONG.value == "strong"
 
     def test_tier_is_string_enum(self):
-        from agent_host.model_router.tiers import ModelTier
+        from models.tiers import ModelTier
 
         assert isinstance(ModelTier.FAST, str)
         assert ModelTier.FAST == "fast"
@@ -24,8 +24,8 @@ class TestModelTier:
 
 class TestDeepSeekProvider:
     def test_supports_all_tiers(self):
-        from agent_host.model_router.tiers import ModelTier
-        from agent_host.model_router.providers.deepseek import DeepSeekProvider
+        from models.tiers import ModelTier
+        from models.providers.deepseek import DeepSeekProvider
 
         provider = DeepSeekProvider()
         for tier in ModelTier:
@@ -33,8 +33,8 @@ class TestDeepSeekProvider:
 
     @patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"})
     def test_get_llm_returns_chat_openai(self):
-        from agent_host.model_router.tiers import ModelTier
-        from agent_host.model_router.providers.deepseek import DeepSeekProvider
+        from models.tiers import ModelTier
+        from models.providers.deepseek import DeepSeekProvider
 
         provider = DeepSeekProvider()
         provider._api_key = "test-key"
@@ -42,9 +42,9 @@ class TestDeepSeekProvider:
         assert llm is not None
 
     def test_get_llm_raises_without_api_key(self):
-        from agent_host.model_router.tiers import ModelTier
-        from agent_host.model_router.providers.deepseek import DeepSeekProvider
-        from agent_host.exceptions import ConfigError
+        from models.tiers import ModelTier
+        from models.providers.deepseek import DeepSeekProvider
+        from core.exceptions import ConfigError
 
         provider = DeepSeekProvider()
         provider._api_key = ""
@@ -53,8 +53,8 @@ class TestDeepSeekProvider:
 
     @patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"})
     def test_different_tiers_have_different_configs(self):
-        from agent_host.model_router.tiers import ModelTier
-        from agent_host.model_router.providers.deepseek import DeepSeekProvider
+        from models.tiers import ModelTier
+        from models.providers.deepseek import DeepSeekProvider
 
         provider = DeepSeekProvider()
         provider._api_key = "test-key"
@@ -69,8 +69,8 @@ class TestDeepSeekProvider:
 class TestModelRouter:
     @patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"})
     def test_get_llm_default_balanced(self):
-        from agent_host.model_router.router import ModelRouter
-        from agent_host.model_router.tiers import ModelTier
+        from models.router import ModelRouter
+        from models.tiers import ModelTier
 
         router = ModelRouter()
         llm = router.get_llm()
@@ -78,23 +78,23 @@ class TestModelRouter:
 
     @patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"})
     def test_get_llm_specific_tier(self):
-        from agent_host.model_router.router import ModelRouter
-        from agent_host.model_router.tiers import ModelTier
+        from models.router import ModelRouter
+        from models.tiers import ModelTier
 
         router = ModelRouter()
         llm = router.get_llm(ModelTier.STRONG)
         assert llm.max_tokens == 4096
 
     def test_provider_name(self):
-        from agent_host.model_router.router import ModelRouter
+        from models.router import ModelRouter
 
         router = ModelRouter()
         assert router.provider_name == "deepseek"
 
     def test_unsupported_tier_falls_back(self):
-        from agent_host.model_router.router import ModelRouter
-        from agent_host.model_router.tiers import ModelTier
-        from agent_host.model_router.providers.base import BaseProvider
+        from models.router import ModelRouter
+        from models.tiers import ModelTier
+        from models.providers.base import BaseProvider
 
         class FakeProvider(BaseProvider):
             name = "fake"
@@ -111,10 +111,10 @@ class TestModelRouter:
 
 
 class TestAIConfigIntegration:
-    @patch("agent_host.model_router.get_model_router")
+    @patch("models.get_model_router")
     def test_get_llm_delegates_to_router(self, mock_get_router):
-        from agent_host.agents_config import AIConfig
-        from agent_host.model_router.tiers import ModelTier
+        from agents.config import AIConfig
+        from models.tiers import ModelTier
 
         mock_instance = MagicMock()
         mock_get_router.return_value = mock_instance
@@ -123,10 +123,10 @@ class TestAIConfigIntegration:
         AIConfig.get_llm(tier=ModelTier.FAST)
         mock_instance.get_llm.assert_called_once_with(ModelTier.FAST)
 
-    @patch("agent_host.model_router.get_model_router")
+    @patch("models.get_model_router")
     def test_get_llm_default_tier_is_balanced(self, mock_get_router):
-        from agent_host.agents_config import AIConfig
-        from agent_host.model_router.tiers import ModelTier
+        from agents.config import AIConfig
+        from models.tiers import ModelTier
 
         mock_instance = MagicMock()
         mock_get_router.return_value = mock_instance
@@ -141,12 +141,12 @@ class TestAIConfigIntegration:
 
 class TestAgentDefinitions:
     def test_all_four_agents_defined(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
+        from core.definitions import AGENT_DEFINITIONS
 
         assert set(AGENT_DEFINITIONS.keys()) == {"tutor", "reviewer", "generator", "analytics"}
 
     def test_definition_fields_present(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
+        from core.definitions import AGENT_DEFINITIONS
 
         for name, defn in AGENT_DEFINITIONS.items():
             assert defn.name == name
@@ -157,7 +157,7 @@ class TestAgentDefinitions:
             assert defn.risk_level in ("low", "medium", "high")
 
     def test_generator_is_teacher_admin_only(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
+        from core.definitions import AGENT_DEFINITIONS
 
         gen = AGENT_DEFINITIONS["generator"]
         assert "student" not in gen.allowed_roles
@@ -165,47 +165,47 @@ class TestAgentDefinitions:
         assert "admin" in gen.allowed_roles
 
     def test_tutor_allows_students(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
+        from core.definitions import AGENT_DEFINITIONS
 
         tutor = AGENT_DEFINITIONS["tutor"]
         assert "student" in tutor.allowed_roles
 
     def test_generator_is_high_risk(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
+        from core.definitions import AGENT_DEFINITIONS
 
         assert AGENT_DEFINITIONS["generator"].risk_level == "high"
 
     def test_tutor_is_low_risk(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
+        from core.definitions import AGENT_DEFINITIONS
 
         assert AGENT_DEFINITIONS["tutor"].risk_level == "low"
 
 
 class TestCanRouteTo:
     def test_student_can_route_to_tutor(self):
-        from agent_host.definitions import can_route_to
+        from core.definitions import can_route_to
 
         assert can_route_to("tutor", "student") is True
 
     def test_student_cannot_route_to_generator(self):
-        from agent_host.definitions import can_route_to
+        from core.definitions import can_route_to
 
         assert can_route_to("generator", "student") is False
 
     def test_teacher_can_route_to_generator(self):
-        from agent_host.definitions import can_route_to
+        from core.definitions import can_route_to
 
         assert can_route_to("generator", "teacher") is True
 
     def test_unknown_agent_returns_false(self):
-        from agent_host.definitions import can_route_to
+        from core.definitions import can_route_to
 
         assert can_route_to("nonexistent", "student") is False
 
 
 class TestAllowedToolsFor:
     def test_tutor_tools(self):
-        from agent_host.definitions import allowed_tools_for
+        from core.definitions import allowed_tools_for
 
         tools = allowed_tools_for("tutor")
         assert "coderunner.code.execute" in tools
@@ -213,7 +213,7 @@ class TestAllowedToolsFor:
         assert "coderunner.knowledge.search" in tools
 
     def test_generator_tools(self):
-        from agent_host.definitions import allowed_tools_for
+        from core.definitions import allowed_tools_for
 
         tools = allowed_tools_for("generator")
         assert "coderunner.code.execute" in tools
@@ -221,33 +221,33 @@ class TestAllowedToolsFor:
         assert "coderunner.submission.list_for_student" not in tools
 
     def test_unknown_agent_returns_empty(self):
-        from agent_host.definitions import allowed_tools_for
+        from core.definitions import allowed_tools_for
 
         assert allowed_tools_for("nonexistent") == ()
 
 
 class TestModelTierOnAgents:
     def test_tutor_uses_balanced(self):
-        from agent_host.agents.tutor import TutorAgent
-        from agent_host.model_router.tiers import ModelTier
+        from agents.tutor.agent import TutorAgent
+        from models.tiers import ModelTier
 
         assert TutorAgent.default_model_tier == ModelTier.BALANCED
 
     def test_reviewer_uses_balanced(self):
-        from agent_host.agents.reviewer import ReviewerAgent
-        from agent_host.model_router.tiers import ModelTier
+        from agents.reviewer.agent import ReviewerAgent
+        from models.tiers import ModelTier
 
         assert ReviewerAgent.default_model_tier == ModelTier.BALANCED
 
     def test_generator_uses_strong(self):
-        from agent_host.agents.generator import GeneratorAgent
-        from agent_host.model_router.tiers import ModelTier
+        from agents.generator.agent import GeneratorAgent
+        from models.tiers import ModelTier
 
         assert GeneratorAgent.default_model_tier == ModelTier.STRONG
 
     def test_analytics_uses_strong(self):
-        from agent_host.agents.analytics import AnalyticsAgent
-        from agent_host.model_router.tiers import ModelTier
+        from agents.analytics.agent import AnalyticsAgent
+        from models.tiers import ModelTier
 
         assert AnalyticsAgent.default_model_tier == ModelTier.STRONG
 
@@ -256,11 +256,11 @@ class TestDefinitionsConsistentWithAgents:
     """Verify that definitions match the actual agent class attributes."""
 
     def test_tiers_match(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
-        from agent_host.agents.tutor import TutorAgent
-        from agent_host.agents.reviewer import ReviewerAgent
-        from agent_host.agents.generator import GeneratorAgent
-        from agent_host.agents.analytics import AnalyticsAgent
+        from core.definitions import AGENT_DEFINITIONS
+        from agents.tutor.agent import TutorAgent
+        from agents.reviewer.agent import ReviewerAgent
+        from agents.generator.agent import GeneratorAgent
+        from agents.analytics.agent import AnalyticsAgent
 
         agent_classes = {
             "tutor": TutorAgent,
@@ -276,11 +276,11 @@ class TestDefinitionsConsistentWithAgents:
             )
 
     def test_names_match(self):
-        from agent_host.definitions import AGENT_DEFINITIONS
-        from agent_host.agents.tutor import TutorAgent
-        from agent_host.agents.reviewer import ReviewerAgent
-        from agent_host.agents.generator import GeneratorAgent
-        from agent_host.agents.analytics import AnalyticsAgent
+        from core.definitions import AGENT_DEFINITIONS
+        from agents.tutor.agent import TutorAgent
+        from agents.reviewer.agent import ReviewerAgent
+        from agents.generator.agent import GeneratorAgent
+        from agents.analytics.agent import AnalyticsAgent
 
         agent_classes = {
             "tutor": TutorAgent,

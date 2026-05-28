@@ -8,8 +8,8 @@ from flask import Blueprint, g, jsonify, request
 from app.auth.decorators import require_teacher
 from app.core.extensions import db
 from app.core.timezone import now_china
-from mcp_server.auth import hash_api_key
-from mcp_server.models.api_key import McpApiKey
+from mcp_gateway.middleware.auth import hash_api_key
+from core.db.models.mcp_api_key import McpApiKey
 
 bp = Blueprint("mcp_keys", __name__, url_prefix="/api/v1/mcp/keys")
 

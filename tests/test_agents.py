@@ -14,8 +14,8 @@ def _make_llm_response(content="test response", tool_calls=None):
 
 class TestBaseAgent:
     def test_sanitize_args_strips_identity(self):
-        from mcp.client.runtime import ToolRuntime
-        from mcp.auth.context import CallerContext
+        from tools.protocol.runtime import ToolRuntime
+        from core.auth.context import CallerContext
 
         caller = CallerContext(
             actor_type="user", user_id=42, role="student",
@@ -29,8 +29,8 @@ class TestBaseAgent:
         assert "role" not in result
 
     def test_sanitize_args_injects_student_id(self):
-        from mcp.client.runtime import ToolRuntime
-        from mcp.auth.context import CallerContext
+        from tools.protocol.runtime import ToolRuntime
+        from core.auth.context import CallerContext
 
         caller = CallerContext(actor_type="user", user_id=42, role="student")
         args = {"student_id": 999}
@@ -38,8 +38,8 @@ class TestBaseAgent:
         assert result["student_id"] == 42
 
     def test_sanitize_args_preserves_teacher_query(self):
-        from mcp.client.runtime import ToolRuntime
-        from mcp.auth.context import CallerContext
+        from tools.protocol.runtime import ToolRuntime
+        from core.auth.context import CallerContext
 
         caller = CallerContext(actor_type="user", user_id=10, role="teacher")
         args = {"some_param": "value"}
@@ -47,8 +47,8 @@ class TestBaseAgent:
         assert result["teacher_id"] == 10
 
     def test_run_mcp_tool_handles_unknown_tool(self):
-        from agent_host.agents.base import BaseAgent
-        from mcp.client.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+        from agents.base import BaseAgent
+        from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
 
         runtime = ToolRuntime()
         set_tool_runtime(runtime)
@@ -63,10 +63,10 @@ class TestBaseAgent:
 
 
 class TestTutorAgent:
-    @patch("agent_host.agents.base.AIConfig")
+    @patch("agents.base.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
         with app.app_context():
-            from agent_host.agents.tutor import TutorAgent
+            from agents.tutor.agent import TutorAgent
 
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
@@ -89,11 +89,11 @@ class TestTutorAgent:
             assert result["final_response"] == "Here's a hint about your loop."
             assert len(result["messages"]) > 1
 
-    @patch("agent_host.agents.base.AIConfig")
+    @patch("agents.base.AIConfig")
     def test_invoke_with_tool_calls(self, mock_config, app):
         with app.app_context():
-            from agent_host.agents.tutor import TutorAgent
-            from mcp.client.runtime import ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime
+            from agents.tutor.agent import TutorAgent
+            from tools.protocol.runtime import ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime
 
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
@@ -134,10 +134,10 @@ class TestTutorAgent:
 
 
 class TestReviewerAgent:
-    @patch("agent_host.agents.base.AIConfig")
+    @patch("agents.base.AIConfig")
     def test_invoke_returns_review(self, mock_config, app):
         with app.app_context():
-            from agent_host.agents.reviewer import ReviewerAgent
+            from agents.reviewer.agent import ReviewerAgent
 
             review_json = '```json\n{"overall_score": "B", "summary": "Good", "issues": [], "strengths": ["Clean"]}\n```'
             mock_llm = MagicMock()
@@ -162,11 +162,11 @@ class TestReviewerAgent:
 
 
 class TestGeneratorAgent:
-    @patch("agent_host.agents_config.AIConfig.validate")
-    @patch("agent_host.agents_config.AIConfig.get_llm")
+    @patch("agents.config.AIConfig.validate")
+    @patch("agents.config.AIConfig.get_llm")
     def test_invoke_with_valid_json(self, mock_get_llm, mock_validate, app):
         with app.app_context():
-            from agent_host.agents.generator import GeneratorAgent
+            from agents.generator.agent import GeneratorAgent
 
             question_json = '''```json
 {
@@ -187,7 +187,7 @@ class TestGeneratorAgent:
             mock_llm.invoke.return_value = _make_llm_response(question_json)
             mock_get_llm.return_value = mock_llm
 
-            with patch("agent_host.agents.generator._validate_solution") as mock_val:
+            with patch("agents.generator.agent._validate_solution") as mock_val:
                 mock_val.return_value = [
                     {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
                     {"index": 1, "passed": True, "input": "0 0", "expected": "0", "actual": "0", "error": "", "status": "AC"},
@@ -208,11 +208,11 @@ class TestGeneratorAgent:
             assert result["context"].get("generated_problem") is not None
             assert result["context"]["generated_problem"]["verified"] is True
 
-    @patch("agent_host.agents_config.AIConfig.validate")
-    @patch("agent_host.agents_config.AIConfig.get_llm")
+    @patch("agents.config.AIConfig.validate")
+    @patch("agents.config.AIConfig.get_llm")
     def test_invoke_retries_on_validation_failure(self, mock_get_llm, mock_validate, app):
         with app.app_context():
-            from agent_host.agents.generator import GeneratorAgent
+            from agents.generator.agent import GeneratorAgent
 
             question_json = '''```json
 {
@@ -239,7 +239,7 @@ class TestGeneratorAgent:
                 return [{"index": 0, "passed": True, "input": "", "expected": "1",
                          "actual": "1", "error": "", "status": "AC"}]
 
-            with patch("agent_host.agents.generator._validate_solution", side_effect=validation_side_effect):
+            with patch("agents.generator.agent._validate_solution", side_effect=validation_side_effect):
                 agent = GeneratorAgent()
                 state = {
                     "messages": [HumanMessage(content="Create a problem")],
@@ -255,12 +255,12 @@ class TestGeneratorAgent:
             assert call_count == 2
             assert result["context"]["generated_problem"]["verified"] is True
 
-    @patch("agent_host.agents_config.AIConfig.validate")
-    @patch("agent_host.agents.generator.AIConfig.get_llm")
+    @patch("agents.config.AIConfig.validate")
+    @patch("agents.generator.agent.AIConfig.get_llm")
     def test_stream_persists_trace(self, mock_get_llm, mock_validate, app, db_session, teacher_user):
         with app.app_context():
             from langchain_core.messages import HumanMessage
-            from agent_host.agents.generator import GeneratorAgent
+            from agents.generator.agent import GeneratorAgent
             from app.models.agent_trace import AgentRun, AgentRunStep
 
             class Chunk:
@@ -288,7 +288,7 @@ class TestGeneratorAgent:
             ]
             mock_get_llm.return_value = mock_llm
 
-            with patch("agent_host.agents.generator._validate_solution") as mock_val:
+            with patch("agents.generator.agent._validate_solution") as mock_val:
                 mock_val.return_value = [
                     {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
                 ]
@@ -314,10 +314,10 @@ class TestGeneratorAgent:
 
 
 class TestAnalyticsAgent:
-    @patch("agent_host.agents.base.AIConfig")
+    @patch("agents.base.AIConfig")
     def test_invoke_returns_report(self, mock_config, app):
         with app.app_context():
-            from agent_host.agents.analytics import AnalyticsAgent
+            from agents.analytics.agent import AnalyticsAgent
 
             report = '```json\n{"summary": "Good progress", "progress": {"trend": "improving"}}\n```'
             mock_llm = MagicMock()
@@ -344,7 +344,7 @@ class TestAnalyticsAgent:
 class TestOrchestrator:
     def test_routes_to_correct_agent(self, app):
         with app.app_context():
-            from agent_host.orchestrator import _route
+            from graph.runner import _route
 
             state = {
                 "messages": [],
@@ -360,7 +360,7 @@ class TestOrchestrator:
 
     def test_defaults_to_tutor_for_unknown(self, app):
         with app.app_context():
-            from agent_host.orchestrator import _route
+            from graph.runner import _route
 
             state = {
                 "messages": [],
@@ -376,7 +376,7 @@ class TestOrchestrator:
 
     def test_defaults_to_tutor_when_missing(self, app):
         with app.app_context():
-            from agent_host.orchestrator import _route
+            from graph.runner import _route
 
             state = {
                 "messages": [],
@@ -389,7 +389,7 @@ class TestOrchestrator:
             result = _route(state)
             assert result["agent_type"] == "tutor"
 
-    @patch("agent_host.orchestrator.AIConfig")
+    @patch("graph.runner.AIConfig")
     def test_auto_route_classifies_intent(self, mock_config, app):
         """Phase 2: Smart intent router classifies 'auto' agent_type."""
         with app.app_context():
@@ -398,7 +398,7 @@ class TestOrchestrator:
             mock_config.get_llm.return_value = mock_llm
             mock_config.validate.return_value = None
 
-            from agent_host.orchestrator import _route
+            from graph.runner import _route
 
             state = {
                 "messages": [HumanMessage(content="Review my code please")],
@@ -413,7 +413,7 @@ class TestOrchestrator:
             assert result["agent_type"] == "reviewer"
             assert result.get("auto_routed") is True
 
-    @patch("agent_host.orchestrator.AIConfig")
+    @patch("graph.runner.AIConfig")
     def test_auto_route_blocks_student_generator(self, mock_config, app):
         """Phase 2: Students cannot be routed to generator even if LLM says so."""
         with app.app_context():
@@ -422,7 +422,7 @@ class TestOrchestrator:
             mock_config.get_llm.return_value = mock_llm
             mock_config.validate.return_value = None
 
-            from agent_host.orchestrator import _route
+            from graph.runner import _route
 
             state = {
                 "messages": [HumanMessage(content="Create a problem for me")],
@@ -436,13 +436,13 @@ class TestOrchestrator:
             result = _route(state)
             assert result["agent_type"] == "tutor"
 
-    @patch("agent_host.orchestrator.AIConfig")
+    @patch("graph.runner.AIConfig")
     def test_auto_route_fallback_on_error(self, mock_config, app):
         """Phase 2: Falls back gracefully if intent classification fails."""
         with app.app_context():
             mock_config.get_llm.side_effect = RuntimeError("API down")
 
-            from agent_host.orchestrator import _route
+            from graph.runner import _route
 
             state = {
                 "messages": [HumanMessage(content="Help me")],
@@ -457,11 +457,11 @@ class TestOrchestrator:
             assert result["agent_type"] == "analytics"
             assert result.get("auto_routed") is True
 
-    @patch("agent_host.agents.base.AIConfig")
+    @patch("agents.base.AIConfig")
     def test_run_agent_catches_ai_error(self, mock_config, app):
         with app.app_context():
-            from agent_host.orchestrator import _run_agent
-            from agent_host.exceptions import LLMError
+            from graph.runner import _run_agent
+            from core.exceptions import LLMError
 
             mock_config.get_llm.side_effect = LLMError("API down")
             mock_config.validate.side_effect = LLMError("API down")
@@ -478,10 +478,10 @@ class TestOrchestrator:
             result = _run_agent("tutor", state)
             assert "temporarily unavailable" in result["final_response"]
 
-    @patch("agent_host.agents.base.AIConfig")
+    @patch("agents.base.AIConfig")
     def test_run_agent_catches_unexpected_error(self, mock_config, app):
         with app.app_context():
-            from agent_host.orchestrator import _run_agent
+            from graph.runner import _run_agent
 
             mock_config.get_llm.side_effect = RuntimeError("unexpected")
             mock_config.validate.side_effect = RuntimeError("unexpected")
@@ -504,7 +504,7 @@ class TestOrchestrator:
 
 class TestTaskStateMachine:
     def test_valid_transitions(self):
-        from agent_host.task_state import TaskStatus, validate_transition
+        from core.task_state import TaskStatus, validate_transition
 
         assert validate_transition(TaskStatus.PENDING, TaskStatus.EXECUTING) is True
         assert validate_transition(TaskStatus.EXECUTING, TaskStatus.VALIDATING) is True
@@ -513,7 +513,7 @@ class TestTaskStateMachine:
         assert validate_transition(TaskStatus.FAILED, TaskStatus.PENDING) is True
 
     def test_invalid_transitions(self):
-        from agent_host.task_state import TaskStatus, validate_transition
+        from core.task_state import TaskStatus, validate_transition
 
         assert validate_transition(TaskStatus.COMPLETED, TaskStatus.EXECUTING) is False
         assert validate_transition(TaskStatus.CANCELLED, TaskStatus.PENDING) is False
@@ -522,7 +522,7 @@ class TestTaskStateMachine:
 
 class TestBatchRunner:
     def test_decompose_batch_params(self):
-        from agent_host.batch_runner import decompose_batch_params
+        from workers.batch import decompose_batch_params
 
         params = {"topic": "arrays", "language": "python", "difficulty": "easy", "count": 3}
         steps = decompose_batch_params(params)
@@ -535,7 +535,7 @@ class TestBatchRunner:
             assert f"{i + 1} of 3" in step["prompt"]
 
     def test_decompose_single(self):
-        from agent_host.batch_runner import decompose_batch_params
+        from workers.batch import decompose_batch_params
 
         params = {"topic": "sorting", "language": "c", "count": 1}
         steps = decompose_batch_params(params)
@@ -565,7 +565,7 @@ class TestCrashRecovery:
         with app.app_context():
             from app.models.agent_task import AgentTask
             from app.models.user import User, UserRole
-            from agent_host.recovery import recover_orphaned_tasks
+            from graph.recovery import recover_orphaned_tasks
 
             user = User.query.filter_by(username="recovery_test_user").first()
             if not user:
@@ -596,7 +596,7 @@ class TestCrashRecovery:
         with app.app_context():
             from app.models.agent_task import AgentTask
             from app.models.user import User, UserRole
-            from agent_host.recovery import recover_orphaned_tasks
+            from graph.recovery import recover_orphaned_tasks
 
             user = User.query.filter_by(username="recovery_test_user2").first()
             if not user:

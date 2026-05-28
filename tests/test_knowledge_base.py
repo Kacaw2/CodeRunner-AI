@@ -9,7 +9,7 @@ import pytest
 @pytest.fixture()
 def kb(tmp_path):
     """Create a KnowledgeBase with an isolated temp directory."""
-    from agent_host.knowledge_base import KnowledgeBase
+    from knowledge.store import KnowledgeBase
     return KnowledgeBase(persist_dir=str(tmp_path / "kb"))
 
 
@@ -162,7 +162,7 @@ class TestScopeIsolation:
 class TestLowRelevanceFiltering:
     def test_tutor_filters_low_relevance(self, seeded_kb):
         results = seeded_kb.search_knowledge("completely unrelated quantum physics", n=2)
-        from agent_host.agents.tutor import TutorAgent
+        from agents.tutor.agent import TutorAgent
         filtered = [r for r in results if r.get("score", 0) >= TutorAgent.MIN_KNOWLEDGE_SCORE]
         assert len(filtered) <= len(results)
 
@@ -184,7 +184,7 @@ class TestIndexAllProblems:
             ],
         }
 
-        with patch("agent_host.knowledge_base.get_knowledge_base", return_value=kb):
+        with patch("knowledge.store.get_knowledge_base", return_value=kb):
             problem, variant = _publish_question_data_as_problem(question_data, teacher_user.id)
 
         assert problem.id is not None
@@ -193,13 +193,13 @@ class TestIndexAllProblems:
         assert not kb.index_question.called
 
     def test_legacy_index_question_method_is_removed(self):
-        from agent_host.knowledge_base import KnowledgeBase
+        from knowledge.store import KnowledgeBase
 
         assert not hasattr(KnowledgeBase, "index_question")
 
     def test_index_all_problems_function(self, app, db_session, tmp_path):
         from app.models.problem import Problem
-        from agent_host import knowledge_base as kb_module
+        from knowledge import store as kb_module
 
         p = Problem(slug="test-problem", title="Test Problem", description="A test.", difficulty="easy")
         db_session.add(p)

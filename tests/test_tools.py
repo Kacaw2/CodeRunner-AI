@@ -7,7 +7,7 @@ import pytest
 class TestExecuteCodeImpl:
     def test_returns_structured_result(self, app):
         with app.app_context():
-            from app.agents.tools.core.code_executor import execute_code_impl
+            from tools.code.executor import execute_code_impl
 
             mock_result = {
                 "status": "AC",
@@ -24,7 +24,7 @@ class TestExecuteCodeImpl:
 
     def test_truncates_long_output(self, app):
         with app.app_context():
-            from app.agents.tools.core.code_executor import execute_code_impl
+            from tools.code.executor import execute_code_impl
 
             mock_result = {
                 "status": "AC",
@@ -40,7 +40,7 @@ class TestExecuteCodeImpl:
 
     def test_default_language_is_python(self, app):
         with app.app_context():
-            from app.agents.tools.core.code_executor import execute_code_impl
+            from tools.code.executor import execute_code_impl
 
             with patch("app.services.executor_service.ExecutorService.run_code") as mock_run:
                 mock_run.return_value = {"status": "AC", "stdout": "", "stderr": "", "time_ms": 0}
@@ -52,7 +52,7 @@ class TestExecuteCodeImpl:
 class TestProblemDetailImpl:
     def test_returns_problem_detail(self, app, db_session):
         with app.app_context():
-            from app.agents.tools.core.problems import get_problem_detail_impl
+            from tools.problems.queries import get_problem_detail_impl
             from app.models.problem import Problem
             from app.models.question import Question, TestCase
 
@@ -85,7 +85,7 @@ class TestProblemDetailImpl:
 
     def test_returns_error_for_missing_problem(self, app, db_session):
         with app.app_context():
-            from app.agents.tools.core.problems import get_problem_detail_impl
+            from tools.problems.queries import get_problem_detail_impl
 
             result = get_problem_detail_impl(99999)
             assert "error" in result

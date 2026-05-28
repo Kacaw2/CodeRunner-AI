@@ -26,8 +26,8 @@ def migrate(app=None):
         app = create_app()
 
     with app.app_context():
-        from agent_host.knowledge_base import get_knowledge_base, index_all_problems
-        import agent_host.knowledge_base as kb_module
+        from knowledge.store import get_knowledge_base, index_all_problems
+        import knowledge.store as kb_module
 
         kb = get_knowledge_base()
         client = kb.client

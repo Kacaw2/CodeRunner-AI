@@ -5,7 +5,7 @@ from flask import Blueprint, g, jsonify, request
 from app.auth.decorators import require_teacher
 from app.core.extensions import db
 from app.core.timezone import now_china
-from mcp_server.models.approval import McpToolApproval
+from core.db.models.mcp_approval import McpToolApproval
 
 bp = Blueprint("mcp_approvals", __name__, url_prefix="/api/v1/mcp/approvals")
 

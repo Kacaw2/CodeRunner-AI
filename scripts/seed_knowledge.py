@@ -410,7 +410,7 @@ def seed_knowledge_points(kb):
 def seed_all(kb=None):
     """Seed all knowledge base collections. Returns (error_count, knowledge_count)."""
     if kb is None:
-        from agent_host.knowledge_base import get_knowledge_base
+        from knowledge.store import get_knowledge_base
         kb = get_knowledge_base()
 
     err_count = seed_error_patterns(kb)
@@ -426,7 +426,7 @@ def register_cli(app):
     @click.option("--force", is_flag=True, help="Re-seed even if collections are not empty.")
     def seed_knowledge_cmd(force):
         """Seed the knowledge base with error patterns and knowledge points."""
-        from agent_host.knowledge_base import get_knowledge_base
+        from knowledge.store import get_knowledge_base
 
         try:
             kb = get_knowledge_base()
