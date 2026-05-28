@@ -1,5 +1,7 @@
 # 部署指南
 
+> 最后更新: 2026-05-28
+
 ## 系统要求
 
 | 项 | 最低 | 推荐 |
@@ -23,7 +25,7 @@ docker ps
 ## 快速启动
 
 ```bash
-# 1. 启动全部服务（Flask + Agent Host + MySQL + Redis）
+# 1. 启动全部服务（Flask + Workers + MCP Gateway + MySQL + Redis）
 docker compose up -d --build
 
 # 2. 等待 30 秒服务初始化
@@ -37,7 +39,8 @@ docker compose exec web \
 验证：
 ```bash
 curl http://localhost:9900/health       # Flask Web
-curl http://localhost:8100/api/health   # Agent Host
+curl http://localhost:8100/api/health   # Workers (Agent Host)
+curl http://localhost:8200/sse          # MCP Gateway (SSE transport)
 ```
 
 ### 服务启动顺序
@@ -45,10 +48,10 @@ curl http://localhost:8100/api/health   # Agent Host
 `docker compose` 通过 `depends_on` + `healthcheck` 自动保证：
 
 ```
-db (MySQL:3306) → redis (:6379) → web (Flask:9900) → agent_host (FastAPI:8100)
+db (MySQL:3306) → redis (:6379) → web (Flask:9900) → workers (FastAPI:8100) → mcp_gateway (MCP:8200)
 ```
 
-Agent Host 通过 HTTP adapter 调用 Flask 后端执行 AI agent 任务，两个服务共享同一 MySQL + Redis。
+Workers 守护进程通过 HTTP adapter 调用 Flask 后端执行 agent 任务，MCP Gateway 提供工具协议层对外服务，三者共享同一 MySQL + Redis。
 
 ### 默认账号
 
@@ -88,7 +91,8 @@ REDIS_URL=redis://redis:6379/0
 
 # 端口
 WEB_PORT=9900
-AGENT_HOST_PORT=8100
+AGENT_HOST_PORT=8100    # Workers daemon
+MCP_PORT=8200           # MCP Gateway
 MYSQL_PORT=3306
 REDIS_PORT=6379
 
@@ -107,7 +111,7 @@ USE_DOCKER=false
 # EXECUTOR_API_TOKEN=<token>
 ```
 
-> **重要**：`SECRET_KEY` 必须在 Flask 和 Agent Host 间保持一致，否则 JWT 令牌无法互认。
+> **重要**：`SECRET_KEY` 必须在 Flask 和 Workers 间保持一致，否则 JWT 令牌无法互认。
 
 生成 SECRET_KEY：`python -c "import secrets; print(secrets.token_urlsafe(32))"`
 
@@ -146,17 +150,22 @@ docker compose exec web flask db upgrade
 ```bash
 # 查看日志
 docker compose logs -f web           # Flask 主服务
-docker compose logs -f agent_host    # Agent Host
+docker compose logs -f workers       # Workers (Agent Host daemon)
+docker compose logs -f mcp_gateway   # MCP Gateway
 docker compose logs -f db            # MySQL
 
 # 重启单个服务
 docker compose restart web
-docker compose restart agent_host
+docker compose restart workers
+docker compose restart mcp_gateway
 
-docker compose up --build web agent_host -d
+docker compose up --build web workers mcp_gateway -d
 
-# 仅重建 Agent Host（修改 agent_host/ 后）
-docker compose up --build agent_host -d
+# 仅重建 Workers（修改 workers/ 或 agents/ 或 graph/ 后）
+docker compose up --build workers -d
+
+# 仅重建 MCP Gateway（修改 mcp_gateway/ 或 tools/ 后）
+docker compose up --build mcp_gateway -d
 
 # 停止（保留数据）
 docker compose stop
@@ -193,7 +202,8 @@ make status     # ps
 | 端口 | 服务 | 容器名 |
 |---|---|---|
 | 9900 | Flask Web 应用 | educode_web |
-| 8100 | FastAPI Agent Host | educode_agent_host |
+| 8100 | FastAPI Workers (Agent Host) | educode_workers |
+| 8200 | MCP Gateway | educode_mcp_gateway |
 | 3306 | MySQL | educode_db |
 | 6379 | Redis | educode_redis |
 
@@ -209,7 +219,8 @@ URL 速查：
 | http://localhost:9900/teacher/classrooms | 教师班级管理 |
 | http://localhost:9900/swagger-ui | API 文档 |
 | http://localhost:9900/health | Flask 健康检查 |
-| http://localhost:8100/api/health | Agent Host 健康检查 |
+| http://localhost:8100/api/health | Workers 健康检查 |
+| http://localhost:8200/sse | MCP Gateway (SSE transport) |
 
 ---
 
@@ -258,13 +269,15 @@ with app.app_context():
 
 ```bash
 curl http://localhost:9900/health       # Flask
-curl http://localhost:8100/api/health   # Agent Host
+curl http://localhost:8100/api/health   # Workers
+curl http://localhost:8200/sse          # MCP Gateway
 ```
 
-Flask 返回 503 通常意味着 DB 连接出问题。Agent Host 返回错误检查 Redis 和 Flask 连通性：
+Flask 返回 503 通常意味着 DB 连接出问题。Workers 返回错误检查 Redis 和 Flask 连通性：
 
 ```bash
-docker compose logs agent_host --tail=30
+docker compose logs workers --tail=30
+docker compose logs mcp_gateway --tail=30
 ```
 
 ---

@@ -1,8 +1,17 @@
 # AI API 端点参考
 
-AI Agent 模块的 REST API。所有端点需要认证（与现有 API 一致）。
+> 最后更新: 2026-05-28
 
-API 前缀：`/api/v1/ai`
+AI Agent 模块的 REST API 分两条独立路径：
+
+| 路径 | 服务 | 端口 | 风格 | 用途 |
+|---|---|---|---|---|
+| `/api/v1/ai/*` | **Flask Web** | 9900 | 同步 / 流式 | 主要面向浏览器，与现有受保护 API 一致的鉴权链路 |
+| `/api/chat`, `/api/workflows`, `/api/traces` | **Workers (FastAPI)** | 8100 | 异步任务 + SSE 续传 | 长任务、断线续传、工作流编排，由前端 dashboard 调用 |
+
+两者共享同一数据库与 Redis；JWT `SECRET_KEY` 必须一致以便互认令牌。本文档前半部分（一至五节）描述 Flask 路径，最后一节[Workers 异步路径](#七workers-异步-api路径prefix-api)概述 FastAPI 路径。
+
+API 前缀（Flask）：`/api/v1/ai`
 
 ---
 
@@ -380,3 +389,42 @@ data: [DONE]
 | 429 | `ai_rate_limit` | 超过每分钟请求限制 |
 | 500 | `ai_service_error` | LLM 调用失败 |
 | 503 | `ai_unavailable` | AI 服务暂不可用（API Key 未配置等） |
+
+---
+
+## 七、Workers 异步 API（路径前缀 `/api`）
+
+`workers/__main__.py` 通过 FastAPI 暴露在 `:8100`，由前端 dashboard 直接调用以承载长任务和续传场景。所有端点同样要求 JWT（同 Flask `SECRET_KEY`）。
+
+### 7.1 异步聊天 — `app/api/v1/agents/chat.py`
+
+| 方法 + 路径 | 说明 |
+|---|---|
+| `POST /api/chat` | 创建异步聊天任务，返回 `task_id` |
+| `GET /api/chat/task/{id}` | 轮询任务状态（pending/running/done/error）|
+| `GET /api/chat/task/{id}/stream` | SSE 流式输出，支持 `Last-Event-ID` 头实现断线续传 |
+
+`/api/chat` 请求体：
+
+```json
+{ "message": "...", "agent_type": "auto", "conversation_id": null }
+```
+
+### 7.2 工作流 — `app/api/v1/agents/workflows.py`
+
+| 方法 + 路径 | 说明 |
+|---|---|
+| `POST /api/workflows` | 启动一个工作流 run（如批量题目生成）|
+| `GET /api/workflows/{run_id}` | 查询 run + 全部 step 状态 |
+| `POST /api/workflows/{run_id}/cancel` | 取消未完成的 run |
+
+### 7.3 Trace 查询 — `app/api/v1/agents/traces.py`
+
+| 方法 + 路径 | 说明 |
+|---|---|
+| `GET /api/traces?agent_type=tutor&user_id=...` | 列出 AgentRun |
+| `GET /api/traces/{run_id}` | 获取单个 run 的完整 step 序列（含 tool_calls / tool_results）|
+
+> 这三套端点也使用本文档 §六 定义的错误响应格式，并额外可能返回：
+> - `404 task_not_found` / `run_not_found` — 任务或运行不存在
+> - `409 task_already_done` — 重复取消已完成任务

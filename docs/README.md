@@ -1,5 +1,7 @@
 # CodeRunner 文档
 
+> 最后更新: 2026-05-28
+
 CodeRunner 是一个面向编程教学的在线评测平台，由 UNSW COMP9900 25T3 capstone 团队开发，客户为 UNSW CSE Henry Hickman。
 
 ## 文档导航

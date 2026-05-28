@@ -110,7 +110,7 @@
 | 组件 | 技术 | 用途 |
 |------|------|------|
 | LLM Provider | DeepSeek API (deepseek-chat)，兼容 OpenAI 协议 | 外部 LLM Provider，非 Agent |
-| Model Router | `app/agents/model_router/` | 按 tier (fast/balanced/strong) 路由到 provider |
+| Model Router | `models/` | 按 tier (fast/balanced/strong) 路由到 provider |
 | Agent 编排 | LangGraph | 状态图驱动的多 Agent 流转 |
 | LLM 集成 | langchain-openai + langchain-core | Tool Calling 标准抽象（通过 OpenAI 兼容接口） |
 | 向量数据库 | ChromaDB | 知识库语义搜索 (RAG) |
@@ -134,56 +134,93 @@ sentence-transformers>=2.2.0
 
 ## 三、目录结构
 
+Phase 6 重构后，agent 子系统拆分为多个顶层目录（每个目录单一职责，独立可替换）：
+
 ```
-app/agents/
-├── __init__.py              # 暴露 AgentOrchestrator
-├── orchestrator.py          # LangGraph 主编排器 (基于 definition 路由 · handoff · schema 校验)
-├── definitions.py           # ★ 声明式 Agent 定义 (Phase C) — 名称、角色、工具、tier、风险
-├── state.py                 # AgentState TypedDict
-├── config.py                # AIConfig + 限流参数 (get_llm 委托 ModelRouter)
-├── exceptions.py            # AIError / LLMError / RateLimitError / ConfigError
-├── security.py              # 注入检测 · 输入消毒 · 输出过滤 · 动态安全 prompt
-├── handoff.py               # Agent 间交接检测与 prompt 附录 (基于 definition 权限检查)
-├── tracing.py               # TraceCollector (AgentRun + AgentRunStep 写入)
-├── memory.py                # MemoryService (记忆上下文 · 消息压缩 · 摘要 · 画像更新)
-├── knowledge_base.py        # KnowledgeBase (ChromaDB 向量搜索)
-├── schemas.py               # Agent 输出 JSON Schema 定义与校验
-├── recovery.py              # 孤儿任务恢复 (启动时调用)
-├── batch_runner.py          # 批量题目生成任务运行器
-├── generation_pipeline.py   # 多阶段生成管线 (生成→验证→去重→质量审查)
-├── preference_learner.py    # 教师偏好自动学习
-├── task_state.py            # 任务状态常量
-├── model_router/            # ★ Model Router (Phase B)
-│   ├── __init__.py          # 导出 ModelTier, ModelRouter, get_model_router
-│   ├── tiers.py             # ModelTier 枚举 (FAST / BALANCED / STRONG)
-│   ├── router.py            # ModelRouter — tier -> LLM 实例解析
-│   └── providers/
-│       ├── __init__.py
-│       ├── base.py          # BaseProvider 抽象接口
-│       └── deepseek.py      # DeepSeekProvider — 当前唯一 provider
-├── agents/
-│   ├── __init__.py          # 导出四个 Agent 类
-│   ├── base.py              # BaseAgent 抽象基类 (统一调用管道，default_model_tier)
-│   ├── tutor.py             # TutorAgent — 智能辅导 (BALANCED)
-│   ├── reviewer.py          # ReviewerAgent — 代码审查 (BALANCED)
-│   ├── generator.py         # GeneratorAgent — 自动出题 (STRONG，含自验证循环)
-│   └── analytics.py         # AnalyticsAgent — 学习分析 (STRONG)
-├── tools/
-│   ├── __init__.py
-│   ├── code_executor.py     # execute_code — 沙箱执行
-│   ├── question_query.py    # get_problem_detail — 题目查询
-│   ├── submission_query.py  # get_student_submissions / get_submission_detail
-│   ├── analytics_query.py   # get_student_activity / get_class_statistics / ...
-│   ├── stats_query.py       # get_student_stats
-│   ├── knowledge_tools.py   # search_similar_problems / search_knowledge / search_error_patterns
-│   └── permissions.py       # check_tool_permission — 基于 definition + role override
-└── prompts/
-    ├── __init__.py
-    ├── tutor.py
-    ├── reviewer.py
-    ├── generator.py
-    └── analytics.py
+agents/                          # 角色定义层（每个 agent 一个子包）
+├── __init__.py                  # 统一导出 BaseAgent / TutorAgent / ...
+├── base.py                      # BaseAgent 抽象基类
+├── config.py                    # AGENT_RATE_LIMITS 等共享配置
+├── tutor/
+│   ├── agent.py                 # TutorAgent — 智能辅导 (BALANCED)
+│   └── prompt.py
+├── reviewer/                    # ReviewerAgent — 代码审查 (BALANCED)
+├── generator/                   # GeneratorAgent — 自动出题 (STRONG)
+└── analytics/                   # AnalyticsAgent — 学习分析 (STRONG)
+
+graph/                           # LangGraph 编排引擎
+├── engine.py                    # WorkflowEngine
+├── runner.py                    # AgentOrchestrator（前身为 orchestrator.py）
+├── planner.py                   # 任务规划
+├── supervisor.py                # 路由分派
+├── critic.py                    # 质量审查
+├── handoff.py                   # Agent 间交接
+├── recovery.py                  # 孤儿任务恢复
+├── handlers.py                  # 步骤处理器注册
+├── state.py                     # WorkflowState
+└── node_registry.py             # 节点注册中心
+
+memory/                          # 会话记忆
+├── service.py                   # MemoryService（消息压缩、摘要、画像更新）
+└── preference.py                # 教师偏好自动学习
+
+knowledge/                       # RAG 向量库
+├── __init__.py                  # 导出 KnowledgeBase / get_knowledge_base / index_*
+└── store.py                     # ChromaDB 客户端 + SentenceTransformer 嵌入
+
+models/                          # LLM Router 与 Providers
+├── __init__.py                  # 导出 ModelTier / ModelRouter / get_model_router
+├── router.py                    # ModelRouter — tier → LLM 实例解析
+├── tiers.py                     # ModelTier 枚举 (FAST / BALANCED / STRONG)
+└── providers/
+    ├── base.py                  # BaseProvider 抽象接口
+    └── deepseek.py              # DeepSeekProvider
+
+tools/                           # 工具实现（业务层）+ 协议层
+├── code/executor.py             # execute_code_impl — 沙箱执行
+├── problems/                    # get_problem_detail_impl / save_generated_problem_impl
+├── analytics/queries.py         # 统计查询
+├── students/summary.py          # 学生画像
+├── traces/queries.py            # agent trace 查询
+├── knowledge_search/search.py   # 知识库搜索
+└── protocol/                    # 工具协议层（替代旧 mcp/）
+    ├── registry.py              # ToolRegistry
+    ├── runtime.py               # ToolRuntime + get_tool_runtime
+    ├── errors.py                # MCPError 体系
+    ├── schemas/                 # ToolDescriptor / TOOL_CATALOG
+    ├── policies/                # rbac / risk / scopes / guard
+    ├── adapters/                # llm_to_tool / tool_to_llm / result_to_message
+    └── transports/              # inproc.py（进程内）
+
+mcp_gateway/                     # 对外 MCP 服务（python -m mcp_gateway）
+├── __main__.py                  # 入口
+├── server.py                    # FastMCP 装配
+├── bootstrap.py                 # ToolRuntime 初始化
+├── handlers/                    # FastMCP 注册薄包装（委托 tools/）
+└── middleware/                  # auth / rate_limit / sanitizer / human_gate
+
+workers/                         # 守护进程
+├── __main__.py                  # FastAPI 入口（python -m workers）
+├── chat.py                      # 流式聊天 worker
+├── batch.py                     # 批量任务 runner
+├── generation_pipeline.py       # 多阶段题目生成管线
+├── task_runner.py               # ThreadPool 任务执行器
+└── redis_buffer.py              # 任务缓冲队列
+
+core/                            # 平台基建（共享给所有上层）
+├── config.py                    # 统一 Settings
+├── db/session.py                # SQLAlchemy session 工厂
+├── db/models/                   # ORM 模型（含 mcp_api_key / mcp_audit_log / agent_run 等）
+├── auth/                        # caller / context / tokens
+├── observability/               # tracing.py + audit.py
+├── definitions.py               # ★ 声明式 Agent 定义（取代旧 app/agents/definitions.py）
+├── exceptions.py                # AIError / LLMError / ToolError / ...
+├── security.py                  # 注入检测 / 输入消毒 / 输出过滤
+├── schemas.py                   # Agent 输出 JSON Schema
+├── state.py / task_state.py     # 共享状态类型与常量
 ```
+
+> Flask 蓝图位于 `app/api/v1/agents/{chat,traces,workflows}.py`，URL 前缀保持不变。
 
 ---
 
@@ -199,7 +236,7 @@ Agent 不再直接绑定 DeepSeek 的具体配置。所有 LLM 调用经过 `Mod
 
 **调用方式**：
 ```python
-from app.agents.model_router import ModelTier, get_model_router
+from models import ModelTier, get_model_router
 llm = get_model_router().get_llm(ModelTier.STRONG)
 # 或通过 AIConfig 兼容入口：
 llm = AIConfig.get_llm(tier=ModelTier.FAST)
@@ -211,7 +248,7 @@ llm = AIConfig.get_llm(tier=ModelTier.FAST)
 
 ## 三-C、声明式 Agent 定义（Phase C）
 
-每个 Agent 在 `definitions.py` 中声明完整定义，取代以前分散在类属性、权限表和编排器中的信息：
+每个 Agent 在 `core/definitions.py` 中声明完整定义，取代以前分散在类属性、权限表和编排器中的信息：
 
 ```python
 AgentDefinition(
@@ -241,7 +278,7 @@ AgentDefinition(
 ## 四、共享状态
 
 ```python
-# app/agents/state.py
+# core/state.py
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]   # LangGraph 消息累加
     agent_type: Literal["tutor", "reviewer", "generator", "analytics"]
@@ -785,10 +822,11 @@ LLM 生成题目 + 测试用例 + 参考答案
 | **架构 Phase A** | **文档和术语修正**：区分当前实现与目标架构，统一 LLM Provider 术语 | ✅ 完成 |
 | **架构 Phase B** | **Model Router**：三层 tier 抽象，DeepSeek provider，Agent 按 tier 获取 LLM | ✅ 完成 |
 | **架构 Phase C** | **Agent Definition**：声明式定义、基于 definition 路由/权限/校验 | ✅ 完成 |
+| 架构 Phase E | MCP 唯一工具边界（删除 LangChain `@tool` 兼容层）| ✅ 完成 |
+| 架构 Phase E2 | 顶层目录拆分（agent_host / mcp 独立顶层）| ✅ 完成 |
+| **架构 Phase 6** | **顶层目录重组**：消除双 mcp 冲突，agent_host 拆为 agents/graph/memory/knowledge/models/workers | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
-| 架构 Phase E | MCP 唯一工具边界 | ❌ 未开始 |
-| 架构 Phase E2 | 顶层目录拆分（app / agent_host / mcp 独立） | ❌ 未开始（依赖 Phase E） |
-| 架构 Phase F | Human Gate 与 AgentTask 状态机打通 | ❌ 未开始 |
+| 架构 Phase F | Human Gate 与 AgentTask 状态机打通（部分完成）| ⚠️ 进行中 |
 | 架构 Phase G | Observability 和评估闭环 | ❌ 未开始 |
 | Phase D (旧) | RAG 深度集成：知识库种子数据、教师知识库管理 API | ❌ 未开始 |
 
@@ -801,7 +839,8 @@ LLM 生成题目 + 测试用例 + 参考答案
 - Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](archive/completed/AGENT_ENHANCEMENT_GUIDE.md)
 - 模块审计报告：[ai-agents-module-audit.md](archive/superpowers/plans/ai-agents-module-audit.md)
 - 集成修复计划：[2026-05-23-agent-module-integration.md](archive/superpowers/plans/2026-05-23-agent-module-integration.md)
-- Agent 架构成熟化计划：[AGENT_ARCHITECTURE_MATURITY_PLAN.md](AGENT_ARCHITECTURE_MATURITY_PLAN.md)
+- Agent 架构成熟化计划（历史）：[archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md](archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
+- 架构重构计划（Phase 6）：[archive/plans/2026-05-28-architecture-refactor-plan.md](archive/plans/2026-05-28-architecture-refactor-plan.md)
 - 系统架构总览：[ARCHITECTURE.md](ARCHITECTURE.md)
 - 现有 REST API：[API.md](API.md)
 - 代码沙箱：[EXECUTOR.md](EXECUTOR.md)

@@ -1,5 +1,7 @@
 # 测试
 
+> 最后更新: 2026-05-28
+
 CodeRunner 用 [Cypress](https://www.cypress.io/) 做端到端测试，覆盖完整用户流程：游客、学生、教师三种角色的核心功能与失败场景。当前共 **11 个 spec / 多份 fixture**，验证 UI ↔ API 的端到端路径。
 
 ---

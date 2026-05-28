@@ -1,5 +1,7 @@
 # 系统架构
 
+> 最后更新: 2026-05-28
+
 CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系统分层、请求流、领域模型与数据库结构。
 
 ---
@@ -46,12 +48,20 @@ CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系
 │  app/core/executor.py      (本地沙箱)               │
 │  app/core/executor_client.py(远程沙箱)              │
 ├────────────────────────────────────────────────────┤
-│              AI Agent Layer（规划中）                │
-│  app/agents/orchestrator.py (LangGraph 编排)        │
-│  app/agents/agents/         (Tutor/Review/Gen/Ana) │
-│  app/agents/tools/          (Service 层 Tool 封装)  │
+│                  AI Agent Layer                     │
+│  agents/                (Tutor/Reviewer/Generator/Analytics) │
+│  graph/                 (LangGraph 编排: engine/planner/runner) │
+│  memory/                (短期/长期 + preference)    │
+│  knowledge/             (RAG 向量库 store)          │
+│  models/                (LLM router + providers)    │
+│  tools/                 (业务工具实现 + protocol/ 协议层) │
+│  mcp_gateway/           (FastMCP 对外服务)          │
+│  workers/               (chat/batch/task_runner 守护进程) │
+│  core/                  (config/db/auth/observability) │
 └────────────────────────────────────────────────────┘
 ```
+
+> 详细顶层目录布局见根目录 [README.md](../README.md) 与 [AI_AGENTS.md](AI_AGENTS.md)。
 
 ### 模块职责
 

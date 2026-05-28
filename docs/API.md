@@ -1,5 +1,7 @@
 # REST API 参考
 
+> 最后更新: 2026-05-28
+
 CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthedocs.io/) 构建，自动生成 OpenAPI 3.0.3 规范，运行时可在 **`/swagger-ui`** 访问交互式文档。
 
 本文档列出所有 endpoint 的高层概览。详细字段以 schema 代码 (`app/schemas/`) 与 Swagger UI 为准。
