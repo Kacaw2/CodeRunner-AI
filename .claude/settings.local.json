@@ -225,7 +225,9 @@
       "Bash(python -m pytest tests/ --tb=line -q --ignore=tests/cypress)",
       "Bash(python -c \"from app import create_app; create_app\\(\\); print\\('Flask OK'\\)\")",
       "Bash(python -c \"from mcp_gateway.server import create_mcp_server; create_mcp_server\\(\\); print\\('MCP Gateway OK'\\)\")",
-      "Bash(xargs -I{} rm -rf {})"
+      "Bash(xargs -I{} rm -rf {})",
+      "Bash(python -c \"import json; [print\\(p, len\\(json.load\\(open\\(p,encoding='utf-8'\\)\\)\\)\\) for p in ['evals/cases/tutor_evals.json','evals/cases/reviewer_evals.json','evals/cases/generator_evals.json','evals/cases/analytics_evals.json','evals/cases/security_evals.json']]\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('total cases:',len\\(d\\)\\); [print\\(c['id'],'agent=',c['input'].get\\('agent_type'\\),'cat=',c.get\\('category'\\)\\) for c in d]\")"
     ]
   }
 }

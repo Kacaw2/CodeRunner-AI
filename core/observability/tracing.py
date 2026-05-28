@@ -63,8 +63,11 @@ class TraceCollector:
 
             total_ms = int((time.monotonic() - self.start_time) * 1000)
 
-            safe_steps = _make_json_safe(self.steps)
-            safe_context = _make_json_safe(self.input_context)
+            # P0: redact credentials before persisting (see _redact_secrets)
+            self.input_message = _redact_secrets(self.input_message)
+            response = _redact_secrets(response)
+            safe_steps = _redact_secrets(_make_json_safe(self.steps))
+            safe_context = _redact_secrets(_make_json_safe(self.input_context))
 
             run = AgentRun(
                 id=self.run_id,
@@ -125,3 +128,32 @@ def _make_json_safe(obj):
         return obj
     except (TypeError, ValueError, OverflowError):
         return json.loads(json.dumps(obj, default=str))
+
+
+import re as _re
+
+# Credential-like patterns scrubbed from any trace data before it is persisted.
+_SECRET_PATTERNS = [
+    _re.compile(r"sk-[A-Za-z0-9]{20,}"),                                  # OpenAI/DeepSeek API keys
+    _re.compile(r"Bearer\s+[A-Za-z0-9._\-]{8,}", _re.I),                  # bearer tokens
+    _re.compile(r"(?i)(api[_-]?key|secret|token|password|passwd|pwd)\s*[=:]\s*\S+"),
+    _re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),  # JWT
+]
+
+
+def _redact_secrets(obj):
+    """Recursively replace credential-like substrings with [REDACTED].
+
+    Applied to trace input/output before DB persistence so that secrets pasted
+    by users (in code or conversation) never land in agent_runs / agent_run_steps.
+    """
+    if isinstance(obj, str):
+        s = obj
+        for pat in _SECRET_PATTERNS:
+            s = pat.sub("[REDACTED]", s)
+        return s
+    if isinstance(obj, dict):
+        return {k: _redact_secrets(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_secrets(v) for v in obj]
+    return obj

@@ -70,7 +70,21 @@ class ExecutorService:
                     "error_message": result.get("error_message", ""),
                 }
             except Exception as e:
-                logger.error(f"Remote executor error, fallback to local: {e}", exc_info=True)
+                # Fail-closed: do NOT silently fall back to native in-container
+                # execution when the sandbox executor is unreachable.
+                logger.error(f"Remote executor error: {e}", exc_info=True)
+                return {
+                    "status": "EXECUTOR_UNAVAILABLE",
+                    "compiled": False,
+                    "passed": False,
+                    "stdout": "",
+                    "stderr": "Sandbox executor unavailable",
+                    "time_ms": 0,
+                    "compile_log": "",
+                    "expected": expected_output,
+                    "expected_match": None,
+                    "error_message": "Sandbox executor unavailable",
+                }
 
         try:
             from app.core.executor import run_code_in_docker
@@ -155,10 +169,20 @@ class ExecutorService:
             }
             
         except ImportError as e:
-            logger.warning(f"Core executor not available, using fallback: {e}")
-            return ExecutorService._fallback_run_c(
-                code, stdin_text, expected_output, time_limit_sec
-            )
+            # Fail-closed: the native subprocess fallback has been removed.
+            # Untrusted code must run in the sandbox executor microservice.
+            logger.error(f"Core executor unavailable (no sandbox): {e}")
+            return {
+                "status": "EXECUTOR_UNAVAILABLE",
+                "compiled": False,
+                "passed": False,
+                "stdout": "",
+                "stderr": "Sandbox executor unavailable",
+                "time_ms": 0,
+                "expected": expected_output,
+                "expected_match": None,
+                "error_message": "Sandbox executor unavailable",
+            }
         except Exception as e:
             logger.error(f"Executor error: {e}")
             return {
@@ -172,131 +196,3 @@ class ExecutorService:
                 "expected": expected_output,
                 "expected_match": None
             }
-    
-    @staticmethod
-    def _fallback_run_c(
-        code: str,
-        stdin_text: str = "",
-        expected_output: Optional[str] = None,
-        time_limit_sec: float = 2.0
-    ) -> Dict[str, Any]:
-        """
-        Fallback C code executor (local execution, not Docker)
-        Only used for development and testing
-        """
-        import subprocess
-        import tempfile
-        import os
-        import time
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            
-            source_file = os.path.join(tmpdir, "main.c")
-            with open(source_file, 'w') as f:
-                f.write(code)
-            
-            output_file = os.path.join(tmpdir, "main")
-            
-            # compile
-            try:
-                compile_result = subprocess.run(
-                    ["gcc", "-o", output_file, source_file, "-std=c11", "-Wall"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-                
-                if compile_result.returncode != 0:
-                    return {
-                        "status": "CE",
-                        "compiled": False,
-                        "stdout": "",
-                        "stderr": compile_result.stderr,
-                        "time_ms": 0,
-                        "passed": False,
-                        "expected": expected_output,
-                        "expected_match": None,
-                        "compile_log": compile_result.stderr
-                    }
-            except subprocess.TimeoutExpired:
-                return {
-                    "status": "CE",
-                    "compiled": False,
-                    "stdout": "",
-                    "stderr": "Compilation timeout",
-                    "time_ms": 0,
-                    "passed": False,
-                    "expected": expected_output,
-                    "expected_match": None
-                }
-            except FileNotFoundError:
-                return {
-                    "status": "SYSTEM_ERROR",
-                    "compiled": False,
-                    "stdout": "",
-                    "stderr": "gcc not found - Docker is recommended",
-                    "time_ms": 0,
-                    "passed": False,
-                    "error": "gcc compiler not found. Please use Docker executor.",
-                    "expected": expected_output,
-                    "expected_match": None
-                }
-            
-            # run state
-            try:
-                start_time = time.time()
-                
-                run_result = subprocess.run(
-                    [output_file],
-                    input=stdin_text,
-                    capture_output=True,
-                    text=True,
-                    timeout=time_limit_sec
-                )
-                
-                elapsed_ms = int((time.time() - start_time) * 1000)
-                
-                stdout = ExecutorService.normalize_output(run_result.stdout)
-                stderr = ExecutorService.normalize_output(run_result.stderr)
-                
-                # judge
-                passed = False
-                expected_match = None
-                
-                if expected_output is not None:
-                    expected_normalized = ExecutorService.normalize_output(expected_output)
-                    expected_match = (stdout == expected_normalized)
-                    passed = expected_match and run_result.returncode == 0
-                else:
-                    passed = run_result.returncode == 0
-                
-                # status
-                if run_result.returncode != 0:
-                    status = "RE"
-                elif expected_match is False:
-                    status = "WA"
-                else:
-                    status = "AC"
-                
-                return {
-                    "status": status,
-                    "compiled": True,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "time_ms": elapsed_ms,
-                    "passed": passed,
-                    "expected": expected_output,
-                    "expected_match": expected_match
-                }
-                
-            except subprocess.TimeoutExpired:
-                return {
-                    "status": "TLE",
-                    "compiled": True,
-                    "stdout": "",
-                    "stderr": "Time limit exceeded",
-                    "time_ms": int(time_limit_sec * 1000),
-                    "passed": False,
-                    "expected": expected_output,
-                    "expected_match": None
-                }

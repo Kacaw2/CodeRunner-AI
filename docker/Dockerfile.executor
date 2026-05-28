@@ -1,0 +1,42 @@
+# Dockerfile for the isolated sandbox executor microservice (Phase 0 — Option A)
+#
+# This image runs ONLY the standalone executor HTTP service. It contains the
+# compilers/interpreters needed to run untrusted student code, but none of the
+# web app, database drivers, or secrets. Isolation is enforced at the container
+# level by docker-compose (network=none, read-only rootfs, non-root user,
+# mem/PID limits, cap_drop ALL, no-new-privileges).
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    EXECUTOR_IMPL_PATH=/opt/executor/executor.py \
+    EXECUTOR_TMP_DIR=/tmp/executor \
+    EXECUTOR_PORT=8300 \
+    EXECUTOR_ALLOW_NATIVE=true
+
+# Toolchain for compiling/running submissions. Kept minimal.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Only Flask + gunicorn — no heavy app dependencies.
+RUN pip install --no-cache-dir "flask>=2.3" "gunicorn>=21.0"
+
+# Non-root, no-login sandbox user.
+RUN useradd -u 4000 -m -s /usr/sbin/nologin sandbox
+
+# Copy just the executor implementation and the HTTP service entrypoint.
+COPY app/core/executor.py /opt/executor/executor.py
+COPY docker/executor_server.py /opt/executor/executor_server.py
+
+WORKDIR /opt/executor
+USER sandbox
+
+EXPOSE 8300
+
+# Single worker; concurrency is bounded on purpose for a code sandbox.
+CMD ["gunicorn", "--bind", "0.0.0.0:8300", "--workers", "2", "--timeout", "60", \
+     "--access-logfile", "-", "--error-logfile", "-", "executor_server:app"]

@@ -503,13 +503,50 @@ class CodeExecutor:
 # Backward compatibility functions
 _default_executor = CodeExecutor()
 
+
+def _native_allowed() -> bool:
+    """Native (in-process subprocess) execution is fail-closed by default.
+
+    P0 sandbox hardening: untrusted student code must run in the isolated
+    executor microservice (EXECUTOR_REMOTE_URL), never inside the web
+    container. These backward-compat entry points therefore refuse to run
+    code natively unless EXECUTOR_ALLOW_NATIVE is explicitly enabled — which
+    is only appropriate inside the sandbox executor container itself or for
+    deliberate local development.
+    """
+    return os.getenv("EXECUTOR_ALLOW_NATIVE", "false").lower() in ("true", "1", "yes")
+
+
+def _executor_unavailable_result(expected_output: Optional[str] = None) -> Dict[str, Any]:
+    """Fail-closed result returned when no sandbox is available."""
+    return {
+        "status": "EXECUTOR_UNAVAILABLE",
+        "compiled": False,
+        "passed": False,
+        "stdout": "",
+        "stderr": "Sandbox executor unavailable",
+        "compile_log": "",
+        "time_ms": 0,
+        "expected": expected_output,
+        "expected_match": None,
+        "error_message": "Sandbox executor unavailable",
+    }
+
+
 def run_c_in_docker(
     code: str,
     stdin: str = "",
     expected_output: Optional[str] = None,
     time_limit_sec: float = 2.0
 ) -> Dict[str, Any]:
-    """Backward compatibility - runs natively on Render"""
+    """Run C code natively — fail-closed unless native execution is allowed."""
+    if not _native_allowed():
+        logger.error(
+            "run_c_in_docker invoked without a sandbox; native execution is "
+            "disabled (set EXECUTOR_ALLOW_NATIVE=true only inside the sandbox "
+            "executor). Failing closed."
+        )
+        return _executor_unavailable_result(expected_output)
     return _default_executor.run_c_code(
         code=code,
         stdin=stdin,
@@ -524,7 +561,14 @@ def run_code_in_docker(
     expected_output: Optional[str] = None,
     time_limit_sec: float = 2.0
 ) -> Dict[str, Any]:
-    """Backward compatibility - runs natively on Render"""
+    """Run code natively — fail-closed unless native execution is allowed."""
+    if not _native_allowed():
+        logger.error(
+            "run_code_in_docker invoked without a sandbox; native execution is "
+            "disabled (set EXECUTOR_ALLOW_NATIVE=true only inside the sandbox "
+            "executor). Failing closed."
+        )
+        return _executor_unavailable_result(expected_output)
     return _default_executor.run_code(
         code=code,
         language=language,

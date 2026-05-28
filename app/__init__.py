@@ -12,6 +12,16 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config.get(env_name, config["default"]))
 
+    # P0: SECRET_KEY gate — refuse to boot in production with insecure key.
+    # Development (DEBUG=True) and Testing (TESTING=True) are exempt.
+    if not app.config.get("DEBUG") and not app.config.get("TESTING"):
+        sk = app.config.get("SECRET_KEY")
+        if not sk or sk == "dev-secret-key-change-in-production":
+            raise RuntimeError(
+                "SECRET_KEY is unset or using the insecure default. "
+                "Set the SECRET_KEY env var before starting in production."
+            )
+
     # 2. Prevent sqlite path not existing: if it's sqlite:////xxx, create the directory
     uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
     if uri.startswith("sqlite:////"):

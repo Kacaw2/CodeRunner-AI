@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_DEFAULT_SECRET = "dev-secret-key-change-in-production"
+
 
 def _build_database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
@@ -73,7 +75,20 @@ class Settings:
     def database_url(self) -> str:
         return self.DB_URL
 
+    def validate(self) -> None:
+        """P0: fail-fast if a production (non-DEBUG) process boots with an
+        unset or insecure default SECRET_KEY (used for JWT signing)."""
+        if not self.DEBUG:
+            if not self.SECRET_KEY or self.SECRET_KEY == _DEFAULT_SECRET:
+                raise RuntimeError(
+                    "SECRET_KEY is unset or using the insecure default in "
+                    "non-DEBUG mode. Set the SECRET_KEY env var before starting "
+                    "in production."
+                )
+
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    s.validate()
+    return s
