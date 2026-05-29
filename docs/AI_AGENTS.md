@@ -2,7 +2,7 @@
 
 本文档描述 CodeRunner-AI 的 AI Agent 模块设计与实现现状。该模块在现有评测平台基础上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。
 
-> 最后更新: 2026-05-28
+> 最后更新: 2026-05-30
 
 ### 项目定位
 
@@ -25,8 +25,8 @@
 | 声明式 Agent 定义 | ✅ `definitions.py` — name, tools, roles, tier, risk | 不变 |
 | Model Router | ✅ 三层 tier (fast/balanced/strong)，DeepSeek provider | 多 provider 支持 |
 | Orchestrator | ✅ LangGraph StateGraph，基于 definition 路由 | Education Orchestrator 多步编排 |
-| 工具调用 | ✅ MCP ToolRuntime（Phase E 完成） | 不变 |
-| MCP 内核 | ✅ `mcp/` 唯一工具边界 + guard pipeline | 不变 |
+| 工具调用 | ✅ 内部 Agent 经 MCP client 跨 transport 调用 gateway（ToolRuntime 仅为服务端引擎） | 不变 |
+| MCP 内核 | ✅ `mcp_gateway` FastMCP 服务 + `tools/protocol` guard pipeline，唯一工具边界 | 不变 |
 | Human Gate | ⚠️ 生成草稿审批流 | 与 AgentTask 状态机完整打通 |
 | Subagent 隔离 | ❌ Agent 共享上下文 | 独立上下文窗口和工具权限 |
 | 多模型路由 | ✅ tier 抽象，单 provider | 多 provider + 动态路由策略 |
@@ -79,12 +79,12 @@
      └──────────────┬─────────────────────┘
                     │
      ┌──────────────▼─────────────────────┐
-     │          Tool Layer                 │
-     │ execute_code · question_query       │
-     │ submission_query · analytics_query  │
-     │ knowledge_tools (RAG)               │
-     │ (⚠️ 当前直接绑定 LangChain tools，    │
-     │  目标迁移至 MCP 唯一工具边界)         │
+     │      MCP 工具边界（唯一）             │
+     │ MCPToolClient → MCP transport →      │
+     │ mcp_gateway → ToolRuntime guard      │
+     │ (RBAC · scope · risk · audit · schema)│
+     │ → LocalTransport handler             │
+     │ 详见 MCP_RUNTIME_ARCHITECTURE.md      │
      └──────────────┬─────────────────────┘
                     │
      ┌──────────────▼─────────────────────┐
@@ -192,12 +192,15 @@ tools/                           # 工具实现（业务层）+ 协议层
     ├── adapters/                # llm_to_tool / tool_to_llm / result_to_message
     └── transports/              # inproc.py（进程内）
 
-mcp_gateway/                     # 对外 MCP 服务（python -m mcp_gateway）
-├── __main__.py                  # 入口
-├── server.py                    # FastMCP 装配
-├── bootstrap.py                 # ToolRuntime 初始化
-├── handlers/                    # FastMCP 注册薄包装（委托 tools/）
-└── middleware/                  # auth / rate_limit / sanitizer / human_gate
+mcp_gateway/                     # MCP 服务 + 内部 Agent 的 MCP client（python -m mcp_gateway）
+├── __main__.py                  # 入口（per-request 鉴权，启动 key 仅 dev 模式）
+├── server.py                    # FastMCP 装配 + EXPECTED_TOOL_COUNT 断言
+├── bootstrap.py                 # ToolRuntime 初始化（含 approval 处理器）
+├── client.py                    # MCPToolClient — 内部 Agent 的工具调用适配器
+├── tool_map.py                  # EXTERNAL_TOOL_MAP — 外部名↔canonical 名唯一映射
+├── scopes.py                    # normalize_scopes — 旧 scope 归一化
+├── _codegen.py / generated_tools.py  # 从 TOOL_CATALOG 生成的 FastMCP 包装
+└── middleware/                  # auth / rate_limit / sanitizer / core(caller ctx)
 
 workers/                         # 守护进程
 ├── __main__.py                  # FastAPI 入口（python -m workers）
@@ -825,6 +828,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | 架构 Phase E | MCP 唯一工具边界（删除 LangChain `@tool` 兼容层）| ✅ 完成 |
 | 架构 Phase E2 | 顶层目录拆分（agent_host / mcp 独立顶层）| ✅ 完成 |
 | **架构 Phase 6** | **顶层目录重组**：消除双 mcp 冲突，agent_host 拆为 agents/graph/memory/knowledge/models/workers | ✅ 完成 |
+| **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 MCP_RUNTIME_ARCHITECTURE.md） | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
 | 架构 Phase F | Human Gate 与 AgentTask 状态机打通（部分完成）| ⚠️ 进行中 |
 | 架构 Phase G | Observability 和评估闭环 | ❌ 未开始 |
@@ -841,6 +845,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 - 集成修复计划：[2026-05-23-agent-module-integration.md](archive/superpowers/plans/2026-05-23-agent-module-integration.md)
 - Agent 架构成熟化计划（历史）：[archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md](archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
 - 架构重构计划（Phase 6）：[archive/plans/2026-05-28-architecture-refactor-plan.md](archive/plans/2026-05-28-architecture-refactor-plan.md)
+- MCP 运行时架构（工具边界 / scope / 身份隔离）：[MCP_RUNTIME_ARCHITECTURE.md](MCP_RUNTIME_ARCHITECTURE.md)
 - 系统架构总览：[ARCHITECTURE.md](ARCHITECTURE.md)
 - 现有 REST API：[API.md](API.md)
 - 代码沙箱：[EXECUTOR.md](EXECUTOR.md)
