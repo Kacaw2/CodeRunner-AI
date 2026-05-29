@@ -305,3 +305,25 @@ _reg(ToolDescriptor(
     },
     output_schema={"type": "object"},
 ))
+
+# ── Approval Server tools ────────────────────────────────────────
+
+# No required_scopes: this is the post-approval polling loop, callable by
+# whoever initiated the gated call. Gating it on a scope not in the canonical
+# vocabulary (§4.1) would break external clients until scope migration lands.
+_reg(ToolDescriptor(
+    name="coderunner.approval.check",
+    version="1.0.0",
+    description="Check the status of a pending tool approval and retrieve the result if approved.",
+    server="db",
+    risk_level=RiskLevel.LOW,
+    input_schema={
+        "type": "object",
+        "properties": {
+            "approval_id": {"type": "string"},
+        },
+        "required": ["approval_id"],
+        "additionalProperties": False,
+    },
+    output_schema={"type": "object"},
+))

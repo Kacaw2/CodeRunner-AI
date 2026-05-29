@@ -3,6 +3,7 @@
 from mcp.server import FastMCP
 
 from mcp_gateway.middleware import _guarded, call_via_runtime
+from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 
 def register_knowledge_tools(mcp: FastMCP):
@@ -16,7 +17,7 @@ def register_knowledge_tools(mcp: FastMCP):
     )
     def search_knowledge(query: str, owner_id: int | None = None) -> str:
         return _guarded(lambda: call_via_runtime(
-            "coderunner.knowledge.search",
+            EXTERNAL_TOOL_MAP["search_knowledge"],
             {"query": query, "owner_id": owner_id},
         ))
 
@@ -31,6 +32,19 @@ def register_knowledge_tools(mcp: FastMCP):
         query: str, language: str = "python", limit: int = 5
     ) -> str:
         return _guarded(lambda: call_via_runtime(
-            "coderunner.knowledge.search_similar_problems",
+            EXTERNAL_TOOL_MAP["search_similar_problems"],
             {"query": query, "language": language, "limit": limit},
+        ))
+
+    @mcp.tool(
+        name="search_error_patterns",
+        description=(
+            "Search for common error patterns matching the query. "
+            "Returns known error types with explanations and fixes."
+        ),
+    )
+    def search_error_patterns(query: str) -> str:
+        return _guarded(lambda: call_via_runtime(
+            EXTERNAL_TOOL_MAP["search_error_patterns"],
+            {"query": query},
         ))

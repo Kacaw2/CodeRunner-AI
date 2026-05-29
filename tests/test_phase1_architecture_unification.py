@@ -100,8 +100,9 @@ def test_gateway_bridge_returns_runtime_envelope(monkeypatch):
     assert payload["ok"] is True
     assert payload["data"] == {"items": [1]}
     assert captured["tool_name"] == "coderunner.knowledge.search"
-    assert captured["ctx"].caller.actor_type == "agent_host"
+    assert captured["ctx"].caller.actor_type == "external_client"
     assert captured["ctx"].caller.api_key_id == "key-1"
+    assert captured["ctx"].granted_scopes == ["search_knowledge"]
 
 
 def test_gateway_registered_tool_invokes_runtime_pipeline(monkeypatch):

@@ -116,6 +116,7 @@ class TestToolCatalog:
             "coderunner.analytics.class_statistics",
             "coderunner.analytics.problem_difficulty",
             "coderunner.trace.get_agent_trace",
+            "coderunner.approval.check",
         }
         assert expected == set(TOOL_CATALOG.keys())
 

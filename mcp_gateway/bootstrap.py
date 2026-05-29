@@ -29,6 +29,7 @@ def bootstrap_tool_runtime(*, session_factory=None) -> ToolRuntime:
     _register_code_handlers(transport)
     _register_knowledge_handlers(transport)
     _register_analytics_handlers(transport, session_factory)
+    _register_approval_handlers(transport)
 
     _assert_rbac_consistent(registry)
     runtime = ToolRuntime(
@@ -204,3 +205,63 @@ def _register_analytics_handlers(transport: LocalTransport, session_factory) -> 
     transport.register_handler("coderunner.analytics.class_statistics", class_statistics)
     transport.register_handler("coderunner.analytics.problem_difficulty", problem_difficulty)
     transport.register_handler("coderunner.trace.get_agent_trace", agent_trace)
+
+
+def _execute_approved_tool(approval, session) -> dict:
+    tool_name = approval.tool_name
+    tool_args = approval.tool_args or {}
+
+    if tool_name in {"execute_code", "coderunner.code.execute"}:
+        from tools.code.executor import execute_code_impl
+        return execute_code_impl(
+            code=tool_args.get("code", ""),
+            language=tool_args.get("language", "python"),
+            stdin_text=tool_args.get("stdin_text", ""),
+        )
+    if tool_name in {"save_generated_problem", "coderunner.problem.save_generated"}:
+        from tools.problems.write import save_generated_problem_impl
+        return save_generated_problem_impl(
+            question_data=tool_args.get("question_data", {}),
+            teacher_id=tool_args.get("teacher_id") or approval.user_id,
+            session=session,
+        )
+    return {"error": f"Unknown high-risk tool: {tool_name}"}
+
+
+def _register_approval_handlers(transport: LocalTransport) -> None:
+    from core.db.session import get_session
+    from core.db.models.mcp_approval import McpToolApproval
+
+    def approval_check(approval_id: str, **_kw) -> dict:
+        session = get_session()
+        try:
+            approval = session.get(McpToolApproval, approval_id)
+            if not approval:
+                return {"status": "not_found", "message": "Approval not found"}
+
+            approval.check_expiration()
+
+            if approval.status == "approved":
+                if approval.result is None:
+                    approval.result = _execute_approved_tool(approval, session)
+                    approval.status = "executed"
+                    session.commit()
+                return {"status": "executed", "result": approval.result}
+
+            if approval.status == "executed":
+                return {"status": "executed", "result": approval.result}
+
+            if approval.status == "rejected":
+                session.commit()
+                return {"status": "rejected", "reason": approval.review_notes or ""}
+
+            if approval.status == "expired":
+                session.commit()
+                return {"status": "expired", "message": "审批已超时。请重新发起工具调用。"}
+
+            session.commit()
+            return {"status": "pending", "message": "等待教师审批"}
+        finally:
+            session.close()
+
+    transport.register_handler("coderunner.approval.check", approval_check)

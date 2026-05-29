@@ -14,11 +14,13 @@ from mcp_gateway.handlers.problems import register_problem_tools
 from mcp_gateway.handlers.analytics import register_analytics_tools
 from mcp_gateway.handlers.traces import register_trace_tools
 from mcp_gateway.handlers.students import register_student_tools
+from mcp_gateway.handlers.submissions import register_submission_tools
 from mcp_gateway.handlers.write import register_write_tools
+from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 logger = logging.getLogger(__name__)
 
-EXPECTED_TOOL_COUNT = 11
+EXPECTED_TOOL_COUNT = len(EXTERNAL_TOOL_MAP)
 
 
 def create_mcp_server() -> FastMCP:
@@ -36,6 +38,17 @@ def create_mcp_server() -> FastMCP:
     register_analytics_tools(mcp)
     register_trace_tools(mcp)
     register_student_tools(mcp)
+    register_submission_tools(mcp)
     register_write_tools(mcp)
-    logger.info("MCP Server created with %d tools registered", EXPECTED_TOOL_COUNT)
+
+    registered = set(mcp._tool_manager._tools)
+    expected = set(EXTERNAL_TOOL_MAP)
+    if registered != expected:
+        raise RuntimeError(
+            "MCP tool surface drifted from EXTERNAL_TOOL_MAP. "
+            f"missing={sorted(expected - registered)} "
+            f"unexpected={sorted(registered - expected)}"
+        )
+
+    logger.info("MCP Server created with %d tools registered", len(registered))
     return mcp

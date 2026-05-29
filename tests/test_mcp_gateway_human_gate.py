@@ -146,19 +146,12 @@ class TestSanitization:
 # ── MCP Server tool count ──
 
 class TestMcpServerPhase4:
-    def test_server_registers_11_tools(self):
+    def test_server_registers_full_tool_surface(self):
         from mcp_gateway.server import create_mcp_server
+        from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
         mcp = create_mcp_server()
-        tools = list(mcp._tool_manager._tools.keys())
-        assert len(tools) == 11
-        expected = {
-            "search_knowledge", "search_similar_problems",
-            "get_problem_detail", "get_problem_difficulty_stats",
-            "get_student_activity", "get_class_statistics",
-            "get_agent_trace", "get_student_summary",
-            "execute_code", "save_generated_problem", "check_approval",
-        }
-        assert set(tools) == expected
+        tools = set(mcp._tool_manager._tools.keys())
+        assert tools == set(EXTERNAL_TOOL_MAP)
 
 
 # ── Permission matrix (Phase 4 additions) ──

@@ -35,6 +35,7 @@ _GLOBAL_RUNTIME: ToolRuntime | None = None
 class ToolCallContext:
     caller: CallerContext
     tool_call_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    granted_scopes: list[str] | None = None
 
 
 @dataclass
@@ -123,7 +124,7 @@ class ToolRuntime:
                        status="error", error_code=exc.code.value)
             return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
 
-        guard = run_guard(descriptor, caller)
+        guard = run_guard(descriptor, caller, granted_scopes=context.granted_scopes)
         if guard.rejected:
             self._emit(descriptor, caller, tool_call_id, start,
                        status="rejected", error_code=guard.error.code.value if guard.error else "")

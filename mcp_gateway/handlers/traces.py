@@ -3,6 +3,7 @@
 from mcp.server import FastMCP
 
 from mcp_gateway.middleware import _guarded, call_via_runtime
+from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 
 def register_trace_tools(mcp: FastMCP):
@@ -16,6 +17,6 @@ def register_trace_tools(mcp: FastMCP):
     )
     def get_agent_trace(run_id: str) -> str:
         return _guarded(lambda: call_via_runtime(
-            "coderunner.trace.get_agent_trace",
+            EXTERNAL_TOOL_MAP["get_agent_trace"],
             {"run_id": run_id},
         ))

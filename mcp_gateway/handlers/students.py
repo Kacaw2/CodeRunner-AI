@@ -3,6 +3,7 @@
 from mcp.server import FastMCP
 
 from mcp_gateway.middleware import _guarded, call_via_runtime
+from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 
 def register_student_tools(mcp: FastMCP):
@@ -17,6 +18,6 @@ def register_student_tools(mcp: FastMCP):
     )
     def get_student_summary(student_id: int) -> str:
         return _guarded(lambda: call_via_runtime(
-            "coderunner.student.get_summary",
+            EXTERNAL_TOOL_MAP["get_student_summary"],
             {"student_id": student_id},
         ))

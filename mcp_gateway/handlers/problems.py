@@ -3,6 +3,7 @@
 from mcp.server import FastMCP
 
 from mcp_gateway.middleware import _guarded, call_via_runtime
+from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 
 def register_problem_tools(mcp: FastMCP):
@@ -15,7 +16,7 @@ def register_problem_tools(mcp: FastMCP):
     )
     def get_problem_detail(problem_id: int) -> str:
         return _guarded(lambda: call_via_runtime(
-            "coderunner.problem.get_detail",
+            EXTERNAL_TOOL_MAP["get_problem_detail"],
             {"problem_id": problem_id},
         ))
 
@@ -29,6 +30,6 @@ def register_problem_tools(mcp: FastMCP):
     )
     def get_problem_difficulty_stats(problem_id: int) -> str:
         return _guarded(lambda: call_via_runtime(
-            "coderunner.analytics.problem_difficulty",
+            EXTERNAL_TOOL_MAP["get_problem_difficulty_stats"],
             {"problem_id": problem_id},
         ))

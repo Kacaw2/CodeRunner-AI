@@ -54,13 +54,14 @@ def call_via_runtime(mcp_tool: str, args: dict) -> str:
     if not caller:
         return _error_envelope("MCP_AUTH_REQUIRED", "Authentication required")
 
-    ctx = ToolCallContext(caller=CallerContext(
-        # Phase 1 transition: existing API keys still store legacy tool-name
-        # scopes. Use agent_host actor semantics until scope migration lands.
-        actor_type="agent_host",
-        user_id=caller["user_id"],
-        role=caller["role"],
-        api_key_id=caller.get("api_key_id"),
-    ))
+    ctx = ToolCallContext(
+        caller=CallerContext(
+            actor_type="external_client",
+            user_id=caller["user_id"],
+            role=caller["role"],
+            api_key_id=caller.get("api_key_id"),
+        ),
+        granted_scopes=caller.get("scopes") or [],
+    )
     result = get_tool_runtime().call_sync(mcp_tool, args, ctx)
     return json.dumps(result.to_envelope(), ensure_ascii=False, default=str)
