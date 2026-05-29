@@ -4,6 +4,7 @@ import hashlib
 import logging
 
 from core.db.session import get_session
+from mcp_gateway.scopes import normalize_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def verify_api_key(raw_key: str) -> dict | None:
             "api_key_id": key.id,
             "user_id": key.user_id,
             "role": key.role,
-            "scopes": key.scopes,
+            "scopes": normalize_scopes(key.scopes),
             "rate_limit_rpm": key.rate_limit_rpm,
         }
     except Exception:

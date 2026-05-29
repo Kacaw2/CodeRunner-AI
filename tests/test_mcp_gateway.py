@@ -155,7 +155,7 @@ class TestApiKeyManagement:
         )
         assert resp.status_code == 201
         data = resp.get_json()
-        assert data["scopes"] == ["search_knowledge"]
+        assert data["scopes"] == ["knowledge:read"]
 
     def test_list_keys(self, client, mock_auth_teacher, teacher_user):
         client.post("/api/v1/mcp/keys", json={"name": "Key1"})
