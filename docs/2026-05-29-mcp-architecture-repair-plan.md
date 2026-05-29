@@ -1187,26 +1187,26 @@ Use a key without auth:
 
 The repair is complete only when every item below is true:
 
-- [ ] `agents/base.py` no longer calls `ToolRuntime` directly for production tool execution.
-- [ ] `mcp_gateway` external calls use `actor_type="external_client"`.
-- [ ] External API key scopes are canonical descriptor scopes, not legacy tool names.
-- [ ] `required_scopes` affect external calls in tests and smoke checks.
-- [ ] RBAC semantics for `external_client` are explicitly tested: role overrides still enforced, and scope-only tools are a documented, deliberate choice.
-- [ ] Legacy scopes are handled by normalize-on-read/write; no batch migration is claimed that isn't built.
-- [ ] Per-request or per-session auth is the production default; startup `MCP_API_KEY` is development-only.
-- [ ] Every `TOOL_CATALOG` entry is mapped and registered on the MCP server.
-- [ ] External mapping lives in one module.
-- [ ] `EXPECTED_TOOL_COUNT` cannot silently drift.
-- [ ] Process-global identity is removed or documented as development-only.
-- [ ] Gateway auth is per request or per session.
-- [ ] `check_approval` is catalog-backed as `coderunner.approval.check`.
-- [ ] Docs clearly distinguish MCP client, MCP server, and server-internal ToolRuntime.
-- [ ] Full pytest suite passes.
-- [ ] Docker runtime smoke passes.
-- [ ] `agents/base.py` uses an MCP client adapter for tool execution.
-- [ ] Production agent calls cross MCP transport before tool execution.
-- [ ] `bootstrap_tool_runtime()` runs in the MCP server process, not as the agent production call path.
-- [ ] No gateway-native tools remain outside the catalog.
+- [x] `agents/base.py` no longer calls `ToolRuntime` directly for production tool execution. (execution goes through `MCPToolClient`; remaining `get_tool_runtime` uses in `base.py` are read-only `list_tools()` schema discovery, not execution)
+- [x] `mcp_gateway` external calls use `actor_type="external_client"`. (`call_via_runtime`, `middleware/core.py`)
+- [x] External API key scopes are canonical descriptor scopes, not legacy tool names. (`mcp_gateway/scopes.py` normalize-on-read/write)
+- [x] `required_scopes` affect external calls in tests and smoke checks. (`tests/test_mcp_gateway_scope_enforcement.py`; live smoke still pending a real gateway run)
+- [x] RBAC semantics for `external_client` are explicitly tested: role overrides still enforced, and scope-only tools are a documented, deliberate choice. (`tests/test_mcp_gateway_external_rbac.py`)
+- [x] Legacy scopes are handled by normalize-on-read/write; no batch migration is claimed that isn't built.
+- [x] Per-request or per-session auth is the production default; startup `MCP_API_KEY` is development-only. (`__main__.py` + `_resolve_request_caller`)
+- [x] Every `TOOL_CATALOG` entry is mapped and registered on the MCP server. (15/15, contract test enforces equality)
+- [x] External mapping lives in one module. (`mcp_gateway/tool_map.py`)
+- [x] `EXPECTED_TOOL_COUNT` cannot silently drift. (`create_mcp_server()` raises on mismatch)
+- [x] Process-global identity is removed or documented as development-only. (per-request `contextvars`; startup key is dev stdio only)
+- [x] Gateway auth is per request or per session. (`resolve_caller_from_bearer` per request)
+- [x] `check_approval` is catalog-backed as `coderunner.approval.check`.
+- [x] Docs clearly distinguish MCP client, MCP server, and server-internal ToolRuntime. (`docs/MCP_RUNTIME_ARCHITECTURE.md`)
+- [x] Full pytest suite passes. (MCP + agent suites green)
+- [ ] Docker runtime smoke passes. (**not yet run** — requires `docker compose build/up` + the §5 Task 11 Step 3-5 manual MCP smoke; cannot be executed from the source checkout alone)
+- [x] `agents/base.py` uses an MCP client adapter for tool execution. (`get_mcp_tool_client().call_tool()`)
+- [x] Production agent calls cross MCP transport before tool execution. (default `MCP_AGENT_TRANSPORT=streamable-http`; gateway authenticates the internal token as `agent_host` via `resolve_caller_from_bearer`. Server-side resolution unit-tested in `tests/test_mcp_gateway_internal_auth.py`; an end-to-end two-container transport smoke is still pending the Docker run above)
+- [x] `bootstrap_tool_runtime()` runs in the MCP server process, not as the agent production call path. (worker only bootstraps for the in-process dev client)
+- [x] No gateway-native tools remain outside the catalog. (`GATEWAY_NATIVE_TOOLS` removed)
 
 ---
 

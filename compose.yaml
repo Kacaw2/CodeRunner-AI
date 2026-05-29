@@ -175,10 +175,11 @@ services:
       FLASK_BASE_URL: http://web:9900
       AGENT_HOST_PORT: 8100
       MCP_INTERNAL_SERVICE_TOKEN: ${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}
-      # Agent tool-call transport. "inproc" (default) runs tools in this
-      # process via the in-process MCP client. Switch to "streamable-http"
-      # once the gateway authenticates internal agents as agent_host.
-      MCP_AGENT_TRANSPORT: ${MCP_AGENT_TRANSPORT:-inproc}
+      # Agent tool-call transport. "streamable-http" (default) routes agent tool
+      # calls across MCP transport to the mcp_gateway server, which authenticates
+      # the shared MCP_INTERNAL_AUTH_TOKEN as an agent_host caller. Set "inproc"
+      # for local/dev to run tools in-process without a running gateway.
+      MCP_AGENT_TRANSPORT: ${MCP_AGENT_TRANSPORT:-streamable-http}
       MCP_GATEWAY_URL: ${MCP_GATEWAY_URL:-http://mcp_gateway:8200/mcp}
       MCP_INTERNAL_AUTH_TOKEN: ${MCP_INTERNAL_AUTH_TOKEN:-${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}}
       DEBUG: ${DEBUG:-False}
@@ -190,6 +191,8 @@ services:
       redis:
         condition: service_healthy
       web:
+        condition: service_healthy
+      mcp_gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/api/health"]
@@ -208,7 +211,7 @@ services:
       dockerfile: docker/Dockerfile.workers
     container_name: educode_mcp_gateway
     restart: unless-stopped
-    entrypoint: ["python", "-m", "mcp_gateway", "--transport", "sse", "--host", "0.0.0.0", "--port", "8200"]
+    entrypoint: ["python", "-m", "mcp_gateway", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8200"]
     environment:
       TZ: Asia/Shanghai
       MYSQL_USER: ${MYSQL_USER:-educode}
@@ -218,6 +221,9 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       DATABASE_URL: mysql+pymysql://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
+      # Shared secret the gateway recognizes as a trusted internal agent caller
+      # (resolve_caller_from_bearer -> agent_host). Must match the workers value.
+      MCP_INTERNAL_AUTH_TOKEN: ${MCP_INTERNAL_AUTH_TOKEN:-${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}}
     ports:
       - "${MCP_PORT:-8200}:8200"
     depends_on:

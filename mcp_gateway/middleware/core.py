@@ -7,6 +7,7 @@ tool policy, auditing, validation, and approval behavior to ToolRuntime.
 import contextvars
 import json
 import logging
+import os
 
 from mcp_gateway.middleware.rate_limit import check_rate_limit
 from tools.protocol import get_tool_runtime, ToolCallContext
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 CODE_MAX_LENGTH = 10_000
 ALLOWED_LANGUAGES = {"python", "c"}
+INTERNAL_RATE_LIMIT_RPM_DEFAULT = 600
 
 
 _caller_info_var: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
@@ -68,8 +70,58 @@ def _resolve_request_caller() -> dict | None:
     if scheme.lower() != "bearer" or not token.strip():
         return None
 
+    return resolve_caller_from_bearer(token.strip(), headers)
+
+
+def _internal_caller_from_headers(headers) -> dict:
+    """Build a trusted agent_host caller dict from internal request headers.
+
+    The internal agent transport carries identity as X-MCP-* headers rather than
+    an API key. agent_host callers bypass scope checks (enforced upstream in
+    tools.protocol.policies.scopes), so they carry no granted scopes.
+    """
+    def _h(name: str) -> str:
+        return (headers.get(name) or "").strip()
+
+    agent_type = _h("x-mcp-agent-type")
+    raw_user_id = _h("x-mcp-user-id")
+    try:
+        user_id = int(raw_user_id) if raw_user_id else 0
+    except ValueError:
+        user_id = 0
+
+    rpm = os.environ.get("MCP_INTERNAL_RATE_LIMIT_RPM", "").strip()
+    try:
+        rate_limit_rpm = int(rpm) if rpm else INTERNAL_RATE_LIMIT_RPM_DEFAULT
+    except ValueError:
+        rate_limit_rpm = INTERNAL_RATE_LIMIT_RPM_DEFAULT
+
+    return {
+        "actor_type": "agent_host",
+        "api_key_id": f"internal:{agent_type or 'agent'}",
+        "user_id": user_id,
+        "role": _h("x-mcp-user-role") or "student",
+        "agent_type": agent_type,
+        "task_id": _h("x-mcp-task-id") or None,
+        "conversation_id": _h("x-mcp-conversation-id") or None,
+        "scopes": None,
+        "rate_limit_rpm": rate_limit_rpm,
+    }
+
+
+def resolve_caller_from_bearer(token: str, headers) -> dict | None:
+    """Resolve a bearer token to caller info.
+
+    A token matching the configured ``MCP_INTERNAL_AUTH_TOKEN`` is a trusted
+    internal agent and yields an ``agent_host`` caller built from X-MCP-* headers.
+    Any other token is verified as an external MCP API key.
+    """
+    internal_token = os.environ.get("MCP_INTERNAL_AUTH_TOKEN", "").strip()
+    if internal_token and token == internal_token:
+        return _internal_caller_from_headers(headers)
+
     from mcp_gateway.middleware.auth import verify_api_key
-    return verify_api_key(token.strip())
+    return verify_api_key(token)
 
 
 def _guarded(fn):
@@ -102,14 +154,26 @@ def call_via_runtime(mcp_tool: str, args: dict) -> str:
     if not caller:
         return _error_envelope("MCP_AUTH_REQUIRED", "Authentication required")
 
-    ctx = ToolCallContext(
-        caller=CallerContext(
-            actor_type="external_client",
-            user_id=caller["user_id"],
-            role=caller["role"],
-            api_key_id=caller.get("api_key_id"),
-        ),
-        granted_scopes=caller.get("scopes") or [],
-    )
+    if caller.get("actor_type") == "agent_host":
+        ctx = ToolCallContext(
+            caller=CallerContext(
+                actor_type="agent_host",
+                user_id=caller["user_id"],
+                role=caller["role"],
+                agent_type=caller.get("agent_type", ""),
+                task_id=caller.get("task_id"),
+                conversation_id=caller.get("conversation_id"),
+            ),
+        )
+    else:
+        ctx = ToolCallContext(
+            caller=CallerContext(
+                actor_type="external_client",
+                user_id=caller["user_id"],
+                role=caller["role"],
+                api_key_id=caller.get("api_key_id"),
+            ),
+            granted_scopes=caller.get("scopes") or [],
+        )
     result = get_tool_runtime().call_sync(mcp_tool, args, ctx)
     return json.dumps(result.to_envelope(), ensure_ascii=False, default=str)
