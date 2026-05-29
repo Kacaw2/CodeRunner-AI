@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.services import flask_client
+from app.services import agent_client
 from core.auth.caller import TokenPayload, require_auth
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ def list_traces(
     """List agent trace records (proxied from Flask)."""
     token = _extract_token(request)
     try:
-        return flask_client.list_traces(token, limit=limit, offset=offset)
+        return agent_client.list_traces(token, limit=limit, offset=offset)
     except Exception as e:
         logger.warning("Failed to fetch traces: %s", e)
         raise HTTPException(status_code=502, detail="Failed to fetch traces from backend")
@@ -39,7 +39,7 @@ def get_trace(
     """Get a single agent trace (proxied from Flask)."""
     token = _extract_token(request)
     try:
-        result = flask_client.get_trace(token, run_id)
+        result = agent_client.get_trace(token, run_id)
     except Exception as e:
         logger.warning("Failed to fetch trace %s: %s", run_id, e)
         raise HTTPException(status_code=502, detail="Failed to fetch trace from backend")

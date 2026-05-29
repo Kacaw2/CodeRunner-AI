@@ -200,10 +200,3 @@ def register_blueprints(app):
 
     from app.web.ai_chat import ai_chat_bp
     app.register_blueprint(ai_chat_bp)
-
-
-# for gunicorn
-app = create_app()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9900, debug=app.config["DEBUG"])
