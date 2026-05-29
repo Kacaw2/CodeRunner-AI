@@ -38,6 +38,11 @@ def main():
     init_db(settings.database_url)
     logger.info("Database connected")
 
+    from core.db.session import get_session
+    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    bootstrap_tool_runtime(session_factory=get_session)
+    logger.info("ToolRuntime bootstrapped")
+
     # ── Init rate limiter ──
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     from mcp_gateway.middleware.rate_limit import init_rate_limiter

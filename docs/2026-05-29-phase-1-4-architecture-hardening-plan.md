@@ -21,6 +21,8 @@
 
 ## 阶段 1 — P1 架构合一（牵一发动全身）
 
+> **详细落地（含逐文件 before/after、删除清单、scope/校验/审批三个硬骨头、提交顺序）见**：`docs/2026-05-29-phase-1-architecture-unification-detailed.md`。下方为概要。
+
 ### 1.1 RBAC 单一真相源（先做，风险低）
 - `agents/base.py`：`mcp_tool_names` 改为 property，从 `core.definitions.allowed_tools_for(self.name)` 读。
 - 删四个 agent 的 `*_MCP_TOOLS` 常量，invoke/stream 改用 `self.mcp_tool_names`（generator 的单工具常量 `coderunner.code.execute` 保留）。
@@ -38,6 +40,8 @@
 ---
 
 ## 阶段 2 — P2 RAG + 编排
+
+> **详细落地（含逐文件 before/after、RAG 重建注意、critic/handoff 回归点、提交顺序）见**：`docs/2026-05-29-phase-2-rag-orchestration-detailed.md`。下方为概要。
 
 ### 2.1 RAG 修复 `knowledge/store.py` + `core/config.py`
 - **修过滤 bug**：写入加 `lang_{x}: True` 布尔位，查询用 `where={f"lang_{language}": True}`；删静默 except 兜底。

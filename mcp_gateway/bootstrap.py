@@ -7,6 +7,7 @@ to the MCP transport and registers descriptors in the registry.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from tools.protocol.runtime import ToolRuntime, set_tool_runtime
 from tools.protocol.registry import ToolRegistry
@@ -29,11 +30,62 @@ def bootstrap_tool_runtime(*, session_factory=None) -> ToolRuntime:
     _register_knowledge_handlers(transport)
     _register_analytics_handlers(transport, session_factory)
 
-    runtime = ToolRuntime(registry=registry, transport=transport)
+    _assert_rbac_consistent(registry)
+    runtime = ToolRuntime(
+        registry=registry,
+        transport=transport,
+        approval_store=_DbApprovalStore(session_factory),
+    )
     set_tool_runtime(runtime)
 
     logger.info("MCP ToolRuntime bootstrapped with %d tools", len(registry))
     return runtime
+
+
+class _DbApprovalStore:
+    def __init__(self, session_factory) -> None:
+        self._session_factory = session_factory
+
+    def create(self, descriptor, caller, args: dict) -> str:
+        if self._session_factory is None:
+            return ""
+
+        from app.core.timezone import now_china
+        from core.db.models.mcp_approval import McpToolApproval
+
+        session = self._session_factory()
+        approval_id = str(uuid.uuid4())
+        try:
+            approval = McpToolApproval(
+                id=approval_id,
+                api_key_id=caller.api_key_id,
+                user_id=caller.user_id,
+                tool_name=descriptor.name,
+                tool_args=args,
+                risk_level=descriptor.risk_level.value,
+                status="pending",
+                expires_at=McpToolApproval.default_expiry(),
+                created_at=now_china(),
+            )
+            session.add(approval)
+            session.commit()
+            return approval_id
+        finally:
+            close = getattr(session, "close", None)
+            if close:
+                close()
+
+
+def _assert_rbac_consistent(registry: ToolRegistry) -> None:
+    from core.definitions import AGENT_DEFINITIONS
+
+    known = {descriptor.name for descriptor in registry.list_tools()}
+    for agent, definition in AGENT_DEFINITIONS.items():
+        missing = set(definition.allowed_tools) - known
+        if missing:
+            raise RuntimeError(
+                f"Agent '{agent}' references unknown tools: {sorted(missing)}"
+            )
 
 
 def _register_db_handlers(transport: LocalTransport, session_factory) -> None:
@@ -66,7 +118,12 @@ def _register_db_handlers(transport: LocalTransport, session_factory) -> None:
         )
 
     def student_summary(student_id: int, **_kw) -> dict:
-        return get_student_summary_impl(student_id, session=_get_session())
+        from mcp_gateway.middleware.sanitizer import sanitize_student_summary
+
+        raw = get_student_summary_impl(student_id, session=_get_session())
+        if "error" in raw:
+            return raw
+        return sanitize_student_summary(student_id, raw["profile"], raw["stats"])
 
     def save_generated(question_data: dict, teacher_id: int, **_kw) -> dict:
         return save_generated_problem_impl(question_data, teacher_id, session=_get_session())
@@ -135,7 +192,12 @@ def _register_analytics_handlers(transport: LocalTransport, session_factory) -> 
         return get_problem_difficulty_stats_impl(problem_id, session=_get_session())
 
     def agent_trace(run_id: str, **_kw) -> dict:
-        return get_agent_trace_impl(run_id, session=_get_session())
+        from mcp_gateway.middleware.sanitizer import sanitize_agent_trace
+
+        raw = get_agent_trace_impl(run_id, session=_get_session())
+        if "error" in raw:
+            return raw
+        return sanitize_agent_trace(raw["run"], raw["steps"])
 
     transport.register_handler("coderunner.analytics.student_activity", student_activity)
     transport.register_handler("coderunner.analytics.student_stats", student_stats)

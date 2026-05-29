@@ -70,7 +70,8 @@ services:
       EXECUTOR_DEFAULT_TIMEOUT: 2.0
       EXECUTOR_MAX_STDOUT: 10000
       EXECUTOR_MAX_STDERR: 4000
-      USE_DOCKER: "false"
+      EXECUTOR_REMOTE_URL: http://executor:8300/run
+      EXECUTOR_API_TOKEN: ${EXECUTOR_API_TOKEN:-}
 
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       AI_MODEL: ${AI_MODEL:-deepseek-chat}
@@ -85,6 +86,15 @@ services:
       UPLOAD_FOLDER: /app/uploads
     volumes:
       - ./app:/app/app:ro
+      - ./core:/app/core:ro
+      - ./tools:/app/tools:ro
+      - ./agents:/app/agents:ro
+      - ./graph:/app/graph:ro
+      - ./memory:/app/memory:ro
+      - ./knowledge:/app/knowledge:ro
+      - ./models:/app/models:ro
+      - ./workers:/app/workers:ro
+      - ./mcp_gateway:/app/mcp_gateway:ro
       - ./scripts:/app/scripts:ro
       - ./uploads:/app/uploads
       - ./logs:/app/logs
@@ -97,6 +107,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      executor:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9900/health"]
       interval: 30s
@@ -105,8 +117,41 @@ services:
       start_period: 40s
     networks:
       - educode_network
+      - executor_network
     env_file:
       - .env
+
+  executor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.executor
+    container_name: educode_executor
+    restart: unless-stopped
+    environment:
+      EXECUTOR_PORT: 8300
+      EXECUTOR_MAX_MEMORY_MB: 256
+      EXECUTOR_DEFAULT_TIMEOUT: 2.0
+      EXECUTOR_MAX_STDOUT: 10000
+      EXECUTOR_MAX_STDERR: 4000
+      EXECUTOR_API_TOKEN: ${EXECUTOR_API_TOKEN:-}
+    user: "4000:4000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=128m,mode=1777
+    mem_limit: 512m
+    pids_limit: 128
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8300/health',timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - executor_network
 
   workers:
     build:
@@ -200,3 +245,6 @@ volumes:
 networks:
   educode_network:
     driver: bridge
+  executor_network:
+    driver: bridge
+    internal: true

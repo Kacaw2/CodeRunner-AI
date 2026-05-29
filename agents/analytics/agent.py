@@ -5,22 +5,11 @@ from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
 from agents.analytics.prompt import ANALYTICS_SYSTEM_PROMPT
 
-ANALYTICS_MCP_TOOLS = [
-    "coderunner.problem.get_detail",
-    "coderunner.submission.list_for_student",
-    "coderunner.submission.get_detail",
-    "coderunner.analytics.student_stats",
-    "coderunner.analytics.student_activity",
-    "coderunner.analytics.class_statistics",
-    "coderunner.analytics.problem_difficulty",
-]
-
 
 class AnalyticsAgent(BaseAgent):
     name = "analytics"
     description = "Learning analytics agent"
     default_model_tier = ModelTier.STRONG
-    mcp_tool_names = ANALYTICS_MCP_TOOLS
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService
@@ -47,7 +36,7 @@ class AnalyticsAgent(BaseAgent):
         return "\n".join(parts)
 
     def invoke(self, state: AgentState) -> AgentState:
-        return self._invoke_with_mcp_tools(state, ANALYTICS_MCP_TOOLS, self._build_system_context(state))
+        return self._invoke_with_mcp_tools(state, self.mcp_tool_names, self._build_system_context(state))
 
     def stream(self, state: AgentState):
-        yield from self._stream_with_mcp_tools(state, ANALYTICS_MCP_TOOLS, self._build_system_context(state))
+        yield from self._stream_with_mcp_tools(state, self.mcp_tool_names, self._build_system_context(state))

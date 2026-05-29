@@ -17,8 +17,11 @@ class BaseAgent(ABC):
     description: str = ""
     default_model_tier: ModelTier = ModelTier.BALANCED
 
-    # Subclasses declare MCP tool names — never LangChain tool objects.
-    mcp_tool_names: list[str] = []
+    @property
+    def mcp_tool_names(self) -> list[str]:
+        """Tool allowlist derived from the agent definition registry."""
+        from core.definitions import allowed_tools_for
+        return list(allowed_tools_for(self.name))
 
     @abstractmethod
     def invoke(self, state: AgentState) -> AgentState:

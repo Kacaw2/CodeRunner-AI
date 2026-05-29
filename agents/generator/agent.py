@@ -13,12 +13,6 @@ from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
 from agents.generator.prompt import GENERATOR_SYSTEM_PROMPT
 
-GENERATOR_MCP_TOOLS = [
-    "coderunner.code.execute",
-    "coderunner.knowledge.search_similar_problems",
-    "coderunner.problem.save_generated",
-]
-
 logger = logging.getLogger(__name__)
 
 MAX_VALIDATION_ROUNDS = 3
@@ -84,7 +78,6 @@ class GeneratorAgent(BaseAgent):
     name = "generator"
     description = "Problem generation agent for teachers"
     default_model_tier = ModelTier.STRONG
-    mcp_tool_names = GENERATOR_MCP_TOOLS
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService
@@ -149,7 +142,7 @@ class GeneratorAgent(BaseAgent):
 
         for round_num in range(MAX_VALIDATION_ROUNDS + 1):
             try:
-                state = self._invoke_with_mcp_tools(state, GENERATOR_MCP_TOOLS, system_ctx)
+                state = self._invoke_with_mcp_tools(state, self.mcp_tool_names, system_ctx)
             except LLMError:
                 if round_num == 0:
                     raise

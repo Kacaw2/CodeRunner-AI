@@ -1,14 +1,8 @@
 """MCP tool wrappers for knowledge-base operations."""
 
-import json
-
 from mcp.server import FastMCP
 
-from tools.knowledge_search.search import (
-    search_similar_problems_impl,
-    search_knowledge_impl,
-)
-from mcp_gateway.middleware import run_mcp_guard
+from mcp_gateway.middleware import _guarded, call_via_runtime
 
 
 def register_knowledge_tools(mcp: FastMCP):
@@ -21,17 +15,10 @@ def register_knowledge_tools(mcp: FastMCP):
         ),
     )
     def search_knowledge(query: str, owner_id: int | None = None) -> str:
-        args = {"query": query, "owner_id": owner_id}
-        guard = run_mcp_guard("search_knowledge", args)
-        if guard.rejected:
-            return guard.error_json
-        try:
-            result = search_knowledge_impl(query, owner_id)
-            guard.record_success("search_knowledge", args)
-            return json.dumps(result, ensure_ascii=False)
-        except Exception as e:
-            guard.record_error("search_knowledge", args, e)
-            return json.dumps({"error": str(e)})
+        return _guarded(lambda: call_via_runtime(
+            "coderunner.knowledge.search",
+            {"query": query, "owner_id": owner_id},
+        ))
 
     @mcp.tool(
         name="search_similar_problems",
@@ -43,14 +30,7 @@ def register_knowledge_tools(mcp: FastMCP):
     def search_similar_problems(
         query: str, language: str = "python", limit: int = 5
     ) -> str:
-        args = {"query": query, "language": language, "limit": limit}
-        guard = run_mcp_guard("search_similar_problems", args)
-        if guard.rejected:
-            return guard.error_json
-        try:
-            result = search_similar_problems_impl(query, language, limit)
-            guard.record_success("search_similar_problems", args)
-            return json.dumps(result, ensure_ascii=False)
-        except Exception as e:
-            guard.record_error("search_similar_problems", args, e)
-            return json.dumps({"error": str(e)})
+        return _guarded(lambda: call_via_runtime(
+            "coderunner.knowledge.search_similar_problems",
+            {"query": query, "language": language, "limit": limit},
+        ))
