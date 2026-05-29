@@ -48,24 +48,48 @@ def main():
     from mcp_gateway.middleware.rate_limit import init_rate_limiter
     init_rate_limiter(redis_url)
 
-    # ── Verify API Key ──
-    raw_key = os.environ.get("MCP_API_KEY", "").strip()
-    if raw_key:
-        from mcp_gateway.middleware.auth import verify_api_key
-        caller = verify_api_key(raw_key)
-        if caller is None:
-            logger.error("MCP_API_KEY is invalid or revoked — exiting")
+    # ── Authentication mode ──
+    # Production default: per-request bearer-token auth (resolved inside the
+    # gateway middleware for every call). The startup MCP_API_KEY may set a
+    # process-wide fallback identity ONLY in local-development stdio mode.
+    dev_startup = os.environ.get(
+        "MCP_ALLOW_STARTUP_KEY_DEV_MODE", "false"
+    ).strip().lower() in ("1", "true", "yes")
+
+    if dev_startup:
+        if args.transport != "stdio":
+            logger.error(
+                "MCP_ALLOW_STARTUP_KEY_DEV_MODE is for local stdio development "
+                "only; refusing to use a process-wide startup key on "
+                "transport=%s. Use per-request bearer auth instead.",
+                args.transport,
+            )
             sys.exit(1)
-        from mcp_gateway.middleware import set_caller_info
-        set_caller_info(caller)
-        logger.info(
-            "Authenticated as user_id=%s role=%s",
-            caller["user_id"],
-            caller["role"],
-        )
+
+        raw_key = os.environ.get("MCP_API_KEY", "").strip()
+        if not raw_key:
+            logger.warning(
+                "DEV MODE active but MCP_API_KEY not set — calls without "
+                "per-request auth will be rejected"
+            )
+        else:
+            from mcp_gateway.middleware.auth import verify_api_key
+            caller = verify_api_key(raw_key)
+            if caller is None:
+                logger.error("MCP_API_KEY is invalid or revoked — exiting")
+                sys.exit(1)
+            from mcp_gateway.middleware import set_caller_info
+            set_caller_info(caller)
+            logger.warning(
+                "DEV MODE: startup MCP_API_KEY fallback identity active "
+                "(user_id=%s role=%s). NOT FOR PRODUCTION.",
+                caller["user_id"],
+                caller["role"],
+            )
     else:
-        logger.warning(
-            "MCP_API_KEY not set — all tool calls will be rejected"
+        logger.info(
+            "Production auth mode: per-request bearer-token authentication "
+            "required for every tool call"
         )
 
     # ── Pre-warm knowledge base ──

@@ -51,11 +51,14 @@ def register_write_tools(mcp: FastMCP):
                 },
             })
 
-        caller = get_caller_info() or {}
-        return _guarded(lambda: call_via_runtime(
-            EXTERNAL_TOOL_MAP["save_generated_problem"],
-            {"question_data": parsed, "teacher_id": caller.get("user_id", 0)},
-        ))
+        def _call():
+            caller = get_caller_info() or {}
+            return call_via_runtime(
+                EXTERNAL_TOOL_MAP["save_generated_problem"],
+                {"question_data": parsed, "teacher_id": caller.get("user_id", 0)},
+            )
+
+        return _guarded(_call)
 
     @mcp.tool(
         name="check_approval",
