@@ -183,8 +183,8 @@ def get_knowledge_base() -> KnowledgeBase:
     if _kb_instance is None:
         try:
             _kb_instance = KnowledgeBase()
-        except Exception as e:
-            logger.error("Failed to initialize KnowledgeBase: %s", e)
+        except Exception:
+            logger.exception("Failed to initialize KnowledgeBase")
             raise
     return _kb_instance
 
