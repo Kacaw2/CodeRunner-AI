@@ -175,6 +175,12 @@ services:
       FLASK_BASE_URL: http://web:9900
       AGENT_HOST_PORT: 8100
       MCP_INTERNAL_SERVICE_TOKEN: ${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}
+      # Agent tool-call transport. "inproc" (default) runs tools in this
+      # process via the in-process MCP client. Switch to "streamable-http"
+      # once the gateway authenticates internal agents as agent_host.
+      MCP_AGENT_TRANSPORT: ${MCP_AGENT_TRANSPORT:-inproc}
+      MCP_GATEWAY_URL: ${MCP_GATEWAY_URL:-http://mcp_gateway:8200/mcp}
+      MCP_INTERNAL_AUTH_TOKEN: ${MCP_INTERNAL_AUTH_TOKEN:-${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}}
       DEBUG: ${DEBUG:-False}
     ports:
       - "${AGENT_HOST_PORT:-8100}:8100"
