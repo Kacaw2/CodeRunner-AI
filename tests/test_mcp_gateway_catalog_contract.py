@@ -54,3 +54,45 @@ def test_expected_tool_count_matches_registered_tools():
 
     mcp = create_mcp_server()
     assert EXPECTED_TOOL_COUNT == len(mcp._tool_manager._tools)
+
+
+def test_generated_tools_module_is_not_stale():
+    """The committed generated_tools.py must equal a fresh render.
+
+    Run ``python -m mcp_gateway._codegen`` to fix a failure here.
+    """
+    import os
+    from mcp_gateway._codegen import render_generated_tools_module
+
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "mcp_gateway",
+        "generated_tools.py",
+    )
+    with open(path, encoding="utf-8", newline="\n") as fh:
+        committed = fh.read()
+    assert committed == render_generated_tools_module(), (
+        "mcp_gateway/generated_tools.py is stale — regenerate with "
+        "`python -m mcp_gateway._codegen`"
+    )
+
+
+def test_generated_signatures_never_expose_caller_identity_fields():
+    """Caller-injected identity fields must not appear as client parameters.
+
+    Exposing them would let an API-key holder spoof another user's identity.
+    """
+    import inspect
+    from mcp_gateway._codegen import CALLER_INJECTED_FIELDS
+
+    mcp = create_mcp_server()
+    for external_name, canonical in EXPECTED_EXTERNAL_TOOL_MAP.items():
+        injected = CALLER_INJECTED_FIELDS.get(canonical, set())
+        if not injected:
+            continue
+        tool = mcp._tool_manager._tools[external_name]
+        params = set(inspect.signature(tool.fn).parameters)
+        assert params.isdisjoint(injected), (
+            f"{external_name} exposes caller-identity field(s) "
+            f"{params & injected}"
+        )

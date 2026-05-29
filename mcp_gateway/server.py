@@ -9,13 +9,7 @@ import logging
 
 from mcp.server import FastMCP
 
-from mcp_gateway.handlers.knowledge import register_knowledge_tools
-from mcp_gateway.handlers.problems import register_problem_tools
-from mcp_gateway.handlers.analytics import register_analytics_tools
-from mcp_gateway.handlers.traces import register_trace_tools
-from mcp_gateway.handlers.students import register_student_tools
-from mcp_gateway.handlers.submissions import register_submission_tools
-from mcp_gateway.handlers.write import register_write_tools
+from mcp_gateway.generated_tools import register_generated_catalog_tools
 from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 logger = logging.getLogger(__name__)
@@ -33,13 +27,7 @@ def create_mcp_server() -> FastMCP:
             "teacher approval via the Human Gate workflow."
         ),
     )
-    register_knowledge_tools(mcp)
-    register_problem_tools(mcp)
-    register_analytics_tools(mcp)
-    register_trace_tools(mcp)
-    register_student_tools(mcp)
-    register_submission_tools(mcp)
-    register_write_tools(mcp)
+    register_generated_catalog_tools(mcp)
 
     registered = set(mcp._tool_manager._tools)
     expected = set(EXTERNAL_TOOL_MAP)

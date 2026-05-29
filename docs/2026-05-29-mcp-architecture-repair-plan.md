@@ -959,7 +959,7 @@ This means `check_approval` must first be promoted into `TOOL_CATALOG` in Task 9
 
 This task removes hand-written mapping drift.
 
-- [ ] **Step 1: Create descriptor-backed registration helper**
+- [x] **Step 1: Create descriptor-backed registration helper**
 
 Create `mcp_gateway/generated_tools.py`:
 
@@ -993,7 +993,7 @@ def register_generated_catalog_tools(mcp: FastMCP) -> None:
 
 Warning: FastMCP introspects function signatures. A generic `**kwargs` wrapper is not acceptable for the mature target because it degrades client schemas. The generator must produce explicit wrapper signatures from each descriptor's `input_schema`.
 
-- [ ] **Step 2: Generate explicit signatures**
+- [x] **Step 2: Generate explicit signatures**
 
 Do not keep permanent handwritten wrappers. Generate a committed wrapper module from `TOOL_CATALOG` and fail tests when it is stale.
 
