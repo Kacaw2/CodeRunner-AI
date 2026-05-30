@@ -30,6 +30,7 @@
 - [2026-05-28-architecture-refactor-plan.md](plans/2026-05-28-architecture-refactor-plan.md) — Phase 6：顶层目录重组（已完成）
 - [2026-05-29-0329-phase-0-security-hardening-plan.md](plans/2026-05-29-0329-phase-0-security-hardening-plan.md) — Phase 0 安全加固：trace 脱敏 + SECRET_KEY 门禁 + 隔离 executor（已完成，commit 9acb2cb）
 - [2026-05-29-phase-1-architecture-unification-detailed.md](plans/2026-05-29-phase-1-architecture-unification-detailed.md) — Phase 1 架构合一详细落地（已完成，后续由 2026-05-29-mcp-architecture-repair-plan 接续完善）
+- [2026-05-29-mcp-architecture-repair-plan.md](plans/2026-05-29-mcp-architecture-repair-plan.md) — MCP 原生架构修复（已完成，含 Docker 运行时 smoke；修复 gateway ORM 注册缺失，commit bd60e75）
 
 ### status/
 
