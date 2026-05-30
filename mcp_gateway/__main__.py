@@ -38,6 +38,23 @@ def main():
     init_db(settings.database_url)
     logger.info("Database connected")
 
+    # ── Register all ORM models ──
+    # The gateway runs outside the Flask app factory, so it never imports the
+    # blueprints that populate the shared SQLAlchemy registry. McpApiKey has a
+    # relationship("User"), and User pulls in the rest of the model graph; an
+    # incomplete registry makes mapper configuration fail at first query
+    # (e.g. external API-key verification). Import every app.models submodule
+    # (including ones app/models/__init__ omits, like ai_conversation) so the
+    # Flask `db` registry is complete, then configure mappers eagerly.
+    import importlib
+    import pkgutil
+    import app.models as _app_models
+    for _m in pkgutil.iter_modules(_app_models.__path__):
+        importlib.import_module(f"app.models.{_m.name}")
+    from sqlalchemy.orm import configure_mappers
+    configure_mappers()
+    logger.info("ORM models registered")
+
     from core.db.session import get_session
     from mcp_gateway.bootstrap import bootstrap_tool_runtime
     bootstrap_tool_runtime(session_factory=get_session)
