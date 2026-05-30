@@ -12,6 +12,8 @@ class WorkflowStepDef(TypedDict, total=False):
     risk_level: Literal["low", "medium", "high"]
     requires_approval: bool
     depends_on: list[int]
+    validates_step: int
+    validation_criteria: str
 
 
 class WorkflowPlan(TypedDict, total=False):

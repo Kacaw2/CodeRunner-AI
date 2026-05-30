@@ -356,8 +356,24 @@ class WorkflowEngine:
                     })
                     return False
 
+                from graph.critic import WorkflowCritic
+                criteria = step_def.get("validation_criteria", "")
+                verdict = WorkflowCritic().validate_step(
+                    step_type, db_step.agent_type, output, criteria)
+
+                if not verdict.get("passed", True) and attempt < max_attempts - 1:
+                    last_error = "; ".join(verdict.get("issues", [])) or "critic rejected output"
+                    context["critic_feedback"] = last_error  # next attempt's handler can read this
+                    logger.info("Step %d rejected by critic (attempt %d): %s",
+                                db_step.step_index, attempt + 1, last_error)
+                    self._emit("step_critic_rejected", {
+                        "step_index": db_step.step_index,
+                        "issues": verdict.get("issues", []),
+                    })
+                    continue
+
                 db_step.status = "completed"
-                db_step.output_data = output
+                db_step.output_data = {**output, "critic": verdict}
                 db_step.completed_at = now_china()
                 session.commit()
 
@@ -365,6 +381,7 @@ class WorkflowEngine:
                 self._emit("step_completed", {
                     "step_index": db_step.step_index,
                     "latency_ms": latency,
+                    "critic_score": verdict.get("score"),
                 })
                 return True
 

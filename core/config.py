@@ -61,6 +61,21 @@ class Settings:
         "analytics": 10,
     }
 
+    # ── RAG / Knowledge Base ────────────────────────────────────
+    RAG_EMBED_MODEL: str = os.environ.get("RAG_EMBED_MODEL", "all-MiniLM-L6-v2")
+    RAG_RERANK_MODEL: str = os.environ.get(
+        "RAG_RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    )
+    # Default off: the cross-encoder downloads at first use, which would add
+    # startup/first-query nondeterminism in production. Enable once the rerank
+    # model is pre-cached in the image with a startup warm-up.
+    RAG_RERANK_ENABLED: bool = os.environ.get("RAG_RERANK_ENABLED", "False").lower() in ("true", "1")
+    RAG_CHUNK_SIZE: int = int(os.environ.get("RAG_CHUNK_SIZE", "512"))
+    RAG_CHUNK_OVERLAP: int = int(os.environ.get("RAG_CHUNK_OVERLAP", "64"))
+    RAG_CANDIDATE_K: int = int(os.environ.get("RAG_CANDIDATE_K", "20"))   # rerank 前候选数
+    RAG_FINAL_K: int = int(os.environ.get("RAG_FINAL_K", "5"))            # rerank 后返回数
+    RAG_DEDUP_THRESHOLD: float = float(os.environ.get("RAG_DEDUP_THRESHOLD", "0.8"))
+
     # ── Server (worker daemon) ──────────────────────────────────
     HOST: str = os.environ.get("AGENT_HOST_BIND", "0.0.0.0")
     PORT: int = int(os.environ.get("AGENT_HOST_PORT", "8100"))

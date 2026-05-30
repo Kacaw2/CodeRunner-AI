@@ -43,6 +43,14 @@ def _handle_generate_problem(step_def: dict, context: dict) -> dict:
             f"You MUST create a meaningfully different problem."
         )
 
+    critic_feedback = context.get("critic_feedback")
+    if critic_feedback:
+        system_parts.append(
+            f"\n## Previous Attempt Rejected\n"
+            f"The prior attempt was rejected for: {critic_feedback}\n"
+            f"Fix these issues in this attempt."
+        )
+
     system_ctx = "\n".join(system_parts)
     messages = [
         SystemMessage(content=system_ctx),
@@ -118,14 +126,17 @@ def _handle_dedup_check(step_def: dict, context: dict) -> dict:
         return {"success": True, "is_duplicate": False, "similar_problems": []}
 
     try:
+        from core.config import get_settings
+        threshold = get_settings().RAG_DEDUP_THRESHOLD
         kb = get_knowledge_base()
         query_text = f"{problem_data.get('title', '')} {problem_data.get('description', '')[:200]}"
         similar = kb.search_similar_problems(
             query_text,
             n=3,
             language=problem_data.get("programming_language"),
+            owner_id=context.get("user_id"),
         )
-        high_similarity = [q for q in similar if q.get("similarity", 0) > 0.8]
+        high_similarity = [q for q in similar if q.get("similarity", 0) > threshold]
         is_duplicate = len(high_similarity) > 0
 
         return {
