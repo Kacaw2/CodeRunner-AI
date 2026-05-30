@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Agent Host starting on %s:%s", settings.HOST, settings.PORT)
 
+    # Optional OpenTelemetry tracing (F2) — no-op unless OTEL_ENABLED=true.
+    try:
+        from core.observability.otel import init_otel
+        init_otel("coderunner-agent-host")
+    except Exception:
+        logger.debug("OTel init skipped", exc_info=True)
+
     get_engine()
     logger.info("Database engine created")
 
@@ -75,6 +82,23 @@ def health():
         "service": "agent-host",
         "redis": "connected" if r else "unavailable",
     }
+
+
+@app.get("/live", tags=["system"])
+def live():
+    """Liveness probe — process is up, no dependency checks."""
+    return {"status": "alive", "service": "agent-host"}
+
+
+@app.get("/metrics", tags=["system"])
+def metrics():
+    """Prometheus metrics for the agent-host process (F2)."""
+    from fastapi import Response
+
+    from core.observability.metrics import metrics_response
+
+    body, status_code, content_type = metrics_response()
+    return Response(content=body, status_code=status_code, media_type=content_type)
 
 
 if __name__ == "__main__":
