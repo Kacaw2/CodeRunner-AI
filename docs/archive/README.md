@@ -28,6 +28,8 @@
 - [2026-05-26-phase4-human-gate-plan.md](plans/2026-05-26-phase4-human-gate-plan.md) — Phase 4 Human Gate 审批流（已完成）
 - [2026-05-27-phase5-mcp-centric-architecture-plan.md](plans/2026-05-27-phase5-mcp-centric-architecture-plan.md) — Phase E：MCP 唯一工具边界（已完成）
 - [2026-05-28-architecture-refactor-plan.md](plans/2026-05-28-architecture-refactor-plan.md) — Phase 6：顶层目录重组（已完成）
+- [2026-05-29-0329-phase-0-security-hardening-plan.md](plans/2026-05-29-0329-phase-0-security-hardening-plan.md) — Phase 0 安全加固：trace 脱敏 + SECRET_KEY 门禁 + 隔离 executor（已完成，commit 9acb2cb）
+- [2026-05-29-phase-1-architecture-unification-detailed.md](plans/2026-05-29-phase-1-architecture-unification-detailed.md) — Phase 1 架构合一详细落地（已完成，后续由 2026-05-29-mcp-architecture-repair-plan 接续完善）
 
 ### status/
 

@@ -114,3 +114,33 @@
 | 5 | **F6** 镜像预置 embedding 模型 + 启动期 KB 健康校验 | 消除运行时下载/单点 init 失败 | RAG 启动确定性 |
 | 6 | **F8/F9** 审批处理器改为按 descriptor 动态分发 + 补值域校验 | 防新增高危工具静默失败 | 边界收敛 |
 | 7 | **F7/F5** prompt 外置版本化;按需补 MCP resources | 可维护性/能力补全 | 长期演进 |
+
+---
+
+## 五、统一执行顺序(跨 plan 主干 · 2026-05-30 重排)
+
+> 本节是全仓库所有活跃 plan 的**唯一执行主干**。已合并:本审计 F1–F9 + `2026-05-29-phase-2-rag-orchestration-detailed.md`(RAG/编排真 bug)。已完成的 Phase 0/1 详细方案见 `archive/plans/`;`2026-05-29-phase-1-4-architecture-hardening-plan.md` 的 Phase 3/4 已并入本表,不再单独执行。
+
+```
+【信任边界 — 已基本关闭】
+S0  F1 内部令牌签名化 ............ ✅ 已完成(commit 12854c5),仅需补 Docker 双容器 smoke
+
+【上线前必做 — 运维面空白(最高优先)】
+S1  F3  建 CI: tests.yml + evals.yml + eval 基线门禁   ← 先做,后续修复的回归网
+S2  F2  /metrics(Prometheus) + OTel span + 成本换算 + 健康探针固化
+S3  F4  统一代码执行走 MCP 单一边界(消除 generator 本地直调旁路)
+
+【产品质量 bug — 可与 S1–S3 并行(不碰 tools/protocol)】
+S4  Phase2.1 RAG: 修语言过滤 bug(lang_ 布尔位)+ 删静默 except + owner 隔离  ← 清库重建
+S5  Phase2.2 编排: handoff 传 context(RemoveMessage)+ critic 接入 engine + 修 REVIEW_TEMPLATE
+
+【边界收敛 — 中危】
+S6  F8 审批处理器按 descriptor 动态分发 + F9 跨边界值域校验
+S7  Phase3.1 拆 execute_internal(MEDIUM)解执行死锁 + output_schema 校验
+
+【长期演进 — 低优先】
+S8  F6 镜像预置 embedding 模型 + 启动期 KB 健康校验
+S9  F7 prompt 外置版本化 + 注入防护补编码归一化 / F5 MCP resources / Phase4.2 Agent 契约
+```
+
+**关键依赖**:S1(CI) 必须最先;S4 改 metadata 字段需清空 `data/knowledge_base/` 重建;S5 的 `RemoveMessage` 是最大回归点(LangGraph `add_messages` 叠加陷阱),单独提交配测试。
