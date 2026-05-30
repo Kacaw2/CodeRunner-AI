@@ -80,7 +80,14 @@ def _handle_validate_solution(step_def: dict, context: dict) -> dict:
         return {"success": False, "error": "Missing solution or test_cases"}
 
     try:
-        results = _validate_solution(solution, language, test_cases)
+        results = _validate_solution(
+            solution, language, test_cases,
+            state={
+                "user_id": context.get("user_id", 0) or 0,
+                "user_role": context.get("user_role", "teacher"),
+                "context": {"conversation_id": context.get("conversation_id")},
+            },
+        )
         failures = [r for r in results if not r.get("passed")]
         passed = len(failures) == 0
 

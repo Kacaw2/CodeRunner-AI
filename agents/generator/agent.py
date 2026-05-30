@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -32,9 +33,38 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-def _validate_solution(solution: str, language: str, test_cases: list,
-                       agent: BaseAgent | None = None, state: dict | None = None) -> list[dict]:
-    """Run the reference solution against every test case via MCP ToolRuntime."""
+def validate_reference_solution(
+    solution: str,
+    language: str,
+    test_cases: list,
+    *,
+    user_id: int = 0,
+    role: str = "teacher",
+    agent_type: str = "generator",
+    trace_id: str = "",
+    conversation_id: str = "",
+) -> list[dict]:
+    """Run a teacher's reference solution against every test case.
+
+    This is a TRUSTED INTERNAL deterministic operation, NOT an LLM-driven tool
+    call: the generator verifies its own reference solution before a problem is
+    saved. It executes in-process via ``execute_code_impl`` and is the single
+    audited entry point for that purpose.
+
+    It is deliberately NOT routed through the ``coderunner.code.execute`` MCP
+    tool. That tool is HIGH-risk + TEACHER_REQUIRED (it gates arbitrary, often
+    student-supplied, code execution), so the guard pipeline always returns
+    ``approval_required`` for it — which would make reference-solution
+    validation impossible. In production the agent-host process has no bootstrap
+    of an in-process ToolRuntime (tools are reached only via the gateway, see
+    workers/task_runner.py), and exposing a non-approval executor on the gateway
+    would let any ``code:execute`` API key bypass the approval gate. Running the
+    deterministic validator in-process — with an explicit audit record — is the
+    only path that is both production-safe and free of that bypass.
+    """
+    from tools.code.executor import execute_code_impl
+    from core.observability.audit import AuditEntry, emit_audit
+
     results = []
     for i, tc in enumerate(test_cases):
         stdin_text = tc.get("input", "")
@@ -45,21 +75,32 @@ def _validate_solution(solution: str, language: str, test_cases: list,
             "stdin_text": stdin_text,
             "expected_output": expected,
         }
+        start = time.monotonic()
+        audit_status = "success"
+        error_code = ""
         try:
-            if agent and state:
-                tool_call = {"name": "coderunner.code.execute", "args": tool_args, "id": f"validate-{i}"}
-                tool_msg = agent._run_mcp_tool(tool_call, state)
-                raw = tool_msg.content if tool_msg else "{}"
-                try:
-                    exec_result = json.loads(raw)
-                except (ValueError, TypeError):
-                    exec_result = {"status": "AC" if "AC" in raw else "UNKNOWN", "stdout": raw, "stderr": ""}
-            else:
-                from tools.code.executor import execute_code_impl
-                exec_result = execute_code_impl(**tool_args)
+            exec_result = execute_code_impl(**tool_args)
         except Exception as e:
-            logger.warning("Validation execution failed for test case %d: %s", i, e)
+            logger.warning("Reference-solution validation failed for test case %d: %s", i, e)
             exec_result = {"status": "SYSTEM_ERROR", "stdout": "", "stderr": str(e)}
+            audit_status = "error"
+            error_code = "VALIDATION_EXEC_ERROR"
+        finally:
+            # Audit each execution as a trusted-internal validation run so the
+            # in-process executor use is observable (it never shows up in the
+            # MCP tool-call audit trail otherwise).
+            emit_audit(AuditEntry(
+                trace_id=trace_id,
+                conversation_id=conversation_id,
+                agent_type=agent_type,
+                tool_name="coderunner.code.validate.internal",
+                server_name="code",
+                user_id=user_id,
+                role=role,
+                status=audit_status,
+                latency_ms=int((time.monotonic() - start) * 1000),
+                error_code=error_code,
+            ))
 
         passed = exec_result.get("status") == "AC"
         results.append({
@@ -72,6 +113,32 @@ def _validate_solution(solution: str, language: str, test_cases: list,
             "status": exec_result.get("status", "UNKNOWN"),
         })
     return results
+
+
+def _validate_solution(solution: str, language: str, test_cases: list,
+                       agent: BaseAgent | None = None, state: dict | None = None) -> list[dict]:
+    """Validate a reference solution against test cases (trusted internal path).
+
+    Thin wrapper that derives caller identity (for the audit record) from the
+    optional ``agent``/``state`` and delegates to ``validate_reference_solution``.
+    The ``agent``/``state`` arguments are kept for backward-compatibility with
+    existing call sites; the former broken ``coderunner.code.execute`` MCP
+    branch has been removed (see validate_reference_solution for why).
+    """
+    user_id = 0
+    role = "teacher"
+    conversation_id = ""
+    if state:
+        user_id = state.get("user_id", 0) or 0
+        role = state.get("user_role", "teacher") or "teacher"
+        ctx = state.get("context") or {}
+        conversation_id = str(ctx.get("conversation_id") or "")
+    agent_type = getattr(agent, "name", "generator") if agent else "generator"
+    return validate_reference_solution(
+        solution, language, test_cases,
+        user_id=user_id, role=role, agent_type=agent_type,
+        conversation_id=conversation_id,
+    )
 
 
 class GeneratorAgent(BaseAgent):

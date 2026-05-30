@@ -118,7 +118,10 @@ def _validate_problem(state: PipelineState) -> PipelineState:
         state["validation_results"] = [{"error": "Missing solution or test_cases"}]
         return state
 
-    results = _validate_solution(solution, language, test_cases)
+    results = _validate_solution(
+        solution, language, test_cases,
+        state={"user_id": state.get("teacher_id", 0) or 0, "user_role": "teacher"},
+    )
     failures = [r for r in results if not r["passed"]]
 
     state["validation_results"] = results
