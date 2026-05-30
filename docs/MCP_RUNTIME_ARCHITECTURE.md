@@ -35,9 +35,13 @@ Agent (agents/base.py)
 ```
 
 The internal `agent_host` identity is **authenticated over MCP transport**, not
-implied by an in-process Python call. The `agent_host` scope short-circuit in
-`tools/protocol/policies/scopes.py` is only valid after the request has crossed
-transport and been authenticated as an internal platform caller.
+implied by an in-process Python call. The agent host mints a short-lived,
+EdDSA-signed capability token per call (`mcp_gateway/internal_auth.py`) carrying
+the user_id / role / agent_type / minimal scopes; the gateway verifies the
+signature with its public key and builds the caller from the *signed claims*,
+never from request headers. The agent cannot self-elevate its role, and there is
+no scope bypass: `agent_host` callers carry the minimal scopes their tools
+require (`scopes_for_agent`) and are scope-enforced like everyone else.
 
 ### 1.2 External MCP Client Path
 
@@ -95,9 +99,10 @@ Canonical scope vocabulary (descriptor `required_scopes` values):
 `problem:read`, `problem:write`, `submission:read`, `student:read`,
 `code:execute`, `knowledge:read`, `analytics:read`, `trace:read`.
 
-- **Internal `agent_host`** identity is authenticated over MCP transport; the
-  scope check short-circuits for this actor (RBAC and the per-agent allowlist
-  still apply).
+- **Internal `agent_host`** identity is authenticated over MCP transport and
+  carries the minimal scopes its tools require (`scopes_for_agent`); it is
+  scope-enforced like every other actor (RBAC and the per-agent allowlist also
+  apply). There is no scope bypass.
 - **External `external_client`** must pass the descriptor `required_scopes`.
   Missing scope → `MCP_SCOPE_DENIED`.
 - **Legacy tool-name scopes** (e.g. `search_knowledge`) are normalized to

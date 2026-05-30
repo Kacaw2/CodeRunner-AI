@@ -65,6 +65,23 @@ def test_in_process_client_delegates_to_runtime():
         reset_tool_runtime()
 
 
+def _signing_keypair() -> tuple[str, str]:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    priv = Ed25519PrivateKey.generate()
+    private_pem = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    public_pem = priv.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    return private_pem, public_pem
+
+
 def test_configure_from_env_selects_transport_client(monkeypatch):
     from mcp_gateway.client import (
         configure_mcp_client_from_env,
@@ -72,8 +89,9 @@ def test_configure_from_env_selects_transport_client(monkeypatch):
         set_mcp_tool_client,
     )
 
+    private_pem, _ = _signing_keypair()
     monkeypatch.setenv("MCP_AGENT_TRANSPORT", "streamable-http")
-    monkeypatch.setenv("MCP_INTERNAL_AUTH_TOKEN", "svc-token")
+    monkeypatch.setenv("MCP_INTERNAL_SIGNING_KEY", private_pem)
     monkeypatch.setenv("MCP_GATEWAY_URL", "http://gw:8200/mcp")
     try:
         client = configure_mcp_client_from_env()
@@ -82,14 +100,41 @@ def test_configure_from_env_selects_transport_client(monkeypatch):
         set_mcp_tool_client(None)
 
 
-def test_configure_transport_requires_auth_token(monkeypatch):
+def test_configure_transport_requires_signing_key(monkeypatch):
     import pytest
     from mcp_gateway.client import configure_mcp_client_from_env, set_mcp_tool_client
 
     monkeypatch.setenv("MCP_AGENT_TRANSPORT", "streamable-http")
-    monkeypatch.delenv("MCP_INTERNAL_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("MCP_INTERNAL_SIGNING_KEY", raising=False)
     try:
-        with pytest.raises(RuntimeError, match="MCP_INTERNAL_AUTH_TOKEN"):
+        with pytest.raises(RuntimeError, match="MCP_INTERNAL_SIGNING_KEY"):
             configure_mcp_client_from_env()
     finally:
         set_mcp_tool_client(None)
+
+
+def test_transport_client_mints_verifiable_token_with_minimal_scopes():
+    """The transport client signs identity + minimal scopes; the role is in the
+    signature, so the agent cannot self-elevate via headers."""
+    from mcp_gateway.client import StreamableHTTPMCPToolClient, MCPClientIdentity
+    from mcp_gateway.internal_auth import verify_internal_token
+
+    private_pem, public_pem = _signing_keypair()
+    client = StreamableHTTPMCPToolClient("http://gw:8200/mcp", private_pem)
+    identity = MCPClientIdentity(
+        user_id=7, role="student", agent_type="tutor",
+        task_id="task-1", conversation_id="conv-1",
+    )
+
+    header = client._build_auth_header(identity)
+    assert header.startswith("Bearer ")
+    claims = verify_internal_token(header[len("Bearer "):], verify_key=public_pem)
+
+    assert claims is not None
+    assert claims["sub"] == "7"
+    assert claims["role"] == "student"
+    assert claims["agent_type"] == "tutor"
+    assert claims["task_id"] == "task-1"
+    assert set(claims["scopes"]) == {
+        "code:execute", "problem:read", "submission:read", "knowledge:read"
+    }

@@ -92,13 +92,9 @@ def main():
             "required for every tool call"
         )
 
-    # ── Pre-warm knowledge base ──
-    try:
-        from knowledge.store import get_knowledge_base
-        get_knowledge_base()
-        logger.info("Knowledge base pre-loaded")
-    except Exception as e:
-        logger.warning("Knowledge base pre-load failed (non-fatal): %s", e)
+    # Knowledge base loads lazily on first knowledge tool call. Pre-warming here
+    # would block the embedding-model download before uvicorn binds its port,
+    # leaving the gateway unhealthy and stalling dependents (workers).
 
     # ── Create & run server ──
     from mcp_gateway.server import create_mcp_server

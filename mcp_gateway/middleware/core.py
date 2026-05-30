@@ -70,24 +70,19 @@ def _resolve_request_caller() -> dict | None:
     if scheme.lower() != "bearer" or not token.strip():
         return None
 
-    return resolve_caller_from_bearer(token.strip(), headers)
+    return resolve_caller_from_bearer(token.strip())
 
 
-def _internal_caller_from_headers(headers) -> dict:
-    """Build a trusted agent_host caller dict from internal request headers.
+def _internal_caller_from_claims(claims: dict) -> dict:
+    """Build a trusted agent_host caller dict from verified token claims.
 
-    The internal agent transport carries identity as X-MCP-* headers rather than
-    an API key. agent_host callers bypass scope checks (enforced upstream in
-    tools.protocol.policies.scopes), so they carry no granted scopes.
+    Identity comes from the signed token, never from request headers, so an
+    agent cannot self-declare its user_id/role/scopes.
     """
-    def _h(name: str) -> str:
-        return (headers.get(name) or "").strip()
-
-    agent_type = _h("x-mcp-agent-type")
-    raw_user_id = _h("x-mcp-user-id")
+    agent_type = claims.get("agent_type") or ""
     try:
-        user_id = int(raw_user_id) if raw_user_id else 0
-    except ValueError:
+        user_id = int(claims.get("sub") or 0)
+    except (ValueError, TypeError):
         user_id = 0
 
     rpm = os.environ.get("MCP_INTERNAL_RATE_LIMIT_RPM", "").strip()
@@ -100,25 +95,30 @@ def _internal_caller_from_headers(headers) -> dict:
         "actor_type": "agent_host",
         "api_key_id": f"internal:{agent_type or 'agent'}",
         "user_id": user_id,
-        "role": _h("x-mcp-user-role") or "student",
+        "role": claims.get("role") or "student",
         "agent_type": agent_type,
-        "task_id": _h("x-mcp-task-id") or None,
-        "conversation_id": _h("x-mcp-conversation-id") or None,
-        "scopes": None,
+        "task_id": claims.get("task_id") or None,
+        "conversation_id": claims.get("conversation_id") or None,
+        "scopes": list(claims.get("scopes") or []),
         "rate_limit_rpm": rate_limit_rpm,
     }
 
 
-def resolve_caller_from_bearer(token: str, headers) -> dict | None:
+def resolve_caller_from_bearer(token: str) -> dict | None:
     """Resolve a bearer token to caller info.
 
-    A token matching the configured ``MCP_INTERNAL_AUTH_TOKEN`` is a trusted
-    internal agent and yields an ``agent_host`` caller built from X-MCP-* headers.
-    Any other token is verified as an external MCP API key.
+    A token that verifies against the configured internal public key
+    (``MCP_INTERNAL_VERIFY_KEY``) is a trusted internal agent and yields an
+    ``agent_host`` caller built from the signed claims. Any other token is
+    verified as an external MCP API key.
     """
-    internal_token = os.environ.get("MCP_INTERNAL_AUTH_TOKEN", "").strip()
-    if internal_token and token == internal_token:
-        return _internal_caller_from_headers(headers)
+    from mcp_gateway.internal_auth import verify_internal_token, load_verify_key_from_env
+
+    verify_key = load_verify_key_from_env()
+    if verify_key:
+        claims = verify_internal_token(token, verify_key=verify_key)
+        if claims is not None:
+            return _internal_caller_from_claims(claims)
 
     from mcp_gateway.middleware.auth import verify_api_key
     return verify_api_key(token)
@@ -164,6 +164,7 @@ def call_via_runtime(mcp_tool: str, args: dict) -> str:
                 task_id=caller.get("task_id"),
                 conversation_id=caller.get("conversation_id"),
             ),
+            granted_scopes=caller.get("scopes") or [],
         )
     else:
         ctx = ToolCallContext(

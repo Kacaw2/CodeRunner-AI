@@ -333,16 +333,19 @@ class TestMcpPermissions:
             "coderunner.problem.get_detail",
             "coderunner.analytics.problem_difficulty",
         ]:
-            assert run_guard(TOOL_CATALOG[tool], ctx).passed
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
 
     def test_admin_allowed(self):
         from core.auth.context import CallerContext
         from tools.protocol.policies.guard import run_guard
         from tools.protocol.schemas.catalog import TOOL_CATALOG
 
+        desc = TOOL_CATALOG["coderunner.knowledge.search"]
         assert run_guard(
-            TOOL_CATALOG["coderunner.knowledge.search"],
+            desc,
             CallerContext(user_id=1, role="admin"),
+            granted_scopes=desc.required_scopes,
         ).passed
 
     def test_student_denied_restricted_tools(self):
@@ -360,8 +363,9 @@ class TestMcpPermissions:
         from tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="student")
-        assert run_guard(TOOL_CATALOG["coderunner.knowledge.search"], ctx).passed
-        assert run_guard(TOOL_CATALOG["coderunner.problem.get_detail"], ctx).passed
+        for tool in ["coderunner.knowledge.search", "coderunner.problem.get_detail"]:
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
 
     def test_unknown_tool_allowed_by_default(self):
         from core.auth.context import CallerContext

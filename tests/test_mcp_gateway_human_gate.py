@@ -163,8 +163,9 @@ class TestPhase4Permissions:
         from tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="teacher")
-        assert run_guard(TOOL_CATALOG["coderunner.trace.get_agent_trace"], ctx).passed
-        assert run_guard(TOOL_CATALOG["coderunner.student.get_summary"], ctx).passed
+        for tool in ["coderunner.trace.get_agent_trace", "coderunner.student.get_summary"]:
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
 
     def test_teacher_allowed_high_risk(self):
         from core.auth.context import CallerContext
@@ -172,8 +173,10 @@ class TestPhase4Permissions:
         from tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="teacher")
-        assert run_guard(TOOL_CATALOG["coderunner.code.execute"], ctx).error.code.value == "MCP_APPROVAL_REQUIRED"
-        assert run_guard(TOOL_CATALOG["coderunner.problem.save_generated"], ctx).error.code.value == "MCP_APPROVAL_REQUIRED"
+        for tool in ["coderunner.code.execute", "coderunner.problem.save_generated"]:
+            desc = TOOL_CATALOG[tool]
+            result = run_guard(desc, ctx, granted_scopes=desc.required_scopes)
+            assert result.error.code.value == "MCP_APPROVAL_REQUIRED"
 
     def test_admin_allowed_all(self):
         from core.auth.context import CallerContext
@@ -182,9 +185,12 @@ class TestPhase4Permissions:
 
         ctx = CallerContext(user_id=1, role="admin")
         for tool in ["coderunner.trace.get_agent_trace", "coderunner.student.get_summary"]:
-            assert run_guard(TOOL_CATALOG[tool], ctx).passed
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
         for tool in ["coderunner.code.execute", "coderunner.problem.save_generated"]:
-            assert run_guard(TOOL_CATALOG[tool], ctx).error.code.value == "MCP_APPROVAL_REQUIRED"
+            desc = TOOL_CATALOG[tool]
+            result = run_guard(desc, ctx, granted_scopes=desc.required_scopes)
+            assert result.error.code.value == "MCP_APPROVAL_REQUIRED"
 
     def test_student_denied_medium_risk(self):
         from core.auth.context import CallerContext
@@ -201,8 +207,14 @@ class TestPhase4Permissions:
         from tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="student")
-        assert run_guard(TOOL_CATALOG["coderunner.code.execute"], ctx).error.code.value == "MCP_APPROVAL_REQUIRED"
-        assert run_guard(TOOL_CATALOG["coderunner.problem.save_generated"], ctx).error.code.value == "MCP_PERMISSION_DENIED"
+        exec_desc = TOOL_CATALOG["coderunner.code.execute"]
+        assert run_guard(
+            exec_desc, ctx, granted_scopes=exec_desc.required_scopes
+        ).error.code.value == "MCP_APPROVAL_REQUIRED"
+        # save_generated is denied at RBAC (role) before scope is even checked.
+        assert run_guard(
+            TOOL_CATALOG["coderunner.problem.save_generated"], ctx
+        ).error.code.value == "MCP_PERMISSION_DENIED"
 
 
 # ── Risk levels ──

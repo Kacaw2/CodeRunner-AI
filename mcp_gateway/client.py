@@ -72,6 +72,7 @@ class InProcessMCPToolClient(MCPToolClient):
     ) -> dict[str, Any]:
         from tools.protocol import get_tool_runtime, ToolCallContext
         from core.auth.context import build_caller_context
+        from tools.protocol.policies.scopes import scopes_for_agent
 
         caller = build_caller_context(
             user_id=identity.user_id,
@@ -80,7 +81,11 @@ class InProcessMCPToolClient(MCPToolClient):
             task_id=identity.task_id,
             conversation_id=identity.conversation_id,
         )
-        ctx = ToolCallContext(caller=caller, tool_call_id=tool_call_id)
+        ctx = ToolCallContext(
+            caller=caller,
+            tool_call_id=tool_call_id,
+            granted_scopes=scopes_for_agent(identity.agent_type),
+        )
         result = get_tool_runtime().call_sync(tool_name, args, ctx)
         return result.to_envelope()
 
@@ -88,13 +93,30 @@ class InProcessMCPToolClient(MCPToolClient):
 class StreamableHTTPMCPToolClient(MCPToolClient):
     """Production client — crosses MCP transport to the mcp_gateway server.
 
-    Internal agents authenticate with a service token and carry their identity
-    as request metadata so the server builds an ``agent_host`` CallerContext.
+    For each call the client mints a short-lived, EdDSA-signed capability token
+    carrying the caller's identity and minimal scopes. The gateway verifies the
+    signature and builds an ``agent_host`` CallerContext from the signed claims,
+    so the agent cannot self-declare its user_id/role/scopes.
     """
 
-    def __init__(self, gateway_url: str, auth_token: str) -> None:
+    def __init__(self, gateway_url: str, signing_key: str) -> None:
         self._gateway_url = gateway_url
-        self._auth_token = auth_token
+        self._signing_key = signing_key
+
+    def _build_auth_header(self, identity: MCPClientIdentity) -> str:
+        from mcp_gateway.internal_auth import mint_internal_token
+        from tools.protocol.policies.scopes import scopes_for_agent
+
+        token = mint_internal_token(
+            user_id=identity.user_id,
+            role=identity.role,
+            agent_type=identity.agent_type,
+            scopes=scopes_for_agent(identity.agent_type),
+            task_id=identity.task_id,
+            conversation_id=identity.conversation_id,
+            signing_key=self._signing_key,
+        )
+        return f"Bearer {token}"
 
     def call_tool(
         self,
@@ -129,16 +151,7 @@ class StreamableHTTPMCPToolClient(MCPToolClient):
         from mcp.client.streamable_http import streamablehttp_client
         from mcp.client.session import ClientSession
 
-        headers = {
-            "Authorization": f"Bearer {self._auth_token}",
-            "X-MCP-Agent-Type": identity.agent_type,
-            "X-MCP-User-Id": str(identity.user_id),
-            "X-MCP-User-Role": identity.role,
-        }
-        if identity.task_id:
-            headers["X-MCP-Task-Id"] = identity.task_id
-        if identity.conversation_id:
-            headers["X-MCP-Conversation-Id"] = identity.conversation_id
+        headers = {"Authorization": self._build_auth_header(identity)}
 
         async with streamablehttp_client(self._gateway_url, headers=headers) as (
             read_stream,
@@ -197,13 +210,15 @@ def configure_mcp_client_from_env() -> MCPToolClient:
         gateway_url = os.environ.get(
             "MCP_GATEWAY_URL", "http://mcp_gateway:8200/mcp"
         )
-        auth_token = os.environ.get("MCP_INTERNAL_AUTH_TOKEN", "").strip()
-        if not auth_token:
+        from mcp_gateway.internal_auth import load_signing_key_from_env
+
+        signing_key = load_signing_key_from_env()
+        if not signing_key:
             raise RuntimeError(
                 "MCP_AGENT_TRANSPORT=streamable-http requires "
-                "MCP_INTERNAL_AUTH_TOKEN to be set"
+                "MCP_INTERNAL_SIGNING_KEY to be set"
             )
-        client: MCPToolClient = StreamableHTTPMCPToolClient(gateway_url, auth_token)
+        client: MCPToolClient = StreamableHTTPMCPToolClient(gateway_url, signing_key)
         logger.info("Agent MCP client: streamable-http -> %s", gateway_url)
     else:
         client = InProcessMCPToolClient()

@@ -84,6 +84,7 @@ services:
 
       MAX_CONTENT_LENGTH: 16777216
       UPLOAD_FOLDER: /app/uploads
+      HF_HOME: /app/.hf_cache
     volumes:
       - ./app:/app/app:ro
       - ./core:/app/core:ro
@@ -100,6 +101,7 @@ services:
       - ./logs:/app/logs
       - executor_tmp:/tmp/executor
       - kb_data:/app/data/knowledge_base
+      - hf_cache:/app/.hf_cache
     ports:
       - "${WEB_PORT:-9900}:9900"
     depends_on:
@@ -174,15 +176,21 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       FLASK_BASE_URL: http://web:9900
       AGENT_HOST_PORT: 8100
-      MCP_INTERNAL_SERVICE_TOKEN: ${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}
       # Agent tool-call transport. "streamable-http" (default) routes agent tool
-      # calls across MCP transport to the mcp_gateway server, which authenticates
-      # the shared MCP_INTERNAL_AUTH_TOKEN as an agent_host caller. Set "inproc"
-      # for local/dev to run tools in-process without a running gateway.
+      # calls across MCP transport to the mcp_gateway server. The agent host mints
+      # a short-lived EdDSA-signed capability token per call (see MCP_INTERNAL_SIGNING_KEY);
+      # the gateway verifies it with the public key. Set "inproc" for local/dev to
+      # run tools in-process without a running gateway.
       MCP_AGENT_TRANSPORT: ${MCP_AGENT_TRANSPORT:-streamable-http}
       MCP_GATEWAY_URL: ${MCP_GATEWAY_URL:-http://mcp_gateway:8200/mcp}
-      MCP_INTERNAL_AUTH_TOKEN: ${MCP_INTERNAL_AUTH_TOKEN:-${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}}
+      # Ed25519 PRIVATE key (PEM, newlines as \n). The agent host signs identity
+      # claims (user_id/role/agent_type/scopes) the gateway cannot forge. Generate:
+      #   openssl genpkey -algorithm ed25519 | awk '{printf "%s\\n", $0}'
+      MCP_INTERNAL_SIGNING_KEY: ${MCP_INTERNAL_SIGNING_KEY}
       DEBUG: ${DEBUG:-False}
+      HF_HOME: /app/.hf_cache
+    volumes:
+      - hf_cache:/app/.hf_cache
     ports:
       - "${AGENT_HOST_PORT:-8100}:8100"
     depends_on:
@@ -221,9 +229,13 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       DATABASE_URL: mysql+pymysql://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
-      # Shared secret the gateway recognizes as a trusted internal agent caller
-      # (resolve_caller_from_bearer -> agent_host). Must match the workers value.
-      MCP_INTERNAL_AUTH_TOKEN: ${MCP_INTERNAL_AUTH_TOKEN:-${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}}
+      # Ed25519 PUBLIC key (PEM, newlines as \n) matching the agent host's signing
+      # key. The gateway verifies internal capability tokens with this and never
+      # mints them, so leaking the gateway config cannot forge a caller. Generate
+      # the public half from the private key:
+      #   openssl pkey -in ed25519.pem -pubout | awk '{printf "%s\\n", $0}'
+      MCP_INTERNAL_VERIFY_KEY: ${MCP_INTERNAL_VERIFY_KEY}
+      HF_HOME: /app/.hf_cache
     ports:
       - "${MCP_PORT:-8200}:8200"
     depends_on:
@@ -233,6 +245,7 @@ services:
         condition: service_healthy
     volumes:
       - kb_data:/app/data/knowledge_base
+      - hf_cache:/app/.hf_cache
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8200)); s.close()\""]
       interval: 30s
@@ -252,6 +265,8 @@ volumes:
   executor_tmp:
     driver: local
   kb_data:
+    driver: local
+  hf_cache:
     driver: local
 
 networks:

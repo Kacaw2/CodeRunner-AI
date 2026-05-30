@@ -1,32 +1,55 @@
-"""Server-side internal-agent authentication (Task 5/6 completion).
+"""Server-side internal-agent authentication (F1 fix).
 
-Internal agents cross MCP transport carrying a shared service token in the
-Authorization bearer header plus X-MCP-* identity headers. The gateway must:
+Internal agents cross MCP transport carrying a short-lived, EdDSA-signed
+capability token in the Authorization bearer header. The gateway must:
 
-1. Recognize the internal service token and build an ``agent_host`` caller from
-   the request headers (NOT treat it as an external API key).
-2. Fall through to API-key verification for any non-internal token.
-3. Construct an ``agent_host`` CallerContext in ``call_via_runtime`` so scope
-   checks are bypassed for trusted internal callers, while external callers keep
-   ``external_client`` + granted scopes.
+1. Verify the token signature against the configured public verify key and build
+   an ``agent_host`` caller from the *signed claims* (NOT from request headers).
+2. Reject self-declared identity: a caller who only controls request headers,
+   without a validly signed token, must never become ``agent_host``.
+3. Fall through to API-key verification for any non-internal token.
+4. Construct an ``agent_host`` CallerContext in ``call_via_runtime`` for trusted
+   internal callers, while external callers keep ``external_client`` + scopes.
 """
 
 import json
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-def test_internal_service_token_resolves_to_agent_host(monkeypatch):
+
+def _keypair() -> tuple[str, str]:
+    priv = Ed25519PrivateKey.generate()
+    private_pem = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    public_pem = priv.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    return private_pem, public_pem
+
+
+def test_signed_token_resolves_to_agent_host_from_claims(monkeypatch):
     from mcp_gateway.middleware import core
+    from mcp_gateway.internal_auth import mint_internal_token
 
-    monkeypatch.setenv("MCP_INTERNAL_AUTH_TOKEN", "secret-internal")
-    headers = {
-        "x-mcp-agent-type": "tutor",
-        "x-mcp-user-id": "7",
-        "x-mcp-user-role": "student",
-        "x-mcp-task-id": "task-1",
-        "x-mcp-conversation-id": "conv-1",
-    }
+    private_pem, public_pem = _keypair()
+    monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", public_pem)
 
-    caller = core.resolve_caller_from_bearer("secret-internal", headers)
+    token = mint_internal_token(
+        user_id=7,
+        role="student",
+        agent_type="tutor",
+        scopes=["problem:read"],
+        task_id="task-1",
+        conversation_id="conv-1",
+        signing_key=private_pem,
+    )
+
+    caller = core.resolve_caller_from_bearer(token)
 
     assert caller is not None
     assert caller["actor_type"] == "agent_host"
@@ -35,14 +58,43 @@ def test_internal_service_token_resolves_to_agent_host(monkeypatch):
     assert caller["role"] == "student"
     assert caller["task_id"] == "task-1"
     assert caller["conversation_id"] == "conv-1"
-    # Must carry a rate-limit key so _guarded can rate-limit internal callers.
+    assert caller["scopes"] == ["problem:read"]
     assert caller["api_key_id"]
+
+
+def test_forged_identity_without_valid_token_cannot_become_agent_host(monkeypatch):
+    """F1 regression: controlling headers/role without a signed token is useless.
+
+    A caller who does not hold the Host signing key cannot produce a token that
+    verifies, so they fall through to API-key verification and never get
+    agent_host / admin.
+    """
+    from mcp_gateway.middleware import core
+    from mcp_gateway.internal_auth import mint_internal_token
+
+    _, real_public = _keypair()
+    attacker_private, _ = _keypair()
+    monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", real_public)
+    monkeypatch.setattr(
+        "mcp_gateway.middleware.auth.verify_api_key", lambda token: None
+    )
+
+    forged = mint_internal_token(
+        user_id=1,
+        role="admin",
+        agent_type="tutor",
+        scopes=["problem:write"],
+        signing_key=attacker_private,
+    )
+
+    assert core.resolve_caller_from_bearer(forged) is None
 
 
 def test_external_token_falls_through_to_api_key_verification(monkeypatch):
     from mcp_gateway.middleware import core
 
-    monkeypatch.setenv("MCP_INTERNAL_AUTH_TOKEN", "secret-internal")
+    _, public_pem = _keypair()
+    monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", public_pem)
     monkeypatch.setattr(
         "mcp_gateway.middleware.auth.verify_api_key",
         lambda token: (
@@ -58,26 +110,23 @@ def test_external_token_falls_through_to_api_key_verification(monkeypatch):
         ),
     )
 
-    caller = core.resolve_caller_from_bearer("ext-key", {})
+    caller = core.resolve_caller_from_bearer("ext-key")
 
     assert caller is not None
     assert caller.get("actor_type") != "agent_host"
     assert caller["api_key_id"] == "k1"
 
 
-def test_internal_token_disabled_when_env_unset(monkeypatch):
-    """With no internal token configured, the same string is just an API key."""
+def test_internal_path_disabled_when_verify_key_unset(monkeypatch):
+    """With no verify key configured, every token is just an API key candidate."""
     from mcp_gateway.middleware import core
 
-    monkeypatch.delenv("MCP_INTERNAL_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("MCP_INTERNAL_VERIFY_KEY", raising=False)
     monkeypatch.setattr(
-        "mcp_gateway.middleware.auth.verify_api_key",
-        lambda token: None,
+        "mcp_gateway.middleware.auth.verify_api_key", lambda token: None
     )
 
-    caller = core.resolve_caller_from_bearer("secret-internal", {})
-
-    assert caller is None
+    assert core.resolve_caller_from_bearer("anything") is None
 
 
 def test_call_via_runtime_uses_agent_host_context_for_internal_caller(monkeypatch):
@@ -103,7 +152,7 @@ def test_call_via_runtime_uses_agent_host_context_for_internal_caller(monkeypatc
         "agent_type": "tutor",
         "task_id": "task-1",
         "conversation_id": "conv-1",
-        "scopes": None,
+        "scopes": ["problem:read"],
     })
 
     core.call_via_runtime("coderunner.problem.get_detail", {"problem_id": 1})
@@ -144,29 +193,3 @@ def test_call_via_runtime_uses_external_client_context_for_api_key_caller(monkey
     ctx = captured["ctx"]
     assert ctx.caller.actor_type == "external_client"
     assert ctx.granted_scopes == ["knowledge:read"]
-
-
-def test_internal_agent_bypasses_scope_check_end_to_end(monkeypatch):
-    """An agent_host caller with no scopes still passes a scoped tool's guard."""
-    from mcp_gateway.middleware import core
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
-
-    bootstrap_tool_runtime()
-    monkeypatch.setattr(core, "check_rate_limit", lambda *_: True)
-    core.set_caller_info({
-        "actor_type": "agent_host",
-        "api_key_id": "internal:tutor",
-        "user_id": 7,
-        "role": "student",
-        "agent_type": "tutor",
-        "scopes": None,
-        "rate_limit_rpm": 600,
-    })
-
-    payload = json.loads(core._guarded(
-        lambda: core.call_via_runtime("coderunner.problem.get_detail", {"problem_id": 1})
-    ))
-
-    # The guard must NOT reject on scope grounds for a trusted internal caller.
-    if payload["ok"] is False:
-        assert payload["error"]["code"] != "MCP_SCOPE_DENIED"
