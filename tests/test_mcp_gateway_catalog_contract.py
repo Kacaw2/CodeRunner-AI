@@ -6,9 +6,26 @@ caught by test_source_map_matches_declared_contract rather than silently
 accepted.
 """
 
+import pytest
+
 from mcp_gateway.server import create_mcp_server
 from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 from tools.protocol.schemas.catalog import TOOL_CATALOG
+from tools.protocol.schemas.descriptors import RiskLevel, ApprovalPolicy
+
+# Canonical scope vocabulary (docs/MCP_RUNTIME_ARCHITECTURE.md §3). A required
+# scope outside this set is a drift bug — external API keys are minted against
+# this vocabulary.
+CANONICAL_SCOPES = {
+    "problem:read",
+    "problem:write",
+    "submission:read",
+    "student:read",
+    "code:execute",
+    "knowledge:read",
+    "analytics:read",
+    "trace:read",
+}
 
 
 EXPECTED_EXTERNAL_TOOL_MAP = {
@@ -96,3 +113,45 @@ def test_generated_signatures_never_expose_caller_identity_fields():
             f"{external_name} exposes caller-identity field(s) "
             f"{params & injected}"
         )
+
+
+# ── Schema completeness contract ─────────────────────────────────────
+# Every served tool must carry a complete, well-formed descriptor so the guard
+# pipeline (schema validation, scope, risk, approval) has something to enforce.
+
+
+@pytest.mark.parametrize("name", sorted(TOOL_CATALOG), ids=sorted(TOOL_CATALOG))
+def test_descriptor_is_complete(name):
+    d = TOOL_CATALOG[name]
+
+    assert d.version, f"{name}: missing version"
+    assert d.server, f"{name}: missing server"
+    assert isinstance(d.risk_level, RiskLevel), f"{name}: bad risk_level"
+
+    assert isinstance(d.input_schema, dict), f"{name}: input_schema not a dict"
+    assert d.input_schema.get("type") == "object", (
+        f"{name}: input_schema must be a JSON object schema"
+    )
+    assert isinstance(d.output_schema, dict), f"{name}: output_schema not a dict"
+
+    assert isinstance(d.required_scopes, list), f"{name}: required_scopes not a list"
+    unknown = set(d.required_scopes) - CANONICAL_SCOPES
+    assert unknown == set(), f"{name}: non-canonical scope(s) {unknown}"
+
+
+@pytest.mark.parametrize("name", sorted(TOOL_CATALOG), ids=sorted(TOOL_CATALOG))
+def test_high_risk_tools_require_approval(name):
+    """A HIGH-risk tool with no approval policy would execute unguarded."""
+    d = TOOL_CATALOG[name]
+    if d.risk_level == RiskLevel.HIGH:
+        assert d.approval_policy != ApprovalPolicy.NONE, (
+            f"{name}: HIGH risk but no approval policy"
+        )
+
+
+def test_only_approval_check_may_omit_scopes():
+    """Every tool requires a scope except the caller-bound approval poll."""
+    scopeless = {n for n, d in TOOL_CATALOG.items() if not d.required_scopes}
+    assert scopeless == {"coderunner.approval.check"}, (
+        f"unexpected scopeless tools: {scopeless - {'coderunner.approval.check'}}"
+    )

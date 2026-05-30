@@ -1,0 +1,224 @@
+# MCP permission matrix — the authorization decision oracle.
+#
+# Each row is one authorization decision exercised through the real guard
+# pipeline (RBAC -> scope -> risk) in tools/protocol/policies/guard.py.
+# When you add a tool or change a policy, ADD/EDIT ROWS HERE rather than
+# scattering assertions across test files. tests/test_mcp_permission_matrix.py
+# parameterizes over every row.
+#
+# Fields
+#   id          unique, human-readable case name (becomes the pytest id)
+#   caller_type "external_client" | "agent_host"
+#   role        "student" | "teacher" | "admin"
+#   agent_type  internal agent name ("" / null for external callers)
+#   scopes      list of granted scopes, OR the string "AGENT_MINIMAL" to use
+#               scopes_for_agent(agent_type) (the minimal set an internal agent
+#               actually carries), OR null/omitted for no scopes
+#   tool        canonical tool name (must exist in TOOL_CATALOG)
+#   expected    "ok" | an MCP_* error code from the guard pipeline
+#
+# NOTE on ordering: RBAC runs BEFORE scope in this codebase, so a role-restricted
+# tool returns MCP_PERMISSION_DENIED even when the caller is missing the scope.
+# These rows encode the REAL observed behavior, not idealized codes.
+
+cases:
+  # ── External client: scope is the gate for non-role-restricted tools ──
+  - id: ext_student_knowledge_missing_scope
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: []
+    tool: coderunner.knowledge.search
+    expected: MCP_SCOPE_DENIED
+
+  - id: ext_student_knowledge_with_scope
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: [knowledge:read]
+    tool: coderunner.knowledge.search
+    expected: ok
+
+  - id: ext_student_problem_detail_missing_scope
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: []
+    tool: coderunner.problem.get_detail
+    expected: MCP_SCOPE_DENIED
+
+  - id: ext_student_approval_check_needs_no_scope
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: []
+    tool: coderunner.approval.check
+    expected: ok
+
+  # ── External client: role override fires before scope ──
+  - id: ext_student_teacher_tool_no_scope
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: []
+    tool: coderunner.student.get_summary
+    expected: MCP_PERMISSION_DENIED
+
+  - id: ext_student_teacher_tool_with_correct_scope_still_denied
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: [student:read]
+    tool: coderunner.student.get_summary
+    expected: MCP_PERMISSION_DENIED
+
+  - id: ext_teacher_teacher_tool_with_scope_ok
+    caller_type: external_client
+    role: teacher
+    agent_type: ""
+    scopes: [student:read]
+    tool: coderunner.student.get_summary
+    expected: ok
+
+  - id: ext_admin_trace_with_scope_ok
+    caller_type: external_client
+    role: admin
+    agent_type: ""
+    scopes: [trace:read]
+    tool: coderunner.trace.get_agent_trace
+    expected: ok
+
+  - id: ext_teacher_class_stats_role_ok_but_scope_missing
+    caller_type: external_client
+    role: teacher
+    agent_type: ""
+    scopes: []
+    tool: coderunner.analytics.class_statistics
+    expected: MCP_SCOPE_DENIED
+
+  - id: ext_student_save_generated_role_denied
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: [problem:write]
+    tool: coderunner.problem.save_generated
+    expected: MCP_PERMISSION_DENIED
+
+  # ── External client: HIGH risk tool yields approval gate, not direct exec ──
+  - id: ext_teacher_execute_code_requires_approval
+    caller_type: external_client
+    role: teacher
+    agent_type: ""
+    scopes: [code:execute]
+    tool: coderunner.code.execute
+    expected: MCP_APPROVAL_REQUIRED
+
+  # ── Internal agent: F1 defense — no scope bypass for agent_host ──
+  - id: int_tutor_problem_detail_missing_scope_denied
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: []
+    tool: coderunner.problem.get_detail
+    expected: MCP_SCOPE_DENIED
+
+  - id: int_tutor_problem_detail_with_minimal_scope_ok
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: AGENT_MINIMAL
+    tool: coderunner.problem.get_detail
+    expected: ok
+
+  # ── Internal agent: per-agent allowlist blocks out-of-scope tools ──
+  - id: int_tutor_similar_problems_not_in_allowlist
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: [knowledge:read]
+    tool: coderunner.knowledge.search_similar_problems
+    expected: MCP_PERMISSION_DENIED
+
+  - id: int_tutor_analytics_activity_not_in_allowlist
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: [analytics:read]
+    tool: coderunner.analytics.student_activity
+    expected: MCP_PERMISSION_DENIED
+
+  # ── Internal agent: forged extra scope cannot unlock an allowlist-blocked tool ──
+  - id: int_tutor_teacher_forged_scope_still_allowlist_denied
+    caller_type: agent_host
+    role: teacher
+    agent_type: tutor
+    scopes: [knowledge:read, "admin:all"]
+    tool: coderunner.knowledge.search_similar_problems
+    expected: MCP_PERMISSION_DENIED
+
+  # ── Internal agent: HIGH risk goes through approval gate ──
+  - id: int_tutor_execute_code_requires_approval
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: AGENT_MINIMAL
+    tool: coderunner.code.execute
+    expected: MCP_APPROVAL_REQUIRED
+
+  - id: int_generator_save_generated_requires_approval
+    caller_type: agent_host
+    role: teacher
+    agent_type: generator
+    scopes: AGENT_MINIMAL
+    tool: coderunner.problem.save_generated
+    expected: MCP_APPROVAL_REQUIRED
+
+  # ── Internal agent: role override gates even an allowed analytics agent ──
+  - id: int_analytics_student_stats_as_student_role_denied
+    caller_type: agent_host
+    role: student
+    agent_type: analytics
+    scopes: [analytics:read]
+    tool: coderunner.analytics.student_stats
+    expected: MCP_PERMISSION_DENIED
+
+  - id: int_analytics_class_stats_as_teacher_ok
+    caller_type: agent_host
+    role: teacher
+    agent_type: analytics
+    scopes: [analytics:read]
+    tool: coderunner.analytics.class_statistics
+    expected: ok
+
+  # ── Remaining catalog tools (keep matrix coverage complete) ──
+  - id: ext_student_list_submissions_with_scope_ok
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: [submission:read]
+    tool: coderunner.submission.list_for_student
+    expected: ok
+
+  - id: ext_student_submission_detail_missing_scope
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: []
+    tool: coderunner.submission.get_detail
+    expected: MCP_SCOPE_DENIED
+
+  - id: int_tutor_error_patterns_with_scope_ok
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: [knowledge:read]
+    tool: coderunner.knowledge.search_error_patterns
+    expected: ok
+
+  - id: ext_teacher_problem_difficulty_with_scope_ok
+    caller_type: external_client
+    role: teacher
+    agent_type: ""
+    scopes: [analytics:read]
+    tool: coderunner.analytics.problem_difficulty
+    expected: ok
