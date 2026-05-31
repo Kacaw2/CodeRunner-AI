@@ -5,17 +5,26 @@ import inspect
 
 
 def test_base_agent_does_not_import_tool_runtime_for_tool_execution():
-    from agents.base import BaseAgent
+    from agents.executor import ToolCallExecutor
 
-    source = inspect.getsource(BaseAgent._run_mcp_tool)
+    # Tool execution lives in ToolCallExecutor (extracted from BaseAgent); the
+    # boundary guarantee applies wherever the runtime call actually happens.
+    source = inspect.getsource(ToolCallExecutor.run)
     assert "get_tool_runtime" not in source
     assert "call_sync" not in source
 
 
-def test_base_agent_uses_mcp_client_adapter_for_tool_execution():
+def test_base_agent_delegates_tool_execution_to_executor():
     from agents.base import BaseAgent
 
     source = inspect.getsource(BaseAgent._run_mcp_tool)
+    assert "_tool_executor" in source
+
+
+def test_base_agent_uses_mcp_client_adapter_for_tool_execution():
+    from agents.executor import ToolCallExecutor
+
+    source = inspect.getsource(ToolCallExecutor.run)
     assert "MCPToolClient" in source or "get_mcp_tool_client" in source
 
 
