@@ -216,7 +216,7 @@ class TestAllowedToolsFor:
         from core.definitions import allowed_tools_for
 
         tools = allowed_tools_for("generator")
-        assert "coderunner.code.execute" in tools
+        assert "coderunner.code.execute_internal" in tools
         assert "coderunner.knowledge.search_similar_problems" in tools
         assert "coderunner.submission.list_for_student" not in tools
 

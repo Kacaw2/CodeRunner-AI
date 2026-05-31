@@ -69,7 +69,10 @@ def detect_handoff(state: AgentState) -> AgentState:
     state["handoff_to"] = target
     state["handoff_reason"] = reason
 
-    state["final_response"] = HANDOFF_PATTERN.sub("", response).rstrip()
+    cleaned = HANDOFF_PATTERN.sub("", response).rstrip()
+    state["final_response"] = cleaned
+    # Conclusion summary handed to the next agent (truncated to avoid bloat).
+    state["handoff_summary"] = cleaned[:1500]
 
     logger.info("Handoff detected: %s -> %s (reason: %s)", current, target, reason)
     return state

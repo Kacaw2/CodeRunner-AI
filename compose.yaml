@@ -70,7 +70,8 @@ services:
       EXECUTOR_DEFAULT_TIMEOUT: 2.0
       EXECUTOR_MAX_STDOUT: 10000
       EXECUTOR_MAX_STDERR: 4000
-      USE_DOCKER: "false"
+      EXECUTOR_REMOTE_URL: http://executor:8300/run
+      EXECUTOR_API_TOKEN: ${EXECUTOR_API_TOKEN:-}
 
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       AI_MODEL: ${AI_MODEL:-deepseek-chat}
@@ -83,19 +84,32 @@ services:
 
       MAX_CONTENT_LENGTH: 16777216
       UPLOAD_FOLDER: /app/uploads
+      HF_HOME: /app/.hf_cache
     volumes:
       - ./app:/app/app:ro
+      - ./core:/app/core:ro
+      - ./tools:/app/tools:ro
+      - ./agents:/app/agents:ro
+      - ./graph:/app/graph:ro
+      - ./memory:/app/memory:ro
+      - ./knowledge:/app/knowledge:ro
+      - ./models:/app/models:ro
+      - ./workers:/app/workers:ro
+      - ./mcp_gateway:/app/mcp_gateway:ro
       - ./scripts:/app/scripts:ro
       - ./uploads:/app/uploads
       - ./logs:/app/logs
       - executor_tmp:/tmp/executor
       - kb_data:/app/data/knowledge_base
+      - hf_cache:/app/.hf_cache
     ports:
       - "${WEB_PORT:-9900}:9900"
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      executor:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9900/health"]
@@ -105,8 +119,41 @@ services:
       start_period: 40s
     networks:
       - educode_network
+      - executor_network
     env_file:
       - .env
+
+  executor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.executor
+    container_name: educode_executor
+    restart: unless-stopped
+    environment:
+      EXECUTOR_PORT: 8300
+      EXECUTOR_MAX_MEMORY_MB: 256
+      EXECUTOR_DEFAULT_TIMEOUT: 2.0
+      EXECUTOR_MAX_STDOUT: 10000
+      EXECUTOR_MAX_STDERR: 4000
+      EXECUTOR_API_TOKEN: ${EXECUTOR_API_TOKEN:-}
+    user: "4000:4000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=128m,mode=1777
+    mem_limit: 512m
+    pids_limit: 128
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8300/health',timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - executor_network
 
   workers:
     build:
@@ -129,8 +176,21 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       FLASK_BASE_URL: http://web:9900
       AGENT_HOST_PORT: 8100
-      MCP_INTERNAL_SERVICE_TOKEN: ${MCP_INTERNAL_SERVICE_TOKEN:-dev-token}
+      # Agent tool-call transport. "streamable-http" (default) routes agent tool
+      # calls across MCP transport to the mcp_gateway server. The agent host mints
+      # a short-lived EdDSA-signed capability token per call (see MCP_INTERNAL_SIGNING_KEY);
+      # the gateway verifies it with the public key. Set "inproc" for local/dev to
+      # run tools in-process without a running gateway.
+      MCP_AGENT_TRANSPORT: ${MCP_AGENT_TRANSPORT:-streamable-http}
+      MCP_GATEWAY_URL: ${MCP_GATEWAY_URL:-http://mcp_gateway:8200/mcp}
+      # Ed25519 PRIVATE key (PEM, newlines as \n). The agent host signs identity
+      # claims (user_id/role/agent_type/scopes) the gateway cannot forge. Generate:
+      #   openssl genpkey -algorithm ed25519 | awk '{printf "%s\\n", $0}'
+      MCP_INTERNAL_SIGNING_KEY: ${MCP_INTERNAL_SIGNING_KEY}
       DEBUG: ${DEBUG:-False}
+      HF_HOME: /app/.hf_cache
+    volumes:
+      - hf_cache:/app/.hf_cache
     ports:
       - "${AGENT_HOST_PORT:-8100}:8100"
     depends_on:
@@ -139,6 +199,8 @@ services:
       redis:
         condition: service_healthy
       web:
+        condition: service_healthy
+      mcp_gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/api/health"]
@@ -157,7 +219,7 @@ services:
       dockerfile: docker/Dockerfile.workers
     container_name: educode_mcp_gateway
     restart: unless-stopped
-    entrypoint: ["python", "-m", "mcp_gateway", "--transport", "sse", "--host", "0.0.0.0", "--port", "8200"]
+    entrypoint: ["python", "-m", "mcp_gateway", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8200"]
     environment:
       TZ: Asia/Shanghai
       MYSQL_USER: ${MYSQL_USER:-educode}
@@ -167,6 +229,13 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       DATABASE_URL: mysql+pymysql://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
+      # Ed25519 PUBLIC key (PEM, newlines as \n) matching the agent host's signing
+      # key. The gateway verifies internal capability tokens with this and never
+      # mints them, so leaking the gateway config cannot forge a caller. Generate
+      # the public half from the private key:
+      #   openssl pkey -in ed25519.pem -pubout | awk '{printf "%s\\n", $0}'
+      MCP_INTERNAL_VERIFY_KEY: ${MCP_INTERNAL_VERIFY_KEY}
+      HF_HOME: /app/.hf_cache
     ports:
       - "${MCP_PORT:-8200}:8200"
     depends_on:
@@ -176,6 +245,7 @@ services:
         condition: service_healthy
     volumes:
       - kb_data:/app/data/knowledge_base
+      - hf_cache:/app/.hf_cache
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8200)); s.close()\""]
       interval: 30s
@@ -196,7 +266,12 @@ volumes:
     driver: local
   kb_data:
     driver: local
+  hf_cache:
+    driver: local
 
 networks:
   educode_network:
     driver: bridge
+  executor_network:
+    driver: bridge
+    internal: true

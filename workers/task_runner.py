@@ -99,9 +99,18 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
 
             context = {"conversation_id": task.conversation_id}
 
-            # Bootstrap MCP ToolRuntime with session factory
-            from mcp_gateway.bootstrap import bootstrap_tool_runtime
-            bootstrap_tool_runtime(session_factory=lambda: session)
+            # Configure the agent MCP client (transport or in-process).
+            # The transport client runs tools in the mcp_gateway process and
+            # needs no local runtime; the in-process client still binds a
+            # session-scoped ToolRuntime for local/dev execution.
+            from mcp_gateway.client import (
+                configure_mcp_client_from_env,
+                InProcessMCPToolClient,
+            )
+            mcp_client = configure_mcp_client_from_env()
+            if isinstance(mcp_client, InProcessMCPToolClient):
+                from mcp_gateway.bootstrap import bootstrap_tool_runtime
+                bootstrap_tool_runtime(session_factory=lambda: session)
 
             try:
                 # ── Try Supervisor workflow first ──
@@ -354,9 +363,18 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
             user = session.get(User, run.user_id)
             user_role = user.role if user else "teacher"
 
-            # Bootstrap MCP ToolRuntime with session factory
-            from mcp_gateway.bootstrap import bootstrap_tool_runtime
-            bootstrap_tool_runtime(session_factory=lambda: session)
+            # Configure the agent MCP client (transport or in-process).
+            # The transport client runs tools in the mcp_gateway process and
+            # needs no local runtime; the in-process client still binds a
+            # session-scoped ToolRuntime for local/dev execution.
+            from mcp_gateway.client import (
+                configure_mcp_client_from_env,
+                InProcessMCPToolClient,
+            )
+            mcp_client = configure_mcp_client_from_env()
+            if isinstance(mcp_client, InProcessMCPToolClient):
+                from mcp_gateway.bootstrap import bootstrap_tool_runtime
+                bootstrap_tool_runtime(session_factory=lambda: session)
 
             try:
                 plan = run.plan_json if isinstance(run.plan_json, dict) else None

@@ -197,6 +197,36 @@ class TestIndexAllProblems:
 
         assert not hasattr(KnowledgeBase, "index_question")
 
+
+class TestKbHealth:
+    """F6: KB readiness probe must never raise and must report degradation."""
+
+    def test_health_ok_reports_counts(self, kb):
+        from knowledge import store as kb_module
+
+        original = kb_module._kb_instance
+        try:
+            kb_module._kb_instance = kb
+            health = kb_module.kb_health()
+            assert health["status"] == "ok"
+            assert "embed_model" in health
+            assert health["questions"] == kb.questions.count()
+            assert health["knowledge_points"] == kb.knowledge.count()
+            assert health["error_patterns"] == kb.error_patterns.count()
+        finally:
+            kb_module._kb_instance = original
+
+    def test_health_degraded_when_init_fails(self, monkeypatch):
+        from knowledge import store as kb_module
+
+        def _boom():
+            raise RuntimeError("model not found in offline cache")
+
+        monkeypatch.setattr(kb_module, "get_knowledge_base", _boom)
+        health = kb_module.kb_health()
+        assert health["status"] == "degraded"
+        assert "model not found in offline cache" in health["error"]
+
     def test_index_all_problems_function(self, app, db_session, tmp_path):
         from app.models.problem import Problem
         from knowledge import store as kb_module

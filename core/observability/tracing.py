@@ -57,11 +57,15 @@ class TraceCollector:
             self.steps.append(step)
 
     def save(self, status: str, response: str = "", error: Exception = None):
+        total_ms = int((time.monotonic() - self.start_time) * 1000)
+
+        # Cost + Prometheus metrics (F2). Best-effort and isolated from DB
+        # persistence so a metrics/costing failure never loses the trace.
+        self._emit_metrics(status, total_ms)
+
         try:
             from app.core.extensions import db
             from app.models.agent_trace import AgentRun, AgentRunStep
-
-            total_ms = int((time.monotonic() - self.start_time) * 1000)
 
             # P0: redact credentials before persisting (see _redact_secrets)
             self.input_message = _redact_secrets(self.input_message)
@@ -116,6 +120,48 @@ class TraceCollector:
                 db.session.rollback()
             except Exception:
                 pass
+
+    def _emit_metrics(self, status: str, total_ms: int):
+        """Compute the run's CNY cost and push Prometheus counters.
+
+        Fully best-effort: any import/compute error is swallowed so observability
+        never degrades the agent path. The model is read from ``AIConfig`` since
+        the collector itself is model-agnostic; cost is logged (no DB column, to
+        avoid a migration) and accumulated into the cost counter.
+        """
+        try:
+            from core.observability.cost import compute_cost_cny
+            from core.observability.metrics import record_agent_run
+
+            model = None
+            try:
+                from agents.config import AIConfig
+                model = AIConfig.MODEL
+            except Exception:
+                pass
+
+            cost_cny = compute_cost_cny(
+                model, self.total_input_tokens, self.total_output_tokens
+            )
+            if cost_cny is not None:
+                logger.info(
+                    "TRACE_COST: run_id=%s agent=%s model=%s in=%d out=%d cost_cny=%.6f",
+                    self.run_id, self.agent_type, model,
+                    self.total_input_tokens, self.total_output_tokens, cost_cny,
+                )
+
+            record_agent_run(
+                self.agent_type,
+                status,
+                latency_ms=total_ms,
+                input_tokens=self.total_input_tokens,
+                output_tokens=self.total_output_tokens,
+                tool_calls=self.tool_call_count,
+                cost_cny=cost_cny,
+                model=model,
+            )
+        except Exception:
+            logger.debug("metrics/cost emission failed", exc_info=True)
 
 
 def _make_json_safe(obj):

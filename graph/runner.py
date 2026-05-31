@@ -157,9 +157,31 @@ def _check_handoff(state: AgentState) -> str:
     logger.info("Agent '%s' handing off to '%s' (reason: %s)",
                 current_agent, handoff_to, state.get("handoff_reason", ""))
 
+    # Hand the next agent only the original question + the previous agent's
+    # conclusion summary — drop tool residue and intermediate AIMessages.
+    from langchain_core.messages import RemoveMessage
+
+    existing = state.get("messages", [])
+    original = next((m for m in existing if isinstance(m, HumanMessage)), None)
+    summary = state.get("handoff_summary", "")
+
+    rebuilt = []
+    if original is not None:
+        rebuilt.append(HumanMessage(content=original.content))
+    if summary:
+        rebuilt.append(HumanMessage(
+            content=f"[上一助手({current_agent})的结论摘要]\n{summary}\n\n"
+                    f"请基于此继续处理用户的原始请求。"))
+
+    # add_messages appends + dedups by id; it never replaces the whole list.
+    # Remove every prior message explicitly, then write the rebuilt list.
+    removals = [RemoveMessage(id=m.id) for m in existing if getattr(m, "id", None)]
+    state["messages"] = removals + rebuilt
+
     state["agent_type"] = handoff_to
     state["handoff_to"] = None
     state["handoff_reason"] = None
+    state["handoff_summary"] = None
     return handoff_to
 
 

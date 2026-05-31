@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.config import AIConfig, MAX_TOOL_ITERATIONS
+from agents.executor import ToolCallExecutor
 from core.exceptions import LLMError, ToolError, retry_on_llm_error
 from models.tiers import ModelTier
 from core.state import AgentState
@@ -17,8 +18,11 @@ class BaseAgent(ABC):
     description: str = ""
     default_model_tier: ModelTier = ModelTier.BALANCED
 
-    # Subclasses declare MCP tool names — never LangChain tool objects.
-    mcp_tool_names: list[str] = []
+    @property
+    def mcp_tool_names(self) -> list[str]:
+        """Tool allowlist derived from the agent definition registry."""
+        from core.definitions import allowed_tools_for
+        return list(allowed_tools_for(self.name))
 
     @abstractmethod
     def invoke(self, state: AgentState) -> AgentState:
@@ -41,43 +45,23 @@ class BaseAgent(ABC):
     def _llm_stream(llm, messages):
         return llm.stream(messages)
 
+    _tool_executor = ToolCallExecutor()
+
     def _run_mcp_tool(self, tool_call: dict, state: dict) -> ToolMessage:
-        """Execute a single tool call through the MCP ToolRuntime."""
-        from tools.protocol import get_tool_runtime, ToolCallContext
-        from core.auth.context import build_caller_context
+        """Execute a single tool call through the MCP client adapter.
 
-        runtime = get_tool_runtime()
-        name = tool_call["name"]
-        args = tool_call.get("args", {})
-        tc_id = tool_call.get("id", "")
+        Agents are MCP clients: they cross the client boundary instead of
+        importing the server-side runtime directly. The returned envelope has
+        the canonical ToolRuntime shape regardless of transport. The mechanics
+        live in :class:`ToolCallExecutor`; this method keeps the original
+        signature so agents and tests are unaffected.
+        """
+        return self._tool_executor.run(tool_call, state, self.name)
 
-        caller = build_caller_context(
-            user_id=state.get("user_id", 0),
-            role=state.get("user_role", "student"),
-            agent_type=state.get("agent_type", self.name),
-            task_id=state.get("context", {}).get("task_id"),
-            conversation_id=state.get("context", {}).get("conversation_id"),
-        )
-        ctx = ToolCallContext(caller=caller, tool_call_id=tc_id)
-
-        result = runtime.call_sync(name, args, ctx)
-
-        if result.ok:
-            content = json.dumps(result.data, ensure_ascii=False)
-        elif result.status == "approval_required":
-            content = json.dumps({
-                "status": "approval_required",
-                "approval_id": result.approval_id,
-                "message": result.error.get("message", "") if result.error else "",
-            }, ensure_ascii=False)
-        else:
-            err = result.error or {}
-            content = json.dumps({
-                "error": err.get("code", "MCP_INTERNAL_ERROR"),
-                "message": err.get("message", "Tool call failed"),
-            }, ensure_ascii=False)
-
-        return ToolMessage(content=content, tool_call_id=tc_id)
+    def _validate_input(self, state: dict) -> None:
+        """Warn-only contract check of the agent's input state (Phase 4.2)."""
+        from agents.contracts import validate_agent_input
+        validate_agent_input(self.name, state)
 
     @staticmethod
     def _maybe_inject_security_alert(system_ctx: str, state: dict) -> str:
@@ -114,6 +98,7 @@ class BaseAgent(ABC):
         from langchain_core.messages import SystemMessage
         from core.observability.tracing import TraceCollector
 
+        self._validate_input(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
         trace = TraceCollector(
@@ -200,6 +185,7 @@ class BaseAgent(ABC):
         from core.observability.tracing import TraceCollector
         from graph.handoff import detect_handoff
 
+        self._validate_input(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
         trace = TraceCollector(

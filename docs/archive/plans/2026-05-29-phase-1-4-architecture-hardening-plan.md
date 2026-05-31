@@ -1,8 +1,18 @@
 # Phase 1–4 — 架构与能力加固落地路线图 (Implementation Roadmap)
 
 > 本文是 Phase 0 安全加固之后的**剩余全部改动**落地方案，由四个规划代理在**真实阅读源码**后产出并整合。
-> 配套文件：`docs/2026-05-29-0329-phase-0-security-hardening-plan.md`（Phase 0 安全三项，已实现）。
-> 状态：**仅规划存档，未执行修改。** 每一项的 before/after 代码片段、新增文件全文、migration 思路、回归验证步骤已在规划阶段备齐，可按需展开。
+>
+> ## 进度状态（2026-05-30 复核）
+>
+> | 阶段 | 状态 | 说明 |
+> |---|---|---|
+> | Phase 0（安全三项） | ✅ 已完成 | commit `9acb2cb`，方案已归档至 `archive/plans/2026-05-29-0329-phase-0-security-hardening-plan.md` |
+> | Phase 1（架构合一） | ✅ 已完成 | 详细方案已归档至 `archive/plans/2026-05-29-phase-1-architecture-unification-detailed.md`；并由 `2026-05-29-mcp-architecture-repair-plan.md` 接续完善（仅剩 Docker 运行时 smoke） |
+> | **Phase 2（RAG + 编排）** | ⏳ **未开始 · 仍有效** | 唯一仍活跃的剩余项，详见 `2026-05-29-phase-2-rag-orchestration-detailed.md` |
+> | Phase 3（工具契约 + 可观测） | ➡️ **已并入** `2026-05-30-production-readiness-audit.md`（F2/F8/F9），以审计修复计划为准 |
+> | Phase 4（评测 + Agent 契约） | ➡️ **部分并入** 审计 F3（eval CI）；4.2 Agent 契约仍为低优先未排期 |
+>
+> **执行顺序以最新的 `2026-05-30-production-readiness-audit.md` 为主干**（写于 Phase 1 落地之后，反映当前真实状态）。本文 Phase 0/1 仅留作历史，Phase 2 为本文唯一仍需执行的内容。
 
 ---
 
@@ -21,6 +31,8 @@
 
 ## 阶段 1 — P1 架构合一（牵一发动全身）
 
+> **详细落地（含逐文件 before/after、删除清单、scope/校验/审批三个硬骨头、提交顺序）见**：`docs/2026-05-29-phase-1-architecture-unification-detailed.md`。下方为概要。
+
 ### 1.1 RBAC 单一真相源（先做，风险低）
 - `agents/base.py`：`mcp_tool_names` 改为 property，从 `core.definitions.allowed_tools_for(self.name)` 读。
 - 删四个 agent 的 `*_MCP_TOOLS` 常量，invoke/stream 改用 `self.mcp_tool_names`（generator 的单工具常量 `coderunner.code.execute` 保留）。
@@ -38,6 +50,8 @@
 ---
 
 ## 阶段 2 — P2 RAG + 编排
+
+> **详细落地（含逐文件 before/after、RAG 重建注意、critic/handoff 回归点、提交顺序）见**：`docs/2026-05-29-phase-2-rag-orchestration-detailed.md`。下方为概要。
 
 ### 2.1 RAG 修复 `knowledge/store.py` + `core/config.py`
 - **修过滤 bug**：写入加 `lang_{x}: True` 布尔位，查询用 `where={f"lang_{language}": True}`；删静默 except 兜底。

@@ -1,63 +1,23 @@
 """Shared middleware for MCP tool calls: auth check, permission, rate limit, audit.
 
-Changed in §0.2/§0.3 fix:
-- Decorator pattern replaced by callable ``run_mcp_guard()`` to avoid
-  decorator-order ambiguity with ``@mcp.tool()``.
-- ``_caller_info`` moved from global to ``contextvars.ContextVar`` so that
-  a future per-request SSE auth layer can set per-connection identity.
-
-Phase 4 additions:
-- TOOL_RISK_LEVELS for risk-based routing (low / medium / high).
-- High-risk tools require Human Gate approval before execution.
+Gateway handlers keep connection-level auth/rate-limit here, then delegate all
+tool policy, auditing, validation, and approval behavior to ToolRuntime.
 """
 
 import contextvars
 import json
 import logging
-import time
+import os
 
 from mcp_gateway.middleware.rate_limit import check_rate_limit
-from core.observability.audit import log_tool_call
-
-
-_LEGACY_TO_MCP = {
-    "get_agent_trace": "coderunner.trace.get_agent_trace",
-    "get_student_summary": "coderunner.student.get_summary",
-    "execute_code": "coderunner.code.execute",
-    "save_generated_problem": "coderunner.problem.save_generated",
-    "get_student_stats": "coderunner.analytics.student_stats",
-    "get_class_statistics": "coderunner.analytics.class_statistics",
-    "get_problem_difficulty_stats": "coderunner.analytics.problem_difficulty",
-}
-
-
-def check_tool_permission(agent_type: str, tool_name: str, user_role: str) -> bool:
-    """Compatibility shim — delegates to tools.protocol.policies.rbac."""
-    from tools.protocol.policies.rbac import _ROLE_OVERRIDES
-    mcp_name = _LEGACY_TO_MCP.get(tool_name, f"coderunner.{tool_name}")
-    override = _ROLE_OVERRIDES.get(mcp_name)
-    if override is not None:
-        return user_role in override
-    return True
+from tools.protocol import get_tool_runtime, ToolCallContext
+from core.auth.context import CallerContext
 
 logger = logging.getLogger(__name__)
 
-TOOL_RISK_LEVELS: dict[str, str] = {
-    "search_knowledge":             "low",
-    "search_similar_problems":      "low",
-    "get_problem_detail":           "low",
-    "get_problem_difficulty_stats": "low",
-    "get_student_activity":         "low",
-    "get_class_statistics":         "low",
-    "get_agent_trace":              "medium",
-    "get_student_summary":          "medium",
-    "execute_code":                 "high",
-    "save_generated_problem":       "high",
-    "check_approval":               "low",
-}
-
 CODE_MAX_LENGTH = 10_000
 ALLOWED_LANGUAGES = {"python", "c"}
+INTERNAL_RATE_LIMIT_RPM_DEFAULT = 600
 
 
 _caller_info_var: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
@@ -73,89 +33,148 @@ def get_caller_info() -> dict | None:
     return _caller_info_var.get()
 
 
-class GuardResult:
-    """Result of ``run_mcp_guard``. Check ``.rejected`` before proceeding."""
-
-    __slots__ = ("rejected", "error_json", "_start", "_caller")
-
-    def __init__(self, rejected: bool, error_json: str | None, start: float, caller: dict | None):
-        self.rejected = rejected
-        self.error_json = error_json
-        self._start = start
-        self._caller = caller
-
-    # ── call after tool body succeeds ──
-    def record_success(self, tool_name: str, tool_args: dict | None = None):
-        latency_ms = int((time.monotonic() - self._start) * 1000)
-        c = self._caller or {}
-        log_tool_call(c.get("api_key_id"), c.get("user_id"), tool_name, tool_args, "success", latency_ms)
-
-    def record_error(self, tool_name: str, tool_args: dict | None, exc: Exception):
-        latency_ms = int((time.monotonic() - self._start) * 1000)
-        c = self._caller or {}
-        log_tool_call(c.get("api_key_id"), c.get("user_id"), tool_name, tool_args, "error", latency_ms)
+def _error_envelope(code: str, message: str) -> str:
+    return json.dumps({
+        "ok": False,
+        "error": {"code": code, "message": message, "retryable": False},
+    }, ensure_ascii=False)
 
 
-def run_mcp_guard(tool_name: str, tool_args: dict | None = None) -> GuardResult:
-    """Pre-flight check: auth → permission → scope → rate-limit.
+def _resolve_request_caller() -> dict | None:
+    """Resolve caller identity from the current MCP request's bearer token.
 
-    Usage inside an ``@mcp.tool()`` function::
-
-        guard = run_mcp_guard("search_knowledge", {"query": query})
-        if guard.rejected:
-            return guard.error_json
-        result = search_knowledge_impl(query)
-        guard.record_success("search_knowledge", {"query": query})
-        return json.dumps(result)
+    Production auth is per-request: each HTTP request carries its own
+    ``Authorization: Bearer <mcp-api-key>`` header. We read it from the active
+    MCP request context so identity is never shared between concurrent callers.
+    Returns ``None`` when there is no request context (e.g. local stdio dev) or
+    no valid bearer token — the dev-mode startup fallback then applies.
     """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+        rc = request_ctx.get(None)
+    except Exception:
+        return None
+    if rc is None:
+        return None
+
+    request = getattr(rc, "request", None)
+    headers = getattr(request, "headers", None)
+    if not headers:
+        return None
+
+    auth = headers.get("authorization") or headers.get("Authorization")
+    if not auth:
+        return None
+
+    scheme, _, token = auth.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+
+    return resolve_caller_from_bearer(token.strip())
+
+
+def _internal_caller_from_claims(claims: dict) -> dict:
+    """Build a trusted agent_host caller dict from verified token claims.
+
+    Identity comes from the signed token, never from request headers, so an
+    agent cannot self-declare its user_id/role/scopes.
+    """
+    agent_type = claims.get("agent_type") or ""
+    try:
+        user_id = int(claims.get("sub") or 0)
+    except (ValueError, TypeError):
+        user_id = 0
+
+    rpm = os.environ.get("MCP_INTERNAL_RATE_LIMIT_RPM", "").strip()
+    try:
+        rate_limit_rpm = int(rpm) if rpm else INTERNAL_RATE_LIMIT_RPM_DEFAULT
+    except ValueError:
+        rate_limit_rpm = INTERNAL_RATE_LIMIT_RPM_DEFAULT
+
+    return {
+        "actor_type": "agent_host",
+        "api_key_id": f"internal:{agent_type or 'agent'}",
+        "user_id": user_id,
+        "role": claims.get("role") or "student",
+        "agent_type": agent_type,
+        "task_id": claims.get("task_id") or None,
+        "conversation_id": claims.get("conversation_id") or None,
+        "scopes": list(claims.get("scopes") or []),
+        "rate_limit_rpm": rate_limit_rpm,
+    }
+
+
+def resolve_caller_from_bearer(token: str) -> dict | None:
+    """Resolve a bearer token to caller info.
+
+    A token that verifies against the configured internal public key
+    (``MCP_INTERNAL_VERIFY_KEY``) is a trusted internal agent and yields an
+    ``agent_host`` caller built from the signed claims. Any other token is
+    verified as an external MCP API key.
+    """
+    from mcp_gateway.internal_auth import verify_internal_token, load_verify_key_from_env
+
+    verify_key = load_verify_key_from_env()
+    if verify_key:
+        claims = verify_internal_token(token, verify_key=verify_key)
+        if claims is not None:
+            return _internal_caller_from_claims(claims)
+
+    from mcp_gateway.middleware.auth import verify_api_key
+    return verify_api_key(token)
+
+
+def _guarded(fn):
+    # Per-request identity (production) takes precedence over any startup
+    # dev-mode fallback and is isolated to this single call via a finally clear.
+    request_caller = _resolve_request_caller()
+    set_locally = request_caller is not None
+    if set_locally:
+        set_caller_info(request_caller)
+
+    try:
+        caller = get_caller_info()
+        if not caller:
+            return _error_envelope("MCP_AUTH_REQUIRED", "Authentication required")
+
+        api_key_id = caller["api_key_id"]
+        rpm_limit = caller.get("rate_limit_rpm", 30)
+        if not check_rate_limit(api_key_id, rpm_limit):
+            return _error_envelope("MCP_RATE_LIMITED", "Rate limit exceeded")
+
+        return fn()
+    finally:
+        if set_locally:
+            set_caller_info(None)
+
+
+def call_via_runtime(mcp_tool: str, args: dict) -> str:
+    """Bridge gateway tool wrappers into the canonical ToolRuntime pipeline."""
     caller = get_caller_info()
-    start = time.monotonic()
-
     if not caller:
-        log_tool_call(None, None, tool_name, tool_args, "denied")
-        return GuardResult(True, json.dumps({"error": "Authentication required"}), start, None)
+        return _error_envelope("MCP_AUTH_REQUIRED", "Authentication required")
 
-    api_key_id = caller["api_key_id"]
-    user_id = caller["user_id"]
-    role = caller["role"]
-    scopes = caller.get("scopes")
-    rpm_limit = caller.get("rate_limit_rpm", 30)
-
-    if not check_tool_permission("mcp", tool_name, role):
-        log_tool_call(api_key_id, user_id, tool_name, tool_args, "denied")
-        return GuardResult(True, json.dumps({"error": f"Permission denied for role '{role}'"}), start, caller)
-
-    if scopes is not None and tool_name not in scopes:
-        log_tool_call(api_key_id, user_id, tool_name, tool_args, "denied")
-        return GuardResult(True, json.dumps({"error": f"Tool '{tool_name}' not in key scopes"}), start, caller)
-
-    if not check_rate_limit(api_key_id, rpm_limit):
-        log_tool_call(api_key_id, user_id, tool_name, tool_args, "rate_limited")
-        return GuardResult(True, json.dumps({"error": "Rate limit exceeded"}), start, caller)
-
-    return GuardResult(False, None, start, caller)
-
-
-# ── backward-compat: decorator form kept for existing tests ──
-
-def mcp_tool_middleware(tool_name: str):
-    """Decorator form (kept for test compatibility). Prefer ``run_mcp_guard``."""
-    from functools import wraps
-    from typing import Callable
-
-    def decorator(fn: Callable) -> Callable:
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            guard = run_mcp_guard(tool_name, kwargs.copy())
-            if guard.rejected:
-                return guard.error_json
-            try:
-                result = fn(*args, **kwargs)
-                guard.record_success(tool_name, kwargs.copy())
-                return result
-            except Exception as e:
-                guard.record_error(tool_name, kwargs.copy(), e)
-                logger.exception("Tool %s failed", tool_name)
-                return json.dumps({"error": str(e)})
-        return wrapper
-    return decorator
+    if caller.get("actor_type") == "agent_host":
+        ctx = ToolCallContext(
+            caller=CallerContext(
+                actor_type="agent_host",
+                user_id=caller["user_id"],
+                role=caller["role"],
+                agent_type=caller.get("agent_type", ""),
+                task_id=caller.get("task_id"),
+                conversation_id=caller.get("conversation_id"),
+            ),
+            granted_scopes=caller.get("scopes") or [],
+        )
+    else:
+        ctx = ToolCallContext(
+            caller=CallerContext(
+                actor_type="external_client",
+                user_id=caller["user_id"],
+                role=caller["role"],
+                api_key_id=caller.get("api_key_id"),
+            ),
+            granted_scopes=caller.get("scopes") or [],
+        )
+    result = get_tool_runtime().call_sync(mcp_tool, args, ctx)
+    return json.dumps(result.to_envelope(), ensure_ascii=False, default=str)

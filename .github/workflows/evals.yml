@@ -1,0 +1,75 @@
+name: evals
+
+# Agent quality / regression gate. UNLIKE tests.yml this needs a real LLM
+# (DEEPSEEK_API_KEY) and spends tokens, so it is NOT a per-PR required check.
+# It runs nightly and on manual dispatch, comparing each suite's pass rate
+# against evals/baseline.json (calibrate with: python -m evals.ci --update-baseline).
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: "Rewrite baseline.json from this run instead of gating"
+        type: boolean
+        default: false
+      tolerance:
+        description: "Allowed pp drop below baseline before failing (e.g. 0.05)"
+        type: string
+        default: "0.05"
+  schedule:
+    # 02:00 UTC daily.
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FLASK_ENV: testing
+      SECRET_KEY: ci-test-secret-not-used-in-prod
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      AI_MODEL: ${{ vars.AI_MODEL || 'deepseek-chat' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard — require API key
+        run: |
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "::error::DEEPSEEK_API_KEY secret is not set; cannot run evals."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run evals (gate)
+        if: ${{ github.event_name == 'schedule' || inputs.update_baseline != true }}
+        run: |
+          python -m evals.ci --tolerance "${{ inputs.tolerance || '0.05' }}" --report-out eval-report.json
+
+      - name: Run evals (update baseline)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.update_baseline == true }}
+        run: |
+          python -m evals.ci --update-baseline --report-out eval-report.json
+
+      - name: Upload eval report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval-report.json
+          if-no-files-found: ignore

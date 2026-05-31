@@ -66,7 +66,7 @@ GENERATOR_DEFINITION = AgentDefinition(
     default_model_tier=ModelTier.STRONG,
     allowed_roles=frozenset({"teacher", "admin"}),
     allowed_tools=(
-        "coderunner.code.execute",
+        "coderunner.code.execute_internal",
         "coderunner.knowledge.search_similar_problems",
         "coderunner.problem.save_generated",
     ),

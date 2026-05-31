@@ -13,12 +13,6 @@ from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
 from agents.generator.prompt import GENERATOR_SYSTEM_PROMPT
 
-GENERATOR_MCP_TOOLS = [
-    "coderunner.code.execute",
-    "coderunner.knowledge.search_similar_problems",
-    "coderunner.problem.save_generated",
-]
-
 logger = logging.getLogger(__name__)
 
 MAX_VALIDATION_ROUNDS = 3
@@ -38,34 +32,63 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-def _validate_solution(solution: str, language: str, test_cases: list,
-                       agent: BaseAgent | None = None, state: dict | None = None) -> list[dict]:
-    """Run the reference solution against every test case via MCP ToolRuntime."""
+def validate_reference_solution(
+    solution: str,
+    language: str,
+    test_cases: list,
+    *,
+    user_id: int = 0,
+    role: str = "teacher",
+    agent_type: str = "generator",
+    trace_id: str = "",
+    conversation_id: str = "",
+) -> list[dict]:
+    """Run a teacher's reference solution against every test case.
+
+    The generator verifies its own reference solution before a problem is saved.
+    This routes through the MCP single boundary via ``coderunner.code.execute_internal``
+    — a MEDIUM-risk, ``internal_only`` tool that needs no teacher approval and is
+    callable only by ``agent_host`` callers. The HIGH-risk + TEACHER_REQUIRED
+    ``coderunner.code.execute`` tool (for arbitrary/student-supplied code) would
+    always return ``approval_required`` here, deadlocking self-validation; the
+    internal tool resolves that without exposing a non-approval executor to any
+    external ``code:execute`` API key (the guard's actor-type gate blocks them).
+    """
+    from mcp_gateway.client import MCPClientIdentity, get_mcp_tool_client
+
+    client = get_mcp_tool_client()
+    identity = MCPClientIdentity(
+        user_id=user_id,
+        role=role,
+        agent_type=agent_type,
+        conversation_id=conversation_id or None,
+    )
+
     results = []
     for i, tc in enumerate(test_cases):
         stdin_text = tc.get("input", "")
         expected = tc.get("expected_output", "").rstrip()
-        tool_args = {
+        args = {
             "code": solution,
             "language": language,
             "stdin_text": stdin_text,
             "expected_output": expected,
         }
         try:
-            if agent and state:
-                tool_call = {"name": "coderunner.code.execute", "args": tool_args, "id": f"validate-{i}"}
-                tool_msg = agent._run_mcp_tool(tool_call, state)
-                raw = tool_msg.content if tool_msg else "{}"
-                try:
-                    exec_result = json.loads(raw)
-                except (ValueError, TypeError):
-                    exec_result = {"status": "AC" if "AC" in raw else "UNKNOWN", "stdout": raw, "stderr": ""}
-            else:
-                from tools.code.executor import execute_code_impl
-                exec_result = execute_code_impl(**tool_args)
+            envelope = client.call_tool("coderunner.code.execute_internal", args, identity)
         except Exception as e:
-            logger.warning("Validation execution failed for test case %d: %s", i, e)
-            exec_result = {"status": "SYSTEM_ERROR", "stdout": "", "stderr": str(e)}
+            logger.warning("Reference-solution validation failed for test case %d: %s", i, e)
+            envelope = {"ok": False, "error": {"message": str(e)}}
+
+        if envelope.get("ok"):
+            exec_result = envelope.get("data") or {}
+        else:
+            err = envelope.get("error") or {}
+            exec_result = {
+                "status": "SYSTEM_ERROR",
+                "stdout": "",
+                "stderr": err.get("message", "validation execution failed"),
+            }
 
         passed = exec_result.get("status") == "AC"
         results.append({
@@ -80,11 +103,36 @@ def _validate_solution(solution: str, language: str, test_cases: list,
     return results
 
 
+def _validate_solution(solution: str, language: str, test_cases: list,
+                       agent: BaseAgent | None = None, state: dict | None = None) -> list[dict]:
+    """Validate a reference solution against test cases (trusted internal path).
+
+    Thin wrapper that derives caller identity (for the audit record) from the
+    optional ``agent``/``state`` and delegates to ``validate_reference_solution``.
+    The ``agent``/``state`` arguments are kept for backward-compatibility with
+    existing call sites; the former broken ``coderunner.code.execute`` MCP
+    branch has been removed (see validate_reference_solution for why).
+    """
+    user_id = 0
+    role = "teacher"
+    conversation_id = ""
+    if state:
+        user_id = state.get("user_id", 0) or 0
+        role = state.get("user_role", "teacher") or "teacher"
+        ctx = state.get("context") or {}
+        conversation_id = str(ctx.get("conversation_id") or "")
+    agent_type = getattr(agent, "name", "generator") if agent else "generator"
+    return validate_reference_solution(
+        solution, language, test_cases,
+        user_id=user_id, role=role, agent_type=agent_type,
+        conversation_id=conversation_id,
+    )
+
+
 class GeneratorAgent(BaseAgent):
     name = "generator"
     description = "Problem generation agent for teachers"
     default_model_tier = ModelTier.STRONG
-    mcp_tool_names = GENERATOR_MCP_TOOLS
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService
@@ -149,7 +197,7 @@ class GeneratorAgent(BaseAgent):
 
         for round_num in range(MAX_VALIDATION_ROUNDS + 1):
             try:
-                state = self._invoke_with_mcp_tools(state, GENERATOR_MCP_TOOLS, system_ctx)
+                state = self._invoke_with_mcp_tools(state, self.mcp_tool_names, system_ctx)
             except LLMError:
                 if round_num == 0:
                     raise
@@ -292,11 +340,11 @@ class GeneratorAgent(BaseAgent):
                         continue
                     break
 
-                yield {"type": "tool_call", "tool": "coderunner.code.execute",
+                yield {"type": "tool_call", "tool": "coderunner.code.execute_internal",
                        "input": f"Validating solution against {len(test_cases)} test cases"}
 
                 lang = question_data.get("programming_language", language)
-                with trace.trace_tool_call("coderunner.code.execute", {
+                with trace.trace_tool_call("coderunner.code.execute_internal", {
                     "language": lang,
                     "test_case_count": len(test_cases),
                 }):
@@ -305,7 +353,7 @@ class GeneratorAgent(BaseAgent):
                 failures = [r for r in validation if not r["passed"]]
                 passed_count = len(test_cases) - len(failures)
 
-                yield {"type": "tool_result", "tool": "coderunner.code.execute",
+                yield {"type": "tool_result", "tool": "coderunner.code.execute_internal",
                        "summary": f"Passed {passed_count}/{len(test_cases)} test cases"}
 
                 if not failures:

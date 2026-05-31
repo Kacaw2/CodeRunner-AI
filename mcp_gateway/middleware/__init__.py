@@ -2,11 +2,8 @@
 from mcp_gateway.middleware.core import (
     set_caller_info,
     get_caller_info,
-    mcp_tool_middleware,
-    run_mcp_guard,
-    GuardResult,
-    check_tool_permission,
-    TOOL_RISK_LEVELS,
+    call_via_runtime,
+    _guarded,
     CODE_MAX_LENGTH,
     ALLOWED_LANGUAGES,
 )
@@ -14,11 +11,8 @@ from mcp_gateway.middleware.core import (
 __all__ = [
     "set_caller_info",
     "get_caller_info",
-    "mcp_tool_middleware",
-    "run_mcp_guard",
-    "GuardResult",
-    "check_tool_permission",
-    "TOOL_RISK_LEVELS",
+    "call_via_runtime",
+    "_guarded",
     "CODE_MAX_LENGTH",
     "ALLOWED_LANGUAGES",
 ]

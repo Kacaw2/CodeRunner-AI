@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Agent Host starting on %s:%s", settings.HOST, settings.PORT)
 
+    # Optional OpenTelemetry tracing (F2) — no-op unless OTEL_ENABLED=true.
+    try:
+        from core.observability.otel import init_otel
+        init_otel("coderunner-agent-host")
+    except Exception:
+        logger.debug("OTel init skipped", exc_info=True)
+
     get_engine()
     logger.info("Database engine created")
 
@@ -39,6 +46,20 @@ async def lifespan(app: FastAPI):
         logger.info("Redis connected")
     else:
         logger.warning("Redis unavailable — SSE buffering will be degraded")
+
+    # F6: warm up the knowledge base (loads the embedding model from the
+    # offline cache) so the first RAG query isn't slow. Warn-only — a degraded
+    # KB must not block startup; searches degrade to empty results.
+    try:
+        from knowledge.store import kb_health
+
+        kb = kb_health()
+        if kb.get("status") == "ok":
+            logger.info("Knowledge base ready: %s", kb)
+        else:
+            logger.warning("Knowledge base degraded at startup: %s", kb.get("error"))
+    except Exception:
+        logger.warning("Knowledge base warm-up skipped", exc_info=True)
 
     yield
 
@@ -70,11 +91,32 @@ app.include_router(traces.router)
 @app.get("/api/health", tags=["system"])
 def health():
     r = get_redis()
+    from knowledge.store import kb_health
+
+    kb = kb_health()
     return {
         "status": "ok",
         "service": "agent-host",
         "redis": "connected" if r else "unavailable",
+        "knowledge_base": kb.get("status", "unknown"),
     }
+
+
+@app.get("/live", tags=["system"])
+def live():
+    """Liveness probe — process is up, no dependency checks."""
+    return {"status": "alive", "service": "agent-host"}
+
+
+@app.get("/metrics", tags=["system"])
+def metrics():
+    """Prometheus metrics for the agent-host process (F2)."""
+    from fastapi import Response
+
+    from core.observability.metrics import metrics_response
+
+    body, status_code, content_type = metrics_response()
+    return Response(content=body, status_code=status_code, media_type=content_type)
 
 
 if __name__ == "__main__":

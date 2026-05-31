@@ -1,0 +1,51 @@
+name: tests
+
+# Unit/integration test gate. Runs on every PR and on pushes to the main
+# branches. Requires NO secrets: tests use an in-memory SQLite DB and mock the
+# LLM / Redis (see tests/conftest.py), so this is a fast, deterministic gate
+# that is safe to make a required status check for PR merges.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Tests run in TESTING mode; this satisfies the SECRET_KEY boot gate
+      # (app/__init__.py) without shipping a real secret.
+      FLASK_ENV: testing
+      SECRET_KEY: ci-test-secret-not-used-in-prod
+      # No LLM calls happen in pytest (the LLM is mocked), but AIConfig reads
+      # this at import time, so give it a harmless placeholder.
+      DEEPSEEK_API_KEY: ci-placeholder-not-used
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        run: |
+          python -m pytest -q --tb=short

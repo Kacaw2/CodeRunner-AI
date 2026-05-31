@@ -9,6 +9,7 @@ from app.auth.decorators import require_teacher
 from app.core.extensions import db
 from app.core.timezone import now_china
 from mcp_gateway.middleware.auth import hash_api_key
+from mcp_gateway.scopes import normalize_scopes
 from core.db.models.mcp_api_key import McpApiKey
 
 bp = Blueprint("mcp_keys", __name__, url_prefix="/api/v1/mcp/keys")
@@ -21,7 +22,7 @@ KEY_PREFIX = "mcp-"
 def create_key():
     data = request.get_json(silent=True) or {}
     name = data.get("name", "Default Key").strip()[:100]
-    scopes = data.get("scopes")
+    scopes = normalize_scopes(data.get("scopes"))
     rate_limit_rpm = data.get("rate_limit_rpm", 30)
 
     user = g.current_user
