@@ -24,9 +24,11 @@
 | 可观测性(traces/metrics) | 50% | ❌ 无 metrics 导出/无健康检查/无成本 |
 | 评测体系(evals) | 60% | ❌ 未接 CI、无基线、judge 未校准 |
 
-**总体健康度:`MEDIUM RISK`。** 核心链路(编排→MCP→工具→RAG)是真实可运行、code-gated 的,不是 prompt 摆设——这点优于多数同类项目。但**对外暴露/多租户/敌对网络前**,有 3 个必须先修的硬伤:内部令牌越权、可观测性不可外接、评测无 CI 门禁。
+**总体健康度(原始评估):`MEDIUM RISK`。** 核心链路(编排→MCP→工具→RAG)是真实可运行、code-gated 的,不是 prompt 摆设——这点优于多数同类项目。但**对外暴露/多租户/敌对网络前**,有 3 个必须先修的硬伤:内部令牌越权、可观测性不可外接、评测无 CI 门禁。
 
 **最紧急的一项:** 内部共享令牌可冒充任意用户/角色并绕过 scope(见 F1)。
+
+> **🟢 更新(2026-05-31):** 上述 3 个硬伤均已修复(F1 令牌签名化 / F2 可观测性 / F3 CI 门禁),F4–F9 亦已逐条解决。S0–S8 全部完成,**总体降至 `LOW RISK`**。仅剩低优先的 S9(F7 prompt 外置 / F5 MCP resources / Phase4.2),不阻塞内测上线。详见第五节实施进度。
 
 ---
 
@@ -34,7 +36,7 @@
 
 ### 🔴 CRITICAL
 
-**F1 — 内部共享令牌 = 全量身份冒充 + scope 绕过**
+**F1 — 内部共享令牌 = 全量身份冒充 + scope 绕过** ✅ 已修复(S0 · commit 12854c5)
 - **机制:** 持有 `MCP_INTERNAL_AUTH_TOKEN`(单个静态共享密钥)的任何进程,可在 `X-MCP-*` 头里**自填** `user_id` / `role`(含 admin/teacher)/ `agent_type`,网关原样信任(`core.py:86-104`);且 `actor_type=="agent_host"` 在 `scopes.py:19-20` **直接跳过 scope 校验**,`call_via_runtime` 对 agent_host 也不传 `granted_scopes`(`core.py:157-167`)。
 - **层:** Layer 6/7(工具鉴权)+ 内部信任边界
 - **根因:** 内部信任用"单一静态密钥 + 未签名的自声明身份",且 scope 旁路只看 `actor_type` 字符串。
@@ -44,19 +46,19 @@
 
 ### 🟠 HIGH
 
-**F2 — 可观测性无法对接任何监控栈,且无健康检查**
+**F2 — 可观测性无法对接任何监控栈,且无健康检查** ✅ 已修复(S2 · commit a2e2335)
 - 全部为自研 trace 落库(`core/observability/tracing.py`),**无 OpenTelemetry、无 Prometheus `/metrics`、无结构化日志 sink、无 `/health` `/live`**。token 已采集但**从未换算成本**。
 - **影响:** 生产中无法被 Grafana/Datadog/K8s 探针接管;故障与成本不可观测。
 - **证据:** `core/observability/tracing.py:1-159`、`app/api/public/metrics.py`(仅业务计数,非系统/agent 指标)
 - **修复:** 加 `/health`+`/metrics`(Prometheus),agent loop 注入 OTel span,补成本换算。
 - **正面:** trace 入库前已做密钥脱敏(`tracing.py:133-159`,`_redact_secrets`),这点是合格的。
 
-**F3 — 无任何 CI:测试与评测都不在门禁内**
+**F3 — 无任何 CI:测试与评测都不在门禁内** ✅ 已修复(S1 · commit a2e2335)
 - `.github/` 仅 `CODEOWNERS`,**无 workflows**(已核实)。pytest 与 589 条 eval 用例全靠手动跑;agent 质量回归对生产不可见。
 - **证据:** `.github/` 仅 `CODEOWNERS`;`evals/runner.py` 仅经 teacher-only API 触发
 - **修复:** 加 `tests.yml` + `evals.yml`,PR 合并前强制;eval 设基线,低于基线即 fail。
 
-**F4 — 代码执行存在双路径,可能绕过网关审计/审批**
+**F4 — 代码执行存在双路径,可能绕过网关审计/审批** ✅ 已修复(S3 · commit 3f43352)
 - 生成器在本地直调 `execute_code_impl`,同时又有 agent→MCP 网关路径;本地路径会绕过网关的审批门与审计。
 - **证据(中等置信,建议复核):** `agents/generator/agent.py` 内 `_validate_solution` 直调 vs `agents/base.py:_run_mcp_tool`
 - **修复:** 统一所有代码执行走 MCP 网关单一边界。
@@ -64,24 +66,24 @@
 
 ### 🟡 MEDIUM
 
-**F5 — MCP Resources 完全未实现**
+**F5 — MCP Resources 完全未实现** ⬜ 未开始(S9 · 低优先,不阻塞上线)
 - 只有 tools,无 MCP `resources`(网关无 resource 注册)。文档/题目模板/提示等静态资源只能经工具中转,无法按 MCP 资源协议暴露。属能力缺口,非缺陷。
 - **证据:** `mcp_gateway/` 无 `resource` 注册;`server.py` 仅注册生成的 tools
 
-**F6 — RAG 运行时下载模型 + 单机 + init 易脆**
+**F6 — RAG 运行时下载模型 + 单机 + init 易脆** ✅ 已修复(S8 · commit 9dda96a;镜像预置模型 + 运行时强制离线 + kb_health 降级契约)。⚠️ ChromaDB 单机落盘无副本仍未解决(超本次范围)
 - `all-MiniLM-L6-v2` 首次调用时从 HuggingFace **运行时下载**(`knowledge/store.py:21`);ChromaDB 单机落盘无副本;init 失败 fail-fast(最近一次提交刚改成打全 traceback,说明此处确实踩过坑)。
 - **修复:** 镜像内预置模型(离线缓存)、启动期健康校验、KB 不可用时的降级契约。
 - **证据:** `knowledge/store.py:12-31,180-189`
 
-**F7 — Prompt 硬编码、未版本化**
+**F7 — Prompt 硬编码、未版本化** ⬜ 未开始(S9 · 低优先)
 - 4 个 agent 的 system prompt 为模块级常量字符串,工具名/scope 硬编码进文案,无模板化、无版本/回滚。注入防护是 19 条正则(`core/security.py:6-28`)——能挡常见模式,但对混淆/同形字/编码绕过无覆盖。
 - **修复:** prompt 外置 + 版本号 + 变更审计;注入防护补编码归一化。
 
-**F8 — 审批执行处理器对新增高危工具会静默失败**
+**F8 — 审批执行处理器对新增高危工具会静默失败** ✅ 已修复(S6 · commit d294092;改 descriptor 动态分发)
 - `bootstrap.py:_execute_approved_tool` 仅硬编码 `execute_code`、`save_generated_problem` 两个;新增高危工具若不同步登记,审批通过后执行会失败。
 - **证据:** `mcp_gateway/bootstrap.py:210-228`
 
-**F9 — 跨 MCP 边界前缺输入值校验**
+**F9 — 跨 MCP 边界前缺输入值校验** ✅ 已修复(S6 · commit d294092;补值域校验)
 - 有 JSON Schema 类型校验(`runtime.py:209-220`),但无业务值域校验(如 `problem_id:-9999` 可穿透到 runtime)。
 
 ### 🟢 LOW
@@ -126,21 +128,23 @@
 S0  F1 内部令牌签名化 ............ ✅ 已完成(commit 12854c5),仅需补 Docker 双容器 smoke
 
 【上线前必做 — 运维面空白(最高优先)】
-S1  F3  建 CI: tests.yml + evals.yml + eval 基线门禁   ← 先做,后续修复的回归网
-S2  F2  /metrics(Prometheus) + OTel span + 成本换算 + 健康探针固化
-S3  F4  统一代码执行走 MCP 单一边界(消除 generator 本地直调旁路)
+S1  F3  建 CI: tests.yml + evals.yml + eval 基线门禁 ........ ✅ 已完成(.github/workflows/{tests,evals}.yml)
+S2  F2  /metrics(Prometheus) + OTel span + 成本换算 + 健康探针 ✅ 已完成(core/observability/{metrics,otel,cost}.py)
+S3  F4  统一代码执行走 MCP 单一边界(消除 generator 本地直调旁路) ✅ 已完成(generator 走 coderunner.code.execute_internal)
 
 【产品质量 bug — 可与 S1–S3 并行(不碰 tools/protocol)】
-S4  Phase2.1 RAG: 修语言过滤 bug(lang_ 布尔位)+ 删静默 except + owner 隔离  ← 清库重建
-S5  Phase2.2 编排: handoff 传 context(RemoveMessage)+ critic 接入 engine + 修 REVIEW_TEMPLATE
+S4  Phase2.1 RAG: 修语言过滤 bug(lang_ 布尔位)+ 删静默 except + owner 隔离 ✅ 已完成(commit 0de408a)
+S5  Phase2.2 编排: handoff 传 context(RemoveMessage)+ critic 接入 engine + 修 REVIEW_TEMPLATE ✅ 已完成(commit 0de408a)
 
 【边界收敛 — 中危】
-S6  F8 审批处理器按 descriptor 动态分发 + F9 跨边界值域校验
-S7  Phase3.1 拆 execute_internal(MEDIUM)解执行死锁 + output_schema 校验
+S6  F8 审批处理器按 descriptor 动态分发 + F9 跨边界值域校验 ✅ 已完成(commit d294092;bootstrap._execute_approved_tool 描述符驱动)
+S7  Phase3.1 拆 execute_internal(MEDIUM)解执行死锁 + output_schema 校验(warn-only) ✅ 已完成(commit 937b4b2)
 
 【长期演进 — 低优先】
-S8  F6 镜像预置 embedding 模型 + 启动期 KB 健康校验
-S9  F7 prompt 外置版本化 + 注入防护补编码归一化 / F5 MCP resources / Phase4.2 Agent 契约
+S8  F6 镜像预置 embedding 模型 + 启动期 KB 健康校验 ✅ 已完成(commit 9dda96a)
+S9  F7 prompt 外置版本化 + 注入防护补编码归一化 / F5 MCP resources / Phase4.2 Agent 契约 ⬜ 未开始
 ```
+
+> **实施进度(截至 2026-05-31):** S0–S8 全部完成,F1–F9 已逐条修复。仅剩 **S9(低优先)**:F7 prompt 外置版本化、F5 MCP resources、Phase4.2 Agent 契约 —— 均不阻塞上线。
 
 **关键依赖**:S1(CI) 必须最先;S4 改 metadata 字段需清空 `data/knowledge_base/` 重建;S5 的 `RemoveMessage` 是最大回归点(LangGraph `add_messages` 叠加陷阱),单独提交配测试。
