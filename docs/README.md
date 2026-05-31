@@ -1,31 +1,61 @@
 # CodeRunner 文档
 
-> 最后更新: 2026-05-31
+> 最后更新：2026-06-01
 
-CodeRunner 是一个面向编程教学的在线评测平台，由 UNSW COMP9900 25T3 capstone 团队开发，客户为 UNSW CSE Henry Hickman。
+CodeRunner 是一个面向编程教学的在线评测平台。本文档目录只保留当前有效入口；历史计划、状态快照和已完成方案统一放入 `archive/`。
 
 ## 文档导航
 
+### 快速使用
+
 | 文档 | 用途 |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构、请求流、领域模型、数据库结构 |
-| [AUTH.md](AUTH.md) | 双轨认证（JWT + Flask-Login）、RBAC 装饰器、密码与 token 设计 |
-| [EXECUTOR.md](EXECUTOR.md) | 代码沙箱：本地 / 远程 / Docker 三模式、resource limits、状态码 |
-| [API.md](API.md) | REST API 参考（按模块组织，配合 `/swagger-ui` 交互文档使用）|
-| [AI_AGENTS.md](AI_AGENTS.md) | AI Agent 模块当前架构、接口、运行流程 |
-| [2026-05-31-agent-improvement-plan.md](2026-05-31-agent-improvement-plan.md) | Agent 提升计划：合并 Claude Code 模式借鉴、BaseAgent 问题、限流、契约漂移和 handoff 改造 |
-| [AI_API.md](AI_API.md) | AI API 端点和事件协议参考 |
-| [MCP_RUNTIME_ARCHITECTURE.md](MCP_RUNTIME_ARCHITECTURE.md) | MCP 运行时架构：ToolRuntime 边界、网关、guard 流水线 |
-| [MCP_VALIDATION.md](MCP_VALIDATION.md) | MCP 工具契约校验、schema 与回归验证 |
-| [INSTALLATION.md](INSTALLATION.md) | 部署、配置、初始化、常见问题 |
-| [TESTING.md](TESTING.md) | Cypress E2E 测试套件结构与运行 |
-| [archive/README.md](archive/README.md) | 已完成计划、历史状态和执行记录归档 |
+| [guides/installation.md](guides/installation.md) | 本地启动、部署、配置、初始化和常见问题 |
+| [guides/docker-containers.md](guides/docker-containers.md) | Docker 服务边界、镜像内容、端口、volume、重建策略 |
+| [guides/docker-containers.zh-CN.md](guides/docker-containers.zh-CN.md) | Docker 容器说明中文版 |
 
-## 阅读顺序建议
+### 架构
 
-- **想快速跑起来**：[INSTALLATION.md](INSTALLATION.md) → 浏览器打开 http://localhost:9900
-- **想理解整体设计**：[ARCHITECTURE.md](ARCHITECTURE.md) → [AUTH.md](AUTH.md) → [EXECUTOR.md](EXECUTOR.md)
-- **想集成 / 调用 API**：[API.md](API.md) + 运行时 `/swagger-ui`
-- **想查看 AI Agent 当前实现**：[AI_AGENTS.md](AI_AGENTS.md) → [AI_API.md](AI_API.md)
-- **想加测试 / 跑回归**：[TESTING.md](TESTING.md)
-- **想追溯历史计划 / 已完成方案**：[archive/README.md](archive/README.md)
+| 文档 | 用途 |
+|---|---|
+| [architecture/overview.md](architecture/overview.md) | 分层架构、请求流、领域模型、数据库结构 |
+| [architecture/auth.md](architecture/auth.md) | JWT + Flask-Login、RBAC、密码与 token 设计 |
+| [architecture/executor.md](architecture/executor.md) | 代码执行沙箱、本地/远程/Docker 模式、资源限制、状态码 |
+| [architecture/ai-agents.md](architecture/ai-agents.md) | AI Agent 当前架构、接口、运行流程 |
+| [architecture/mcp-runtime.md](architecture/mcp-runtime.md) | MCP 运行时架构、ToolRuntime 边界、gateway、guard 流水线 |
+
+### API
+
+| 文档 | 用途 |
+|---|---|
+| [api/rest-api.md](api/rest-api.md) | REST API 参考，配合运行时 `/swagger-ui` 使用 |
+| [api/ai-api.md](api/ai-api.md) | AI API 端点、异步任务、SSE 事件协议、trace/eval 接口 |
+
+### 验证
+
+| 文档 | 用途 |
+|---|---|
+| [validation/testing.md](validation/testing.md) | Cypress E2E、pytest、测试套件结构与运行方式 |
+| [validation/mcp-validation.md](validation/mcp-validation.md) | MCP 工具契约、权限矩阵、scope/RBAC、human gate 验证 |
+
+### 当前计划
+
+| 文档 | 用途 |
+|---|---|
+| [plans/active/2026-05-31-agent-improvement-plan.md](plans/active/2026-05-31-agent-improvement-plan.md) | Agent 改进计划：hook、tool loop、错误处理、限流、handoff 等 |
+| [plans/active/2026-06-01-complete-traces-evals-plan.md](plans/active/2026-06-01-complete-traces-evals-plan.md) | 完整 traces 与 eval 平台目标态实施计划 |
+
+### 历史归档
+
+| 文档 | 用途 |
+|---|---|
+| [archive/README.md](archive/README.md) | 已完成计划、历史状态、旧审计报告和历史执行记录 |
+
+## 推荐阅读顺序
+
+- 快速跑起来：`guides/installation.md` -> 浏览器打开本地服务。
+- 理解整体设计：`architecture/overview.md` -> `architecture/auth.md` -> `architecture/executor.md`。
+- 理解 AI/MCP：`architecture/ai-agents.md` -> `architecture/mcp-runtime.md` -> `api/ai-api.md`。
+- 调用 API：`api/rest-api.md` + 运行时 `/swagger-ui`。
+- 做验证或回归：`validation/testing.md` -> `validation/mcp-validation.md`。
+- 追踪历史方案：`archive/README.md`。
