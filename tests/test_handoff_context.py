@@ -57,3 +57,42 @@ def test_handoff_blocked_when_already_processed_by_target():
     state = _state_with_residue()
     state["previous_agents"] = ["tutor", "reviewer"]
     assert _check_handoff(state) == "respond"
+
+
+def test_handoff_records_source_agent():
+    state = _state_with_residue()
+    _check_handoff(state)
+    assert state["handoff_source"] == "tutor"
+
+
+def test_detect_handoff_sets_source():
+    from graph.handoff import detect_handoff
+
+    state = {
+        "agent_type": "tutor",
+        "user_role": "student",
+        "final_response": "Here's a partial answer. [HANDOFF: reviewer | needs structured review]",
+    }
+    detect_handoff(state)
+    assert state["handoff_to"] == "reviewer"
+    assert state["handoff_source"] == "tutor"
+
+
+def test_apply_handoff_worker_mode_replaces_list_without_remove_markers():
+    """Worker state is a plain list: no RemoveMessage markers, direct replace."""
+    from graph.handoff import apply_handoff
+
+    state = _state_with_residue()
+    apply_handoff(state, use_reducer=False)
+
+    msgs = state["messages"]
+    assert not any(isinstance(m, RemoveMessage) for m in msgs)
+    assert all(isinstance(m, HumanMessage) for m in msgs)
+    assert any("bubble sort" in m.content for m in msgs)
+    assert any("off-by-one" in m.content for m in msgs)
+    assert not any(isinstance(m, (AIMessage, ToolMessage)) for m in msgs)
+
+    assert state["agent_type"] == "reviewer"
+    assert state["handoff_source"] == "tutor"
+    assert state["handoff_to"] is None
+    assert state.get("handoff_summary") is None

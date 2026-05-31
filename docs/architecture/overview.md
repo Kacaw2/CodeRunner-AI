@@ -24,7 +24,7 @@ CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系
 
 后端零业务依赖第三方库（沙箱使用 `subprocess` + Python 标准库 `resource` 模块自实现）。
 
-> **AI Agent 模块**（规划中）将引入 `anthropic` + `langgraph` + `redis` 实现多 Agent 编排，详见 [AI_AGENTS.md](AI_AGENTS.md)。
+> **AI Agent 模块**（规划中）将引入 `anthropic` + `langgraph` + `redis` 实现多 Agent 编排，详见 [ai-agents.md](ai-agents.md)。
 
 ---
 
@@ -61,7 +61,7 @@ CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系
 └────────────────────────────────────────────────────┘
 ```
 
-> 详细顶层目录布局见根目录 [README.md](../README.md) 与 [AI_AGENTS.md](AI_AGENTS.md)。
+> 详细顶层目录布局见根目录 [README.md](../../README.md) 与 [ai-agents.md](ai-agents.md)。
 
 ### 模块职责
 
@@ -150,7 +150,7 @@ Browser (CodeMirror)
   → JSON 返回 { status, passed, stdout, stderr, time_ms, compile_log }
 ```
 
-代码沙箱设计详见 [EXECUTOR.md](EXECUTOR.md)。
+代码沙箱设计详见 [executor.md](executor.md)。
 
 ---
 
@@ -316,13 +316,13 @@ CodeRunner/
 
 ## 八、相关文档
 
-- AI Agent 模块设计：[AI_AGENTS.md](AI_AGENTS.md)
-- AI API 端点参考：[AI_API.md](AI_API.md)
-- 认证机制详细设计：[AUTH.md](AUTH.md)
-- 代码沙箱实现：[EXECUTOR.md](EXECUTOR.md)
-- REST API 参考：[API.md](API.md)
-- 部署：[INSTALLATION.md](INSTALLATION.md)
-- 测试：[TESTING.md](TESTING.md)
+- AI Agent 模块设计：[ai-agents.md](ai-agents.md)
+- AI API 端点参考：[../api/ai-api.md](../api/ai-api.md)
+- 认证机制详细设计：[auth.md](auth.md)
+- 代码沙箱实现：[executor.md](executor.md)
+- REST API 参考：[../api/rest-api.md](../api/rest-api.md)
+- 部署：[../guides/installation.md](../guides/installation.md)
+- 测试：[../validation/testing.md](../validation/testing.md)
 ## Current Problem Variant Model
 
 The question bank is now grouped around a parent `Problem`:

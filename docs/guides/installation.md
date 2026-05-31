@@ -102,7 +102,7 @@ AI_MODEL=deepseek-chat
 AI_MAX_TOKENS=2048
 AI_TEMPERATURE=0.7
 
-# 沙箱（详见 docs/EXECUTOR.md）
+# 沙箱（详见 docs/architecture/executor.md）
 EXECUTOR_TMP_DIR=/tmp/executor
 EXECUTOR_MAX_MEMORY_MB=256
 EXECUTOR_DEFAULT_TIMEOUT=2.0
@@ -296,4 +296,4 @@ curl http://localhost:9900/api/v1/auth/me \
   -H "Authorization: Bearer <TOKEN>"
 ```
 
-完整 API 文档见 [API.md](API.md) 或运行时的 `/swagger-ui`。
+完整 API 文档见 [../api/rest-api.md](../api/rest-api.md) 或运行时的 `/swagger-ui`。

@@ -84,7 +84,7 @@
      │ mcp_gateway → ToolRuntime guard      │
      │ (RBAC · scope · risk · audit · schema)│
      │ → LocalTransport handler             │
-     │ 详见 MCP_RUNTIME_ARCHITECTURE.md      │
+     │ 详见 mcp-runtime.md                  │
      └──────────────┬─────────────────────┘
                     │
      ┌──────────────▼─────────────────────┐
@@ -828,7 +828,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | 架构 Phase E | MCP 唯一工具边界（删除 LangChain `@tool` 兼容层）| ✅ 完成 |
 | 架构 Phase E2 | 顶层目录拆分（agent_host / mcp 独立顶层）| ✅ 完成 |
 | **架构 Phase 6** | **顶层目录重组**：消除双 mcp 冲突，agent_host 拆为 agents/graph/memory/knowledge/models/workers | ✅ 完成 |
-| **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 MCP_RUNTIME_ARCHITECTURE.md） | ✅ 完成 |
+| **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 mcp-runtime.md） | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
 | 架构 Phase F | Human Gate 与 AgentTask 状态机打通（部分完成）| ⚠️ 进行中 |
 | 架构 Phase G | Observability 和评估闭环 | ❌ 未开始 |
@@ -838,14 +838,14 @@ LLM 生成题目 + 测试用例 + 参考答案
 
 ## 十六、相关文档
 
-- AI API 端点参考：[AI_API.md](AI_API.md)
-- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](archive/status/AI_AGENTS_STATUS.md)
-- Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](archive/completed/AGENT_ENHANCEMENT_GUIDE.md)
-- 模块审计报告：[ai-agents-module-audit.md](archive/superpowers/plans/ai-agents-module-audit.md)
-- 集成修复计划：[2026-05-23-agent-module-integration.md](archive/superpowers/plans/2026-05-23-agent-module-integration.md)
-- Agent 架构成熟化计划（历史）：[archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md](archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
-- 架构重构计划（Phase 6）：[archive/plans/2026-05-28-architecture-refactor-plan.md](archive/plans/2026-05-28-architecture-refactor-plan.md)
-- MCP 运行时架构（工具边界 / scope / 身份隔离）：[MCP_RUNTIME_ARCHITECTURE.md](MCP_RUNTIME_ARCHITECTURE.md)
-- 系统架构总览：[ARCHITECTURE.md](ARCHITECTURE.md)
-- 现有 REST API：[API.md](API.md)
-- 代码沙箱：[EXECUTOR.md](EXECUTOR.md)
+- AI API 端点参考：[../api/ai-api.md](../api/ai-api.md)
+- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](../archive/status/AI_AGENTS_STATUS.md)
+- Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](../archive/completed/AGENT_ENHANCEMENT_GUIDE.md)
+- 模块审计报告：[ai-agents-module-audit.md](../archive/superpowers/plans/ai-agents-module-audit.md)
+- 集成修复计划：[2026-05-23-agent-module-integration.md](../archive/superpowers/plans/2026-05-23-agent-module-integration.md)
+- Agent 架构成熟化计划（历史）：[../archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md](../archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
+- 架构重构计划（Phase 6）：[../archive/plans/2026-05-28-architecture-refactor-plan.md](../archive/plans/2026-05-28-architecture-refactor-plan.md)
+- MCP 运行时架构（工具边界 / scope / 身份隔离）：[mcp-runtime.md](mcp-runtime.md)
+- 系统架构总览：[overview.md](overview.md)
+- 现有 REST API：[../api/rest-api.md](../api/rest-api.md)
+- 代码沙箱：[executor.md](executor.md)
