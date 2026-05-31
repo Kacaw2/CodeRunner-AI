@@ -1,6 +1,6 @@
 # CodeRunner 文档
 
-> 最后更新: 2026-05-28
+> 最后更新: 2026-05-31
 
 CodeRunner 是一个面向编程教学的在线评测平台，由 UNSW COMP9900 25T3 capstone 团队开发，客户为 UNSW CSE Henry Hickman。
 
@@ -13,7 +13,10 @@ CodeRunner 是一个面向编程教学的在线评测平台，由 UNSW COMP9900 
 | [EXECUTOR.md](EXECUTOR.md) | 代码沙箱：本地 / 远程 / Docker 三模式、resource limits、状态码 |
 | [API.md](API.md) | REST API 参考（按模块组织，配合 `/swagger-ui` 交互文档使用）|
 | [AI_AGENTS.md](AI_AGENTS.md) | AI Agent 模块当前架构、接口、运行流程 |
+| [2026-05-31-agent-improvement-plan.md](2026-05-31-agent-improvement-plan.md) | Agent 提升计划：合并 Claude Code 模式借鉴、BaseAgent 问题、限流、契约漂移和 handoff 改造 |
 | [AI_API.md](AI_API.md) | AI API 端点和事件协议参考 |
+| [MCP_RUNTIME_ARCHITECTURE.md](MCP_RUNTIME_ARCHITECTURE.md) | MCP 运行时架构：ToolRuntime 边界、网关、guard 流水线 |
+| [MCP_VALIDATION.md](MCP_VALIDATION.md) | MCP 工具契约校验、schema 与回归验证 |
 | [INSTALLATION.md](INSTALLATION.md) | 部署、配置、初始化、常见问题 |
 | [TESTING.md](TESTING.md) | Cypress E2E 测试套件结构与运行 |
 | [archive/README.md](archive/README.md) | 已完成计划、历史状态和执行记录归档 |
