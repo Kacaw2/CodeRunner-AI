@@ -29,7 +29,7 @@ def bootstrap_tool_runtime(*, session_factory=None) -> ToolRuntime:
     _register_code_handlers(transport)
     _register_knowledge_handlers(transport)
     _register_analytics_handlers(transport, session_factory)
-    _register_approval_handlers(transport)
+    _register_approval_handlers(transport, registry)
 
     _assert_rbac_consistent(registry)
     runtime = ToolRuntime(
@@ -207,28 +207,56 @@ def _register_analytics_handlers(transport: LocalTransport, session_factory) -> 
     transport.register_handler("coderunner.trace.get_agent_trace", agent_trace)
 
 
-def _execute_approved_tool(approval, session) -> dict:
-    tool_name = approval.tool_name
-    tool_args = approval.tool_args or {}
+def _approved_caller_context(approval):
+    """Rebuild the trusted CallerContext from the stored approval.
 
-    if tool_name in {"execute_code", "coderunner.code.execute"}:
-        from tools.code.executor import execute_code_impl
-        return execute_code_impl(
-            code=tool_args.get("code", ""),
-            language=tool_args.get("language", "python"),
-            stdin_text=tool_args.get("stdin_text", ""),
-        )
-    if tool_name in {"save_generated_problem", "coderunner.problem.save_generated"}:
-        from tools.problems.write import save_generated_problem_impl
-        return save_generated_problem_impl(
-            question_data=tool_args.get("question_data", {}),
-            teacher_id=tool_args.get("teacher_id") or approval.user_id,
-            session=session,
-        )
-    return {"error": f"Unknown high-risk tool: {tool_name}"}
+    Identity comes only from the approval row (user_id + the requester's
+    DB role), never from the LLM-supplied tool_args.
+    """
+    from core.auth.context import CallerContext
+
+    role = "student"
+    requester = getattr(approval, "requester", None)
+    if requester is not None and getattr(requester, "role", None) is not None:
+        role = getattr(requester.role, "value", requester.role)
+
+    return CallerContext(
+        user_id=approval.user_id or 0,
+        role=role,
+        api_key_id=approval.api_key_id,
+    )
 
 
-def _register_approval_handlers(transport: LocalTransport) -> None:
+def _execute_approved_tool(approval, *, transport, registry) -> dict:
+    """Re-execute an approved high-risk tool via its registered handler.
+
+    Dispatch is descriptor-driven: any tool present in the catalog and
+    transport runs without a per-tool branch here. Identity fields in the
+    stored args are overwritten with the trusted approval identity.
+    """
+    from tools.protocol.runtime import ToolRuntime
+    from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+
+    raw_name = approval.tool_name
+    tool_name = EXTERNAL_TOOL_MAP.get(raw_name, raw_name)
+
+    descriptor = registry.get(tool_name)
+    if descriptor is None or not transport.has_handler(tool_name):
+        logger.error("approved tool has no registered handler: name=%s", raw_name)
+        return {"error": f"Unknown high-risk tool: {raw_name}"}
+
+    # Registered handlers manage their own DB session (via session_factory),
+    # exactly as on the live call path — no session is threaded in here.
+    args = ToolRuntime._sanitize_args(approval.tool_args or {}, _approved_caller_context(approval))
+
+    try:
+        return transport.invoke(tool_name, args)
+    except Exception as exc:  # noqa: BLE001 — surface as tool error, not crash
+        logger.exception("approved tool execution failed: tool=%s", tool_name)
+        return {"error": f"Tool execution failed: {exc}"}
+
+
+def _register_approval_handlers(transport: LocalTransport, registry: ToolRegistry) -> None:
     from core.db.session import get_session
     from core.db.models.mcp_approval import McpToolApproval
 
@@ -243,7 +271,9 @@ def _register_approval_handlers(transport: LocalTransport) -> None:
 
             if approval.status == "approved":
                 if approval.result is None:
-                    approval.result = _execute_approved_tool(approval, session)
+                    approval.result = _execute_approved_tool(
+                        approval, transport=transport, registry=registry
+                    )
                     approval.status = "executed"
                     session.commit()
                 return {"status": "executed", "result": approval.result}
