@@ -20,7 +20,7 @@
 | Tools | 90% | ✅ 就绪 |
 | RAG / 知识库 | 70% | ⚠️ 运行时下模型、单机、init 易脆 |
 | Prompt | 65% | ⚠️ 硬编码、未版本化 |
-| Resources(MCP) | 0% | ❌ 未实现 |
+| Resources(MCP) | 80% | ✅ 已实现(prompt 模板 + addenda) |
 | 可观测性(traces/metrics) | 50% | ❌ 无 metrics 导出/无健康检查/无成本 |
 | 评测体系(evals) | 60% | ❌ 未接 CI、无基线、judge 未校准 |
 
@@ -28,7 +28,7 @@
 
 **最紧急的一项:** 内部共享令牌可冒充任意用户/角色并绕过 scope(见 F1)。
 
-> **🟢 更新(2026-05-31):** 上述 3 个硬伤均已修复(F1 令牌签名化 / F2 可观测性 / F3 CI 门禁),F4–F9 亦已逐条解决。S0–S8 全部完成,**总体降至 `LOW RISK`**。仅剩低优先的 S9(F7 prompt 外置 / F5 MCP resources / Phase4.2),不阻塞内测上线。详见第五节实施进度。
+> **🟢 更新(2026-05-31):** 上述 3 个硬伤均已修复(F1 令牌签名化 / F2 可观测性 / F3 CI 门禁),F4–F9 亦已逐条解决。S0–S9 全部完成,**总体降至 `LOW RISK`**。S9(F7 prompt 外置版本化 + 注入防护编码归一化 / F5 MCP resources / Phase4.2 Agent 契约)已落地。详见第五节实施进度。
 
 ---
 
@@ -66,18 +66,19 @@
 
 ### 🟡 MEDIUM
 
-**F5 — MCP Resources 完全未实现** ⬜ 未开始(S9 · 低优先,不阻塞上线)
-- 只有 tools,无 MCP `resources`(网关无 resource 注册)。文档/题目模板/提示等静态资源只能经工具中转,无法按 MCP 资源协议暴露。属能力缺口,非缺陷。
-- **证据:** `mcp_gateway/` 无 `resource` 注册;`server.py` 仅注册生成的 tools
+**F5 — MCP Resources 完全未实现** ✅ 已修复(S9 · commit b762a97)
+- 原:只有 tools,无 MCP `resources`(网关无 resource 注册)。现 `mcp_gateway/resources.py` 注册 `prompt://agents/{agent}` 模板(4 个版本化 agent prompt)+ `prompt://addenda/security` / `prompt://addenda/handoff` 两段共享 addenda,经 MCP 资源协议只读暴露。
+- **证据:** `mcp_gateway/resources.py`、`server.py:create_mcp_server` 调用 `register_resources`
 
 **F6 — RAG 运行时下载模型 + 单机 + init 易脆** ✅ 已修复(S8 · commit 9dda96a;镜像预置模型 + 运行时强制离线 + kb_health 降级契约)。⚠️ ChromaDB 单机落盘无副本仍未解决(超本次范围)
 - `all-MiniLM-L6-v2` 首次调用时从 HuggingFace **运行时下载**(`knowledge/store.py:21`);ChromaDB 单机落盘无副本;init 失败 fail-fast(最近一次提交刚改成打全 traceback,说明此处确实踩过坑)。
 - **修复:** 镜像内预置模型(离线缓存)、启动期健康校验、KB 不可用时的降级契约。
 - **证据:** `knowledge/store.py:12-31,180-189`
 
-**F7 — Prompt 硬编码、未版本化** ⬜ 未开始(S9 · 低优先)
-- 4 个 agent 的 system prompt 为模块级常量字符串,工具名/scope 硬编码进文案,无模板化、无版本/回滚。注入防护是 19 条正则(`core/security.py:6-28`)——能挡常见模式,但对混淆/同形字/编码绕过无覆盖。
-- **修复:** prompt 外置 + 版本号 + 变更审计;注入防护补编码归一化。
+**F7 — Prompt 硬编码、未版本化** ✅ 已修复(S9 · commit db4f3b4 + 9dfb47d)
+- 原:4 个 agent 的 system prompt 为模块级常量字符串,无模板化、无版本/回滚;注入防护正则对混淆/同形字/编码绕过无覆盖。
+- **已修复:** prompt 外置到 `agents/prompts/*.md`(YAML frontmatter 带 version,git diff 即变更审计),`agents/prompts/__init__.py` registry loader 解析,`agents/<name>/prompt.py` 变薄壳保持兼容;`detect_injection` 增 NFKC 归一化 + Cyrillic/Greek 同形字折叠 + base64 段落解码回扫(无新依赖)。
+- **证据:** `agents/prompts/`、`core/security.py:_normalize/_decode_base64_segments`
 
 **F8 — 审批执行处理器对新增高危工具会静默失败** ✅ 已修复(S6 · commit d294092;改 descriptor 动态分发)
 - `bootstrap.py:_execute_approved_tool` 仅硬编码 `execute_code`、`save_generated_problem` 两个;新增高危工具若不同步登记,审批通过后执行会失败。
@@ -142,9 +143,9 @@ S7  Phase3.1 拆 execute_internal(MEDIUM)解执行死锁 + output_schema 校验(
 
 【长期演进 — 低优先】
 S8  F6 镜像预置 embedding 模型 + 启动期 KB 健康校验 ✅ 已完成(commit 9dda96a)
-S9  F7 prompt 外置版本化 + 注入防护补编码归一化 / F5 MCP resources / Phase4.2 Agent 契约 ⬜ 未开始
+S9  F7 prompt 外置版本化 + 注入防护补编码归一化 / F5 MCP resources / Phase4.2 Agent 契约 ✅ 已完成(db4f3b4 / 9dfb47d / b762a97 / 854b643)
 ```
 
-> **实施进度(截至 2026-05-31):** S0–S8 全部完成,F1–F9 已逐条修复。仅剩 **S9(低优先)**:F7 prompt 外置版本化、F5 MCP resources、Phase4.2 Agent 契约 —— 均不阻塞上线。
+> **实施进度(截至 2026-05-31):** S0–S9 全部完成,F1–F9 已逐条修复。S9 落地:F7 prompt 外置版本化(`agents/prompts/*.md` + registry)+ 注入防护编码归一化(NFKC/同形字/base64)、F5 MCP resources(`prompt://` 资源)、Phase4.2 Agent 契约(`agents/contracts.py` warn-only + `ToolCallExecutor` 抽取)。
 
 **关键依赖**:S1(CI) 必须最先;S4 改 metadata 字段需清空 `data/knowledge_base/` 重建;S5 的 `RemoveMessage` 是最大回归点(LangGraph `add_messages` 叠加陷阱),单独提交配测试。
