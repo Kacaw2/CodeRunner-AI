@@ -143,6 +143,9 @@ def _register_code_handlers(transport: LocalTransport) -> None:
         return execute_code_impl(code, language, stdin_text, expected_output)
 
     transport.register_handler("coderunner.code.execute", execute_code)
+    # Same sandboxed executor; the descriptor (MEDIUM, internal_only) is what
+    # distinguishes the agent self-validation path from the HIGH external one.
+    transport.register_handler("coderunner.code.execute_internal", execute_code)
 
 
 def _register_knowledge_handlers(transport: LocalTransport) -> None:

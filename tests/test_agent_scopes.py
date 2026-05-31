@@ -19,7 +19,7 @@ def test_generator_scopes_include_problem_write():
 
     scopes = set(scopes_for_agent("generator"))
 
-    assert scopes == {"code:execute", "knowledge:read", "problem:write"}
+    assert scopes == {"code:execute_internal", "knowledge:read", "problem:write"}
 
 
 def test_unknown_agent_gets_no_scopes():

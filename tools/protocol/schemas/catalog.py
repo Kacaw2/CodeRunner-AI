@@ -154,6 +154,40 @@ _reg(ToolDescriptor(
     },
 ))
 
+_reg(ToolDescriptor(
+    name="coderunner.code.execute_internal",
+    version="1.0.0",
+    description="Execute trusted agent-authored code for self-validation (internal only).",
+    server="code",
+    risk_level=RiskLevel.MEDIUM,
+    required_scopes=["code:execute_internal"],
+    approval_policy=ApprovalPolicy.NONE,
+    internal_only=True,
+    timeout_ms=10_000,
+    retry_policy=RetryPolicy(max_attempts=0),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "minLength": 1, "maxLength": 10000},
+            "language": {"type": "string", "enum": ["python", "c"]},
+            "stdin_text": {"type": "string", "maxLength": 10000, "default": ""},
+            "expected_output": {"type": "string", "maxLength": 100000, "default": ""},
+        },
+        "required": ["code", "language"],
+        "additionalProperties": False,
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "stdout": {"type": "string"},
+            "stderr": {"type": "string"},
+            "time_ms": {"type": "integer"},
+        },
+        "required": ["status"],
+    },
+))
+
 # ── Knowledge Server tools ───────────────────────────────────────
 
 _reg(ToolDescriptor(

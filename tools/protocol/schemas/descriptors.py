@@ -39,6 +39,10 @@ class ToolDescriptor:
     timeout_ms: int = 30_000
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
     server: str = ""
+    # Internal-only tools are callable by trusted agent_host callers exclusively.
+    # The guard rejects any external_client caller regardless of scope, so an
+    # API key can never reach them (closes the approval-gate bypass).
+    internal_only: bool = False
 
     def to_llm_schema(self) -> dict:
         """Convert to the format expected by LLM tool-calling APIs."""

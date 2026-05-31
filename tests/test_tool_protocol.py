@@ -108,6 +108,7 @@ class TestToolCatalog:
             "coderunner.student.get_summary",
             "coderunner.problem.save_generated",
             "coderunner.code.execute",
+            "coderunner.code.execute_internal",
             "coderunner.knowledge.search",
             "coderunner.knowledge.search_similar_problems",
             "coderunner.knowledge.search_error_patterns",
@@ -401,7 +402,7 @@ class TestAgentMCPToolNames:
         from agents.generator.agent import GeneratorAgent
 
         tools = GeneratorAgent().mcp_tool_names
-        assert "coderunner.code.execute" in tools
+        assert "coderunner.code.execute_internal" in tools
         assert "coderunner.knowledge.search_similar_problems" in tools
         assert "coderunner.problem.save_generated" in tools
 

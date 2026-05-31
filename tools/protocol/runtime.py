@@ -148,6 +148,7 @@ class ToolRuntime:
             raw = await self._transport.call(tool_name, sanitized, timeout_ms=descriptor.timeout_ms)
             elapsed = self._elapsed(start)
 
+            self._validate_output(descriptor, raw, trace_id)
             self._emit(descriptor, caller, tool_call_id, start, status="success")
 
             return ToolResult(
@@ -218,6 +219,31 @@ class ToolRuntime:
             jsonschema.validate(args, descriptor.input_schema)
         except jsonschema.ValidationError as exc:
             raise MCPArgumentInvalid(exc.message, trace_id=trace_id) from exc
+
+    @staticmethod
+    def _validate_output(
+        descriptor: ToolDescriptor,
+        result: Any,
+        trace_id: str,
+    ) -> None:
+        """Warn-only output_schema check (schema 先松后紧).
+
+        Logs a warning on mismatch but never fails the call, so completing the
+        catalog's output_schemas can't turn previously-working tools into
+        ``MCPSchemaInvalid`` errors. Flip to enforce once schemas are complete.
+        """
+        if not descriptor.output_schema:
+            return
+        try:
+            import jsonschema
+            jsonschema.validate(result, descriptor.output_schema)
+        except jsonschema.ValidationError as exc:
+            logger.warning(
+                "output_schema mismatch tool=%s trace_id=%s: %s",
+                descriptor.name, trace_id, exc.message,
+            )
+        except Exception:  # noqa: BLE001 — observability must never block a tool result
+            logger.exception("output_schema validation crashed tool=%s", descriptor.name)
 
     def _emit(
         self,

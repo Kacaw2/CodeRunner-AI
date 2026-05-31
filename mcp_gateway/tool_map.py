@@ -19,6 +19,10 @@ EXTERNAL_TOOL_MAP: dict[str, str] = {
     "get_agent_trace": "coderunner.trace.get_agent_trace",
     "get_student_summary": "coderunner.student.get_summary",
     "execute_code": "coderunner.code.execute",
+    # Internal-only (descriptor internal_only=True): registered on the surface so
+    # agent_host callers reach it via the gateway, but the guard rejects any
+    # external_client regardless of scope.
+    "execute_internal": "coderunner.code.execute_internal",
     "save_generated_problem": "coderunner.problem.save_generated",
     "check_approval": "coderunner.approval.check",
 }

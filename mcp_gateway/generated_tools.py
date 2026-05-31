@@ -106,6 +106,13 @@ def register_generated_catalog_tools(mcp: FastMCP) -> None:
             {"code": code, "language": language, "stdin_text": stdin_text, "expected_output": expected_output},
         ))
 
+    @mcp.tool(name='execute_internal', description='Execute trusted agent-authored code for self-validation (internal only).')
+    def execute_internal(code: str, language: str, stdin_text: str = '', expected_output: str = '') -> str:
+        return _guarded(lambda: call_via_runtime(
+            'coderunner.code.execute_internal',
+            {"code": code, "language": language, "stdin_text": stdin_text, "expected_output": expected_output},
+        ))
+
     @mcp.tool(name='save_generated_problem', description='Save a generated problem as a draft pending teacher review.')
     def save_generated_problem(question_data: dict) -> str:
         def _call():

@@ -27,6 +27,17 @@ CANONICAL_SCOPES = {
     "trace:read",
 }
 
+# Internal-only scope vocabulary. These scopes back tools marked
+# internal_only=True (agent self-validation paths). They are NOT part of the
+# external API-key vocabulary — the guard's actor-type gate, not scope alone,
+# is what keeps external clients out. Kept separate so the comment above stays
+# accurate about what API keys are minted against.
+INTERNAL_SCOPES = {
+    "code:execute_internal",
+}
+
+ALL_SCOPES = CANONICAL_SCOPES | INTERNAL_SCOPES
+
 
 EXPECTED_EXTERNAL_TOOL_MAP = {
     "search_knowledge": "coderunner.knowledge.search",
@@ -42,6 +53,7 @@ EXPECTED_EXTERNAL_TOOL_MAP = {
     "get_agent_trace": "coderunner.trace.get_agent_trace",
     "get_student_summary": "coderunner.student.get_summary",
     "execute_code": "coderunner.code.execute",
+    "execute_internal": "coderunner.code.execute_internal",
     "save_generated_problem": "coderunner.problem.save_generated",
     "check_approval": "coderunner.approval.check",
 }
@@ -135,7 +147,7 @@ def test_descriptor_is_complete(name):
     assert isinstance(d.output_schema, dict), f"{name}: output_schema not a dict"
 
     assert isinstance(d.required_scopes, list), f"{name}: required_scopes not a list"
-    unknown = set(d.required_scopes) - CANONICAL_SCOPES
+    unknown = set(d.required_scopes) - ALL_SCOPES
     assert unknown == set(), f"{name}: non-canonical scope(s) {unknown}"
 
 

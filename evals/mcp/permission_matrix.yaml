@@ -173,6 +173,34 @@ cases:
     tool: coderunner.problem.save_generated
     expected: MCP_APPROVAL_REQUIRED
 
+  # ── Internal-only executor: actor gate + MEDIUM risk (S7) ──
+  # External client is rejected by the internal_only gate even holding the scope.
+  - id: ext_teacher_execute_internal_actor_gate_denied
+    caller_type: external_client
+    role: teacher
+    agent_type: ""
+    scopes: [code:execute_internal]
+    tool: coderunner.code.execute_internal
+    expected: MCP_PERMISSION_DENIED
+
+  # Generator runs teacher-gated, so a teacher agent_host self-validates with no approval.
+  - id: int_generator_execute_internal_ok
+    caller_type: agent_host
+    role: teacher
+    agent_type: generator
+    scopes: AGENT_MINIMAL
+    tool: coderunner.code.execute_internal
+    expected: ok
+
+  # Defense in depth: the MEDIUM risk policy still blocks a student caller.
+  - id: int_generator_execute_internal_student_risk_denied
+    caller_type: agent_host
+    role: student
+    agent_type: generator
+    scopes: [code:execute_internal]
+    tool: coderunner.code.execute_internal
+    expected: MCP_PERMISSION_DENIED
+
   # ── Internal agent: role override gates even an allowed analytics agent ──
   - id: int_analytics_student_stats_as_student_role_denied
     caller_type: agent_host

@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-import time
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -46,61 +45,50 @@ def validate_reference_solution(
 ) -> list[dict]:
     """Run a teacher's reference solution against every test case.
 
-    This is a TRUSTED INTERNAL deterministic operation, NOT an LLM-driven tool
-    call: the generator verifies its own reference solution before a problem is
-    saved. It executes in-process via ``execute_code_impl`` and is the single
-    audited entry point for that purpose.
-
-    It is deliberately NOT routed through the ``coderunner.code.execute`` MCP
-    tool. That tool is HIGH-risk + TEACHER_REQUIRED (it gates arbitrary, often
-    student-supplied, code execution), so the guard pipeline always returns
-    ``approval_required`` for it — which would make reference-solution
-    validation impossible. In production the agent-host process has no bootstrap
-    of an in-process ToolRuntime (tools are reached only via the gateway, see
-    workers/task_runner.py), and exposing a non-approval executor on the gateway
-    would let any ``code:execute`` API key bypass the approval gate. Running the
-    deterministic validator in-process — with an explicit audit record — is the
-    only path that is both production-safe and free of that bypass.
+    The generator verifies its own reference solution before a problem is saved.
+    This routes through the MCP single boundary via ``coderunner.code.execute_internal``
+    — a MEDIUM-risk, ``internal_only`` tool that needs no teacher approval and is
+    callable only by ``agent_host`` callers. The HIGH-risk + TEACHER_REQUIRED
+    ``coderunner.code.execute`` tool (for arbitrary/student-supplied code) would
+    always return ``approval_required`` here, deadlocking self-validation; the
+    internal tool resolves that without exposing a non-approval executor to any
+    external ``code:execute`` API key (the guard's actor-type gate blocks them).
     """
-    from tools.code.executor import execute_code_impl
-    from core.observability.audit import AuditEntry, emit_audit
+    from mcp_gateway.client import MCPClientIdentity, get_mcp_tool_client
+
+    client = get_mcp_tool_client()
+    identity = MCPClientIdentity(
+        user_id=user_id,
+        role=role,
+        agent_type=agent_type,
+        conversation_id=conversation_id or None,
+    )
 
     results = []
     for i, tc in enumerate(test_cases):
         stdin_text = tc.get("input", "")
         expected = tc.get("expected_output", "").rstrip()
-        tool_args = {
+        args = {
             "code": solution,
             "language": language,
             "stdin_text": stdin_text,
             "expected_output": expected,
         }
-        start = time.monotonic()
-        audit_status = "success"
-        error_code = ""
         try:
-            exec_result = execute_code_impl(**tool_args)
+            envelope = client.call_tool("coderunner.code.execute_internal", args, identity)
         except Exception as e:
             logger.warning("Reference-solution validation failed for test case %d: %s", i, e)
-            exec_result = {"status": "SYSTEM_ERROR", "stdout": "", "stderr": str(e)}
-            audit_status = "error"
-            error_code = "VALIDATION_EXEC_ERROR"
-        finally:
-            # Audit each execution as a trusted-internal validation run so the
-            # in-process executor use is observable (it never shows up in the
-            # MCP tool-call audit trail otherwise).
-            emit_audit(AuditEntry(
-                trace_id=trace_id,
-                conversation_id=conversation_id,
-                agent_type=agent_type,
-                tool_name="coderunner.code.validate.internal",
-                server_name="code",
-                user_id=user_id,
-                role=role,
-                status=audit_status,
-                latency_ms=int((time.monotonic() - start) * 1000),
-                error_code=error_code,
-            ))
+            envelope = {"ok": False, "error": {"message": str(e)}}
+
+        if envelope.get("ok"):
+            exec_result = envelope.get("data") or {}
+        else:
+            err = envelope.get("error") or {}
+            exec_result = {
+                "status": "SYSTEM_ERROR",
+                "stdout": "",
+                "stderr": err.get("message", "validation execution failed"),
+            }
 
         passed = exec_result.get("status") == "AC"
         results.append({
@@ -352,11 +340,11 @@ class GeneratorAgent(BaseAgent):
                         continue
                     break
 
-                yield {"type": "tool_call", "tool": "coderunner.code.execute",
+                yield {"type": "tool_call", "tool": "coderunner.code.execute_internal",
                        "input": f"Validating solution against {len(test_cases)} test cases"}
 
                 lang = question_data.get("programming_language", language)
-                with trace.trace_tool_call("coderunner.code.execute", {
+                with trace.trace_tool_call("coderunner.code.execute_internal", {
                     "language": lang,
                     "test_case_count": len(test_cases),
                 }):
@@ -365,7 +353,7 @@ class GeneratorAgent(BaseAgent):
                 failures = [r for r in validation if not r["passed"]]
                 passed_count = len(test_cases) - len(failures)
 
-                yield {"type": "tool_result", "tool": "coderunner.code.execute",
+                yield {"type": "tool_result", "tool": "coderunner.code.execute_internal",
                        "summary": f"Passed {passed_count}/{len(test_cases)} test cases"}
 
                 if not failures:
