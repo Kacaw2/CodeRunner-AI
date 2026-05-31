@@ -47,6 +47,20 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Redis unavailable — SSE buffering will be degraded")
 
+    # F6: warm up the knowledge base (loads the embedding model from the
+    # offline cache) so the first RAG query isn't slow. Warn-only — a degraded
+    # KB must not block startup; searches degrade to empty results.
+    try:
+        from knowledge.store import kb_health
+
+        kb = kb_health()
+        if kb.get("status") == "ok":
+            logger.info("Knowledge base ready: %s", kb)
+        else:
+            logger.warning("Knowledge base degraded at startup: %s", kb.get("error"))
+    except Exception:
+        logger.warning("Knowledge base warm-up skipped", exc_info=True)
+
     yield
 
     # ── Shutdown ──
@@ -77,10 +91,14 @@ app.include_router(traces.router)
 @app.get("/api/health", tags=["system"])
 def health():
     r = get_redis()
+    from knowledge.store import kb_health
+
+    kb = kb_health()
     return {
         "status": "ok",
         "service": "agent-host",
         "redis": "connected" if r else "unavailable",
+        "knowledge_base": kb.get("status", "unknown"),
     }
 
 

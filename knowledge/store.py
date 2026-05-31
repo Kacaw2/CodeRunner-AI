@@ -272,6 +272,33 @@ def get_knowledge_base() -> KnowledgeBase:
     return _kb_instance
 
 
+def kb_health() -> dict:
+    """Readiness probe for the knowledge base (F6). Never raises.
+
+    Constructing the KnowledgeBase loads the embedding model — with
+    HF_*_OFFLINE=1 a missing/uncached model fails here, which is exactly what
+    this probe surfaces. Used as a warm-up at startup and by /health.
+
+    Returns a dict with status "ok" or "degraded". Degraded is non-fatal: the
+    search tools already return empty results on failure, so callers continue
+    without RAG context rather than crashing.
+    """
+    try:
+        from core.config import get_settings
+
+        kb = get_knowledge_base()
+        return {
+            "status": "ok",
+            "embed_model": get_settings().RAG_EMBED_MODEL,
+            "questions": kb.questions.count(),
+            "knowledge_points": kb.knowledge.count(),
+            "error_patterns": kb.error_patterns.count(),
+        }
+    except Exception as e:
+        logger.warning("Knowledge base health probe degraded: %s", e)
+        return {"status": "degraded", "error": str(e)}
+
+
 def index_all_problems():
     """Index all problems (not per-variant) into the vector store."""
     from app.models.problem import Problem
