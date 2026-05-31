@@ -68,6 +68,42 @@ def _rate_limit_or_abort(user_id: int, agent_type: str) -> dict:
     return info
 
 
+def _classify_for_routing(message: str, agent_type: str, user_role: str) -> str:
+    """Resolve the concrete agent that will handle an 'auto' chat request.
+
+    Mirrors the orchestrator's routing so the API layer can enforce the real
+    per-agent rate limit before any agent runs.
+    """
+    if agent_type and agent_type != "auto":
+        return agent_type
+    from langchain_core.messages import HumanMessage
+    from graph.runner import _classify_intent
+
+    state = _classify_intent({
+        "messages": [HumanMessage(content=message)],
+        "agent_type": agent_type,
+        "user_role": user_role,
+    })
+    return state.get("agent_type", "tutor")
+
+
+def _resolve_and_rate_limit(user_id: int, message: str, agent_type: str,
+                            user_role: str) -> tuple[str, dict]:
+    """Resolve the concrete agent and enforce its per-agent rate limit.
+
+    For the 'auto' lane we first apply a cheap global throttle (so the
+    classifier itself can't be spammed), then classify, then enforce the
+    resolved agent's real limit. Returns (resolved_agent_type, header_info).
+    Raises RateLimitError if either limit is exceeded.
+    """
+    if agent_type and agent_type != "auto":
+        return agent_type, _rate_limit_or_abort(user_id, agent_type)
+
+    _rate_limit_or_abort(user_id, "auto")
+    resolved = _classify_for_routing(message, "auto", user_role)
+    return resolved, _rate_limit_or_abort(user_id, resolved)
+
+
 def _error_response(error_code: str, message: str, status: int, headers: dict | None = None):
     resp = jsonify({"error": error_code, "message": message})
     resp.status_code = status
@@ -286,15 +322,17 @@ def chat():
 
     message = sanitize_user_input(message)
 
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
     try:
-        rl_info = _rate_limit_or_abort(user.id, agent_type)
+        resolved_agent_type, rl_info = _resolve_and_rate_limit(
+            user.id, message, agent_type, user_role)
     except RateLimitError as e:
         return _error_response("ai_rate_limit", e.user_message, 429,
                                {"Retry-After": str(e.retry_after)})
 
     context = _build_context(data)
     rl_headers = _rate_limit_headers(rl_info)
-    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
 
     try:
         conv = _get_or_create_conversation(user.id, agent_type, data.get("conversation_id"), context)
@@ -311,7 +349,7 @@ def chat():
         orch = AgentOrchestrator()
         state = orch.run({
             "messages": history + [HumanMessage(content=message)],
-            "agent_type": agent_type,
+            "agent_type": resolved_agent_type,
             "user_id": user.id,
             "user_role": user_role,
             "context": context,
@@ -319,7 +357,7 @@ def chat():
             "final_response": "",
         })
 
-        resolved_agent_type = state.get("agent_type", agent_type)
+        resolved_agent_type = state.get("agent_type", resolved_agent_type)
         response_text = filter_output(state.get("final_response", ""), resolved_agent_type, user_role)
 
         assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
@@ -375,8 +413,11 @@ def chat_stream():
 
     message = sanitize_user_input(message)
 
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
     try:
-        rl_info = _rate_limit_or_abort(user.id, agent_type)
+        routed_agent, rl_info = _resolve_and_rate_limit(
+            user.id, message, agent_type, user_role)
     except RateLimitError as e:
         return _error_response("ai_rate_limit", e.user_message, 429,
                                {"Retry-After": str(e.retry_after)})
@@ -398,13 +439,12 @@ def chat_stream():
 
     conv_id = conv.id
     user_id = user.id
-    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     context["conversation_id"] = conv_id
 
     def generate():
         from langchain_core.messages import HumanMessage
         from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
-        from graph.runner import _classify_intent, MAX_HANDOFFS
+        from graph.runner import MAX_HANDOFFS
 
         _AGENT_MAP = {
             "tutor": TutorAgent,
@@ -413,20 +453,19 @@ def chat_stream():
             "analytics": AnalyticsAgent,
         }
 
+        # Phase 3: the concrete agent was already resolved (and rate-limited)
+        # before the response started streaming.
+        resolved_agent_type = routed_agent
+
         state = {
             "messages": history + [HumanMessage(content=message)],
-            "agent_type": agent_type,
+            "agent_type": resolved_agent_type,
             "user_id": user_id,
             "user_role": user_role,
             "context": context,
             "tool_results": [],
             "final_response": "",
         }
-
-        resolved_agent_type = agent_type
-        if not agent_type or agent_type == "auto":
-            state = _classify_intent(state)
-            resolved_agent_type = state.get("agent_type", "tutor")
 
         yield f"data: {json.dumps({'type': 'start', 'conversation_id': conv_id, 'agent_type': resolved_agent_type})}\n\n"
 
@@ -571,8 +610,11 @@ def chat_async():
 
     message = sanitize_user_input(message)
 
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
     try:
-        rl_info = _rate_limit_or_abort(user.id, agent_type)
+        resolved_agent_type, rl_info = _resolve_and_rate_limit(
+            user.id, message, agent_type, user_role)
     except RateLimitError as e:
         return _error_response("ai_rate_limit", e.user_message, 429,
                                {"Retry-After": str(e.retry_after)})
@@ -583,7 +625,9 @@ def chat_async():
     if is_proxy_enabled():
         proxied_payload = dict(data)
         proxied_payload["message"] = message
-        proxied_payload["agent_type"] = agent_type
+        # Pass the already-resolved agent so the remote host skips re-routing
+        # (and can't bypass the per-agent limit we just enforced).
+        proxied_payload["agent_type"] = resolved_agent_type
         return proxy_chat_create(proxied_payload, extra_headers=rl_headers)
 
     try:
@@ -600,6 +644,7 @@ def chat_async():
             user_id=user.id,
             user_message_id=user_msg.id,
             agent_type=agent_type,
+            routed_agent=resolved_agent_type,
             status="pending",
         )
         db.session.add(task)
