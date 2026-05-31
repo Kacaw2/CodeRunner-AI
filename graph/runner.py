@@ -159,52 +159,37 @@ def _check_handoff(state: AgentState) -> str:
 
     # Hand the next agent only the original question + the previous agent's
     # conclusion summary — drop tool residue and intermediate AIMessages.
-    from langchain_core.messages import RemoveMessage
+    # LangGraph state uses the add_messages reducer, so emit RemoveMessage
+    # markers (use_reducer=True).
+    from graph.handoff import apply_handoff
 
-    existing = state.get("messages", [])
-    original = next((m for m in existing if isinstance(m, HumanMessage)), None)
-    summary = state.get("handoff_summary", "")
-
-    rebuilt = []
-    if original is not None:
-        rebuilt.append(HumanMessage(content=original.content))
-    if summary:
-        rebuilt.append(HumanMessage(
-            content=f"[上一助手({current_agent})的结论摘要]\n{summary}\n\n"
-                    f"请基于此继续处理用户的原始请求。"))
-
-    # add_messages appends + dedups by id; it never replaces the whole list.
-    # Remove every prior message explicitly, then write the rebuilt list.
-    removals = [RemoveMessage(id=m.id) for m in existing if getattr(m, "id", None)]
-    state["messages"] = removals + rebuilt
-
-    state["agent_type"] = handoff_to
-    state["handoff_to"] = None
-    state["handoff_reason"] = None
-    state["handoff_summary"] = None
+    apply_handoff(state, use_reducer=True)
     return handoff_to
 
 
 def _respond(state: AgentState) -> AgentState:
-    """Validate structured agent output and trigger retry if schema check fails."""
+    """Validate structured agent output and trigger retry if schema check fails.
+
+    Schema validation runs through the shared OutputValidationHook so the graph
+    and worker flows use a single validation implementation (Phase 5).
+    """
     agent_type = state.get("agent_type", "")
-
-    defn = AGENT_DEFINITIONS.get(agent_type)
-    if defn and defn.output_format == "free_text":
-        return state
-
     final_response = state.get("final_response", "")
-    if not final_response:
+
+    from agents.hooks import HookContext, HookEvent, get_hook_manager
+    result = get_hook_manager().fire(HookContext(
+        event=HookEvent.AFTER_AGENT_RUN,
+        agent_name=agent_type,
+        state=state,
+        final_response=final_response,
+    ))
+
+    # output_valid is only set when there was JSON to validate against a schema;
+    # absent means free-text agent, empty response, or non-JSON output.
+    if result.metadata.get("output_valid") is not False:
         return state
 
-    from core.schemas import validate_agent_output, extract_json
-    parsed = extract_json(final_response)
-    if not parsed:
-        return state
-
-    valid, error_msg = validate_agent_output(agent_type, parsed)
-    if valid:
-        return state
+    error_msg = result.metadata.get("validation_error", "schema validation failed")
 
     attempt = state.get("validation_attempt", 0)
     if attempt >= 2:

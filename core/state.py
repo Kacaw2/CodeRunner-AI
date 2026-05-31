@@ -21,4 +21,5 @@ class AgentState(TypedDict):
     handoff_to: str
     handoff_reason: str
     handoff_summary: str
+    handoff_source: str
     previous_agents: list

@@ -16,10 +16,29 @@ class ToolCallExecutor:
 
     def run(self, tool_call: dict, state: dict, default_agent: str) -> ToolMessage:
         from mcp_gateway.client import MCPClientIdentity, get_mcp_tool_client
+        from agents.hooks import HookContext, HookEvent, get_hook_manager
 
         name = tool_call["name"]
         args = tool_call.get("args", {})
         tc_id = tool_call.get("id", "")
+
+        agent_name = state.get("agent_type", default_agent)
+        hooks = get_hook_manager()
+
+        # BeforeToolCall: enforce the agent's tool allowlist before the call
+        # crosses the MCP client boundary.
+        before = hooks.fire(HookContext(
+            event=HookEvent.BEFORE_TOOL_CALL,
+            agent_name=agent_name,
+            state=state,
+            tool_call=tool_call,
+        ))
+        if not before.allowed:
+            content = json.dumps({
+                "error": "TOOL_NOT_ALLOWED",
+                "message": before.error or f"Tool '{name}' is not allowed",
+            }, ensure_ascii=False)
+            return ToolMessage(content=content, tool_call_id=tc_id)
 
         identity = MCPClientIdentity(
             user_id=state.get("user_id", 0),
@@ -30,6 +49,15 @@ class ToolCallExecutor:
         )
 
         envelope = get_mcp_tool_client().call_tool(name, args, identity, tool_call_id=tc_id)
+
+        # AfterToolCall: normalize/audit the tool result (warn-only).
+        hooks.fire(HookContext(
+            event=HookEvent.AFTER_TOOL_CALL,
+            agent_name=agent_name,
+            state=state,
+            tool_call=tool_call,
+            tool_result=envelope,
+        ))
 
         if envelope.get("ok"):
             content = json.dumps(envelope.get("data", {}), ensure_ascii=False)

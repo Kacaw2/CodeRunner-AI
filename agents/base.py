@@ -58,10 +58,24 @@ class BaseAgent(ABC):
         """
         return self._tool_executor.run(tool_call, state, self.name)
 
-    def _validate_input(self, state: dict) -> None:
-        """Warn-only contract check of the agent's input state (Phase 4.2)."""
-        from agents.contracts import validate_agent_input
-        validate_agent_input(self.name, state)
+    def _fire_before_agent_run(self, state: dict) -> None:
+        """Fire the BeforeAgentRun hook (contract validation, warn-only)."""
+        from agents.hooks import HookContext, HookEvent, get_hook_manager
+        get_hook_manager().fire(HookContext(
+            event=HookEvent.BEFORE_AGENT_RUN,
+            agent_name=self.name,
+            state=state,
+        ))
+
+    def _fire_after_agent_run(self, state: dict) -> None:
+        """Fire the AfterAgentRun hook (output validation, warn-only)."""
+        from agents.hooks import HookContext, HookEvent, get_hook_manager
+        get_hook_manager().fire(HookContext(
+            event=HookEvent.AFTER_AGENT_RUN,
+            agent_name=state.get("agent_type", self.name),
+            state=state,
+            final_response=state.get("final_response", ""),
+        ))
 
     @staticmethod
     def _maybe_inject_security_alert(system_ctx: str, state: dict) -> str:
@@ -98,7 +112,7 @@ class BaseAgent(ABC):
         from langchain_core.messages import SystemMessage
         from core.observability.tracing import TraceCollector
 
-        self._validate_input(state)
+        self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
         trace = TraceCollector(
@@ -186,6 +200,8 @@ class BaseAgent(ABC):
 
             state["final_response"] = (response.content if response and response.content else "")
 
+            self._fire_after_agent_run(state)
+
             from graph.handoff import detect_handoff
             state = detect_handoff(state)
 
@@ -202,7 +218,7 @@ class BaseAgent(ABC):
         from core.observability.tracing import TraceCollector
         from graph.handoff import detect_handoff
 
-        self._validate_input(state)
+        self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
         trace = TraceCollector(
@@ -318,6 +334,8 @@ class BaseAgent(ABC):
                 trace.save(status="limit_exceeded", response=error.user_message, error=error)
                 trace_saved = True
                 return
+
+            self._fire_after_agent_run(state)
 
             state = detect_handoff(state)
             if state.get("handoff_to"):

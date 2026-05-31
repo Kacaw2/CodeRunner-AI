@@ -203,15 +203,18 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
 
                         target_type = state["handoff_to"]
                         handoff_reason = state.get("handoff_reason", "")
-                        state["handoff_to"] = None
-                        state["handoff_reason"] = None
-                        state["agent_type"] = target_type
 
                         redis_buffer.ct_push_event(task_id, {
                             "type": "handoff_start",
                             "target": target_type,
                             "reason": handoff_reason,
                         })
+
+                        # Rebuild a compact context (original request + summary)
+                        # and switch to the target; shared with the graph runner.
+                        # Worker state is a plain list, so replace it directly.
+                        from graph.handoff import apply_handoff
+                        apply_handoff(state, use_reducer=False)
 
                         target_agent = _AGENT_MAP.get(target_type, TutorAgent)()
                         full_response = ""
