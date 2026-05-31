@@ -2,6 +2,18 @@
 
 > Date: 2026-05-31
 > Scope: `agents/`, `graph/`, `app/api/v1/ai.py`, `workers/`, `mcp_gateway/`, `tools/protocol/`, and related tests.
+> 状态 / Status: 全部阶段已完成 (All phases completed) — 2026-06-01
+
+## Progress Overview / 进度总览
+
+| Phase | 状态 / Status | Commit |
+|---|---|---|
+| Phase 1: Stop Silent Agent Failures | 已完成 / Completed | `24efadb` |
+| Phase 2: Isolate System Context From Conversation History | 已完成 / Completed | `24efadb` |
+| Phase 3: Restore Real Per-Agent Rate Limits | 已完成 / Completed | `7ffbfb7` |
+| Phase 4: Make Agent Contracts The Source Of Truth | 已完成 / Completed | `63351dd` |
+| Phase 5: Add Agent Lifecycle Hooks | 已完成 / Completed | `deb39e5` |
+| Phase 6: Convert Text Handoff Into Structured Delegation | 已完成 / Completed | `deb39e5` |
 
 This plan folds the current `agents/` review findings into a Claude Code-inspired improvement path. The goal is not to copy Claude Code as a product, but to adopt the parts of its agent architecture that solve concrete weaknesses in CodeRunner-AI: isolated agent context, declarative definitions, explicit tool permissions, lifecycle hooks, hard execution limits, and observable failure states.
 
@@ -83,6 +95,8 @@ Key rule: the parent request owns routing, rate limiting, persistence, and trace
 
 ### Phase 1: Stop Silent Agent Failures
 
+> 状态 / Status: 已完成 (Completed) — `24efadb`
+
 **Goal:** Make exhausted tool loops explicit and observable.
 
 **Files:**
@@ -102,6 +116,8 @@ Key rule: the parent request owns routing, rate limiting, persistence, and trace
 - Existing agent tests continue to pass.
 
 ### Phase 2: Isolate System Context From Conversation History
+
+> 状态 / Status: 已完成 (Completed) — `24efadb`
 
 **Goal:** Prevent duplicate system prompts during retry and handoff.
 
@@ -123,6 +139,8 @@ Key rule: the parent request owns routing, rate limiting, persistence, and trace
 
 ### Phase 3: Restore Real Per-Agent Rate Limits
 
+> 状态 / Status: 已完成 (Completed) — `7ffbfb7`
+
 **Goal:** Apply configured rate limits to the resolved agent, not only `auto`.
 
 **Files:**
@@ -143,6 +161,8 @@ Key rule: the parent request owns routing, rate limiting, persistence, and trace
 - Proxy/worker paths keep validation and injection checks before execution.
 
 ### Phase 4: Make Agent Contracts The Source Of Truth
+
+> 状态 / Status: 已完成 (Completed) — `63351dd`
 
 **Goal:** Align contracts, definitions, and real context fields.
 
@@ -167,6 +187,16 @@ Key rule: the parent request owns routing, rate limiting, persistence, and trace
 
 ### Phase 5: Add Agent Lifecycle Hooks
 
+> 状态 / Status: 已完成 (Completed) — `deb39e5`
+>
+> 实现说明 / Notes: 采用方案 B（可扩展 Hook 体系）。新增 `agents/hooks.py`，提供
+> `HookEvent` / `HookResult` / `HookContext` / `Hook` / `HookManager` 与四个内置
+> hook（contract 校验、tool allowlist 硬阻断、output 校验、trace/audit）。
+> `BaseAgent` 触发 BeforeAgentRun/AfterAgentRun，`executor` 在 MCP 边界触发
+> BeforeToolCall/AfterToolCall，`graph/runner._respond` 复用 OutputValidationHook，
+> 使 sync 与 worker 共用同一条输出校验路径。
+> Tests: `tests/test_agent_hooks.py`.
+
 **Goal:** Move reliability checks out of prompts and into runtime code.
 
 **Files:**
@@ -190,6 +220,14 @@ Key rule: the parent request owns routing, rate limiting, persistence, and trace
 - Hook tests prove the hooks fire in order.
 
 ### Phase 6: Convert Text Handoff Into Structured Delegation
+
+> 状态 / Status: 已完成 (Completed) — `deb39e5`
+>
+> 实现说明 / Notes: `AgentState` 新增 `handoff_source`，`detect_handoff` 记录发起方。
+> 抽取共享函数 `apply_handoff` / `rebuild_handoff_messages`（`graph/handoff.py`），
+> LangGraph runner 与两个流式 worker（`workers/task_runner.py`、`workers/chat.py`）
+> 统一复用，将下一个 agent 的上下文重建为「原始请求 + 摘要」，消除 worker 路径此前
+> 保留的污染历史。Tests: `tests/test_handoff_context.py`.
 
 **Goal:** Make handoff safer and closer to subagent delegation.
 
@@ -250,6 +288,8 @@ git diff --cached --check
 - Do not broaden agent permissions to make tests pass.
 
 ## Success Definition
+
+> 状态 / Status: 已达成 (Achieved) — 全部条件满足，焦点测试套件与 API/MCP 套件均通过。
 
 The agent layer is considered improved when:
 
