@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.config import AIConfig, MAX_TOOL_ITERATIONS
 from agents.executor import ToolCallExecutor
-from core.exceptions import LLMError, ToolError, retry_on_llm_error
+from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
 from models.tiers import ModelTier
 from core.state import AgentState
 
@@ -129,6 +129,7 @@ class BaseAgent(ABC):
             logger.warning("Message compaction failed: %s", e)
 
         response = None
+        limit_exceeded = False
 
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
@@ -164,10 +165,26 @@ class BaseAgent(ABC):
                     with trace.trace_tool_call(tc["name"], tc["args"]):
                         tool_msg = self._run_mcp_tool(tc, state)
                         messages.append(tool_msg)
+            else:
+                # Loop exhausted MAX_TOOL_ITERATIONS without the model ever
+                # returning a tool-call-free response: the last response still
+                # has pending tool calls and no final answer was produced.
+                limit_exceeded = bool(response and response.tool_calls)
 
-            state["messages"] = messages
-            state["final_response"] = (response.content if response and response.content else "")
+            # Phase 2: never persist the injected system prompt back into
+            # conversation history; only user/assistant/tool turns survive.
+            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
             state["trace_id"] = trace.run_id
+
+            if limit_exceeded:
+                # Phase 1: make the exhausted tool loop explicit instead of
+                # silently saving an empty "completed" trace.
+                error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
+                state["final_response"] = error.user_message
+                trace.save(status="limit_exceeded", response=error.user_message, error=error)
+                return state
+
+            state["final_response"] = (response.content if response and response.content else "")
 
             from graph.handoff import detect_handoff
             state = detect_handoff(state)
@@ -216,6 +233,7 @@ class BaseAgent(ABC):
             logger.warning("Message compaction failed (stream): %s", e)
 
         trace_saved = False
+        limit_exceeded = False
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 collected_content = ""
@@ -282,9 +300,24 @@ class BaseAgent(ABC):
                         messages.append(tool_msg)
                     yield {"type": "tool_result", "tool": tc["name"],
                            "summary": f"Fetched {tc['name']} result"}
+            else:
+                # Exhausted MAX_TOOL_ITERATIONS while tool calls were still
+                # pending: no final answer was streamed.
+                limit_exceeded = True
 
-            state["messages"] = messages
+            # Phase 2: keep the injected system prompt out of persisted history.
+            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
             state["trace_id"] = trace.run_id
+
+            if limit_exceeded:
+                # Phase 1: surface the exhausted tool loop as an explicit error
+                # event and a failed trace instead of a blank completed run.
+                error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
+                state["final_response"] = error.user_message
+                yield {"type": "error", "message": error.user_message}
+                trace.save(status="limit_exceeded", response=error.user_message, error=error)
+                trace_saved = True
+                return
 
             state = detect_handoff(state)
             if state.get("handoff_to"):

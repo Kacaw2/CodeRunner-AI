@@ -385,7 +385,8 @@ class GeneratorAgent(BaseAgent):
             else:
                 state["final_response"] = collected
 
-            state["messages"] = messages
+            # Phase 2: keep the injected system prompt out of persisted history.
+            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
             state["trace_id"] = trace.run_id
             trace.save(status="completed", response=state.get("final_response", ""))
             trace_saved = True

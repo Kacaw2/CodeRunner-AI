@@ -62,6 +62,184 @@ class TestBaseAgent:
             reset_tool_runtime()
 
 
+class TestToolLoopExhaustion:
+    """Phase 1: an exhausted tool loop must be explicit, never a blank success."""
+
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_sync_exhaustion_is_explicit(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.tutor.agent import TutorAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            # The model keeps requesting tools and never returns a final answer.
+            mock_llm.invoke.return_value = _make_llm_response("", tool_calls=[{
+                "name": "coderunner.problem.get_detail",
+                "args": {"problem_id": 1},
+                "id": "tc1",
+            }])
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True, tool="coderunner.problem.get_detail", data={"ok": 1},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = TutorAgent()
+                state = {
+                    "messages": [HumanMessage(content="Help me")],
+                    "agent_type": "tutor",
+                    "user_id": 1,
+                    "user_role": "student",
+                    "context": {"question_id": 1},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                result = agent.invoke(state)
+            finally:
+                reset_tool_runtime()
+
+            assert result["final_response"]  # explicit, never blank
+            statuses = [c.kwargs.get("status") for c in mock_save.call_args_list]
+            assert "limit_exceeded" in statuses
+            assert "completed" not in statuses
+
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_stream_exhaustion_yields_error(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.tutor.agent import TutorAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            class ToolChunk:
+                content = ""
+                usage_metadata = {}
+                tool_call_chunks = [{
+                    "index": 0,
+                    "name": "coderunner.problem.get_detail",
+                    "args": "{}",
+                    "id": "tc1",
+                }]
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.stream.return_value = [ToolChunk()]
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True, tool="coderunner.problem.get_detail", data={"ok": 1},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = TutorAgent()
+                state = {
+                    "messages": [HumanMessage(content="Help me")],
+                    "agent_type": "tutor",
+                    "user_id": 1,
+                    "user_role": "student",
+                    "context": {"question_id": 1},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                events = list(agent.stream(state))
+            finally:
+                reset_tool_runtime()
+
+            assert any(e["type"] == "error" for e in events)
+            statuses = [c.kwargs.get("status") for c in mock_save.call_args_list]
+            assert "limit_exceeded" in statuses
+            assert "completed" not in statuses
+
+
+class TestSystemContextIsolation:
+    """Phase 2: the injected system prompt must never be persisted into history."""
+
+    @patch("agents.base.AIConfig")
+    def test_invoke_strips_system_message(self, mock_config, app):
+        with app.app_context():
+            from agents.tutor.agent import TutorAgent
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.invoke.return_value = _make_llm_response("Here is a hint.")
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            agent = TutorAgent()
+            state = {
+                "messages": [HumanMessage(content="Why is my code wrong?")],
+                "agent_type": "tutor",
+                "user_id": 1,
+                "user_role": "student",
+                "context": {"question_id": 1},
+                "tool_results": [],
+                "final_response": "",
+            }
+            result = agent.invoke(state)
+
+            assert all(not isinstance(m, SystemMessage) for m in result["messages"])
+
+    @patch("agents.config.AIConfig.validate")
+    @patch("agents.config.AIConfig.get_llm")
+    def test_generator_retry_does_not_accumulate_system_messages(
+        self, mock_get_llm, mock_validate, app,
+    ):
+        with app.app_context():
+            from agents.generator.agent import GeneratorAgent
+
+            question_json = '''```json
+{
+  "title": "Test",
+  "description": "Test",
+  "programming_language": "python",
+  "solution": "print(1)",
+  "test_cases": [{"input": "", "expected_output": "1", "is_hidden": false, "weight": 1.0}]
+}
+```'''
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.invoke.return_value = _make_llm_response(question_json)
+            mock_get_llm.return_value = mock_llm
+
+            call_count = 0
+
+            def validation_side_effect(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                passed = call_count > 1
+                return [{"index": 0, "passed": passed, "input": "", "expected": "1",
+                         "actual": "1" if passed else "2", "error": "", "status": "AC" if passed else "WA"}]
+
+            with patch("agents.generator.agent._validate_solution", side_effect=validation_side_effect):
+                agent = GeneratorAgent()
+                state = {
+                    "messages": [HumanMessage(content="Create a problem")],
+                    "agent_type": "generator",
+                    "user_id": 1,
+                    "user_role": "teacher",
+                    "context": {"language": "python"},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                result = agent.invoke(state)
+
+            assert call_count == 2  # retried once
+            system_count = sum(1 for m in result["messages"] if isinstance(m, SystemMessage))
+            assert system_count == 0
+
+
 class TestTutorAgent:
     @patch("agents.base.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):

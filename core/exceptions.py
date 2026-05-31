@@ -58,6 +58,20 @@ class ConfigError(AIError):
         super().__init__(message, "AI service is not properly configured. Please contact an administrator.")
 
 
+class AgentExecutionLimitError(AIError):
+    """Agent exhausted its tool-iteration budget without producing a final answer."""
+
+    def __init__(self, agent_name: str, max_iterations: int):
+        super().__init__(
+            f"Agent '{agent_name}' reached the tool-iteration limit ({max_iterations}) "
+            "with tool calls still pending",
+            "I couldn't finish this request within the allowed number of steps. "
+            "Please simplify your request or try again.",
+        )
+        self.agent_name = agent_name
+        self.max_iterations = max_iterations
+
+
 def retry_on_llm_error(max_retries: int = 2, base_delay: float = 1.0):
     """Decorator: retry LLM calls with exponential backoff.
 
