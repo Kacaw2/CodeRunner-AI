@@ -10,6 +10,7 @@ import logging
 from mcp.server import FastMCP
 
 from mcp_gateway.generated_tools import register_generated_catalog_tools
+from mcp_gateway.resources import register_resources
 from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 logger = logging.getLogger(__name__)
@@ -38,5 +39,11 @@ def create_mcp_server() -> FastMCP:
             f"unexpected={sorted(registered - expected)}"
         )
 
-    logger.info("MCP Server created with %d tools registered", len(registered))
+    resource_count = register_resources(mcp)
+
+    logger.info(
+        "MCP Server created with %d tools and %d resources registered",
+        len(registered),
+        resource_count,
+    )
     return mcp
