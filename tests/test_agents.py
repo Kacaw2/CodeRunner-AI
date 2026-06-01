@@ -439,7 +439,8 @@ class TestGeneratorAgent:
         with app.app_context():
             from langchain_core.messages import HumanMessage
             from agents.generator.agent import GeneratorAgent
-            from app.models.agent_trace import AgentRun, AgentRunStep
+            from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+            from core.db.session import db_session as core_db_session
 
             class Chunk:
                 def __init__(self, content, usage_metadata=None):
@@ -483,12 +484,22 @@ class TestGeneratorAgent:
                 events = list(GeneratorAgent().stream(state))
 
             assert any(event["type"] == "token" for event in events)
-            run = AgentRun.query.filter_by(agent_type="generator").one()
-            assert run.conversation_id == 123
-            assert run.status == "completed"
-            assert run.tokens_input == 10
-            assert run.tokens_output == 20
-            assert AgentRunStep.query.filter_by(run_id=run.id).count() >= 2
+            with core_db_session() as session:
+                run = (
+                    session.query(AgentTraceRun)
+                    .filter_by(agent_type="generator")
+                    .one()
+                )
+                assert run.conversation_id == 123
+                assert run.status == "completed"
+                assert run.tokens_input == 10
+                assert run.tokens_output == 20
+                span_count = (
+                    session.query(AgentTraceSpan)
+                    .filter_by(trace_id=run.trace_id)
+                    .count()
+                )
+                assert span_count >= 2
 
 
 class TestAnalyticsAgent:
