@@ -1,3 +1,4 @@
+import contextvars
 import logging
 import time
 from contextlib import contextmanager
@@ -12,6 +13,80 @@ _CHINA_TZ = timezone(timedelta(hours=8))
 
 def _now_china() -> datetime:
     return datetime.now(_CHINA_TZ).replace(tzinfo=None)
+
+
+# Progressive single-trace model: the AgentHarness owns one logical trace per
+# chat task / workflow run / eval case / handoff chain and exposes it here as
+# the "current" trace. BaseAgent writes spans/events into this ambient trace
+# instead of owning its own lifecycle; when no ambient trace is set (direct
+# agent.invoke()/stream(), legacy eval runner, unit tests) the agent falls back
+# to owning and saving its own TraceCollector.
+_current_trace: contextvars.ContextVar = contextvars.ContextVar(
+    "current_trace", default=None
+)
+
+
+def get_current_trace():
+    """Return the ambient TraceCollector for this execution context, or None."""
+    return _current_trace.get()
+
+
+@contextmanager
+def use_current_trace(trace):
+    """Bind ``trace`` as the ambient/current trace for the enclosed block."""
+    token = _current_trace.set(trace)
+    try:
+        yield trace
+    finally:
+        _current_trace.reset(token)
+
+
+def acquire_trace(
+    *,
+    agent_type,
+    user_id,
+    conversation_id=None,
+    source="agent",
+    links=None,
+    input_message="",
+    input_context=None,
+):
+    """Acquire the trace an agent should write into (progressive single-trace).
+
+    If a harness has bound an ambient trace, reuse it and return
+    ``owns_trace=False`` — the agent only contributes spans/tokens and must not
+    overwrite the owner's input fields. Otherwise create a fresh owned
+    TraceCollector seeded with this agent's input, returning ``owns_trace=True``.
+    """
+    current = get_current_trace()
+    if current is not None:
+        return current, False
+    trace = TraceCollector(
+        agent_type=agent_type,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        source=source,
+        links=links,
+    )
+    trace.input_message = input_message
+    trace.input_context = input_context
+    return trace, True
+
+
+def finalize_trace(trace, owns_trace, *, status, response="", error=None):
+    """Persist (owner) or hand the outcome to the owner (non-owner).
+
+    The owner saves the trace once. A non-owner records a non-completed status
+    so the owning harness flushes the correct terminal status for the whole
+    chain instead of a misleading ``completed``.
+    """
+    if owns_trace:
+        trace.save(status=status, response=response, error=error)
+        return
+    if status != "completed":
+        trace.pending_status = status
+        if error is not None:
+            trace.pending_error = error
 
 
 # Known link keys that map directly onto agent_trace_runs columns, plus the
@@ -66,6 +141,10 @@ class TraceCollector:
         self.tool_call_count = 0
         self.input_message = ""
         self.input_context = None
+        # Set by execution units (agents) that write into this trace without
+        # owning its lifecycle, so the owner (harness) saves the right status.
+        self.pending_status = None
+        self.pending_error = None
 
     @contextmanager
     def trace_llm_call(self):

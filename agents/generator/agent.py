@@ -264,7 +264,8 @@ class GeneratorAgent(BaseAgent):
 
     def stream(self, state: AgentState):
         """Streaming generator: yields tokens for each LLM round, plus validation events."""
-        from core.observability.tracing import TraceCollector
+        from core.observability.tracing import acquire_trace, finalize_trace
+        from agents.base import _trace_links_from_state
 
         llm = AIConfig.get_llm(tier=self.default_model_tier)
         context = state.get("context", {})
@@ -272,15 +273,17 @@ class GeneratorAgent(BaseAgent):
 
         system_ctx = self._build_system_context(state)
         messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
-        trace = TraceCollector(
+        trace, owns_trace = acquire_trace(
             agent_type=state.get("agent_type", self.name),
             user_id=state["user_id"],
             conversation_id=context.get("conversation_id"),
+            links=_trace_links_from_state(state),
+            input_message=(
+                getattr(state["messages"][-1], "content", "")
+                if state.get("messages") else ""
+            ),
+            input_context=context,
         )
-        if state.get("messages"):
-            last_msg = state["messages"][-1]
-            trace.input_message = getattr(last_msg, "content", "")
-        trace.input_context = context
 
         question_data = None
         collected = ""
@@ -312,7 +315,7 @@ class GeneratorAgent(BaseAgent):
                 except LLMError as e:
                     if round_num == 0:
                         yield {"type": "error", "message": e.user_message}
-                        trace.save(status="failed", error=e)
+                        finalize_trace(trace, owns_trace, status="failed", error=e)
                         trace_saved = True
                         return
                     break
@@ -388,14 +391,15 @@ class GeneratorAgent(BaseAgent):
             # Phase 2: keep the injected system prompt out of persisted history.
             state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
             state["trace_id"] = trace.run_id
-            trace.save(status="completed", response=state.get("final_response", ""))
+            finalize_trace(trace, owns_trace, status="completed",
+                           response=state.get("final_response", ""))
             trace_saved = True
         except GeneratorExit:
             if not trace_saved:
-                trace.save(status="interrupted")
+                finalize_trace(trace, owns_trace, status="interrupted")
                 trace_saved = True
         except Exception as e:
             if not trace_saved:
-                trace.save(status="failed", error=e)
+                finalize_trace(trace, owns_trace, status="failed", error=e)
                 trace_saved = True
             raise

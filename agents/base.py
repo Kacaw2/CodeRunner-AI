@@ -12,6 +12,21 @@ from core.state import AgentState
 
 logger = logging.getLogger(__name__)
 
+_TRACE_LINK_KEYS = (
+    "chat_task_id",
+    "workflow_run_id",
+    "conversation_id",
+    "message_id",
+    "eval_run_id",
+    "eval_case_id",
+)
+
+
+def _trace_links_from_state(state: dict) -> dict:
+    """Pull trace link keys from the agent state's context (when present)."""
+    ctx = state.get("context") or {}
+    return {k: ctx[k] for k in _TRACE_LINK_KEYS if ctx.get(k) is not None}
+
 
 class BaseAgent(ABC):
     name: str = ""
@@ -110,20 +125,22 @@ class BaseAgent(ABC):
     def _invoke_with_mcp_tools(self, state: AgentState, tool_names: list[str], system_ctx: str) -> AgentState:
         """Shared invoke loop: LLM + MCP tool calls with retries and tracing."""
         from langchain_core.messages import SystemMessage
-        from core.observability.tracing import TraceCollector
+        from core.observability.tracing import acquire_trace, finalize_trace
 
         self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
-        trace = TraceCollector(
+        trace, owns_trace = acquire_trace(
             agent_type=state.get("agent_type", self.name),
             user_id=state["user_id"],
             conversation_id=state.get("context", {}).get("conversation_id"),
+            links=_trace_links_from_state(state),
+            input_message=(
+                getattr(state["messages"][-1], "content", "")
+                if state.get("messages") else ""
+            ),
+            input_context=state.get("context"),
         )
-        if state.get("messages"):
-            last_msg = state["messages"][-1]
-            trace.input_message = getattr(last_msg, "content", "")
-        trace.input_context = state.get("context")
 
         from tools.protocol import get_tool_runtime
         from tools.protocol.adapters import descriptors_to_llm_tools
@@ -195,7 +212,8 @@ class BaseAgent(ABC):
                 # silently saving an empty "completed" trace.
                 error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
                 state["final_response"] = error.user_message
-                trace.save(status="limit_exceeded", response=error.user_message, error=error)
+                finalize_trace(trace, owns_trace, status="limit_exceeded",
+                               response=error.user_message, error=error)
                 return state
 
             state["final_response"] = (response.content if response and response.content else "")
@@ -205,9 +223,10 @@ class BaseAgent(ABC):
             from graph.handoff import detect_handoff
             state = detect_handoff(state)
 
-            trace.save(status="completed", response=state["final_response"])
+            finalize_trace(trace, owns_trace, status="completed",
+                           response=state["final_response"])
         except Exception as e:
-            trace.save(status="failed", error=e)
+            finalize_trace(trace, owns_trace, status="failed", error=e)
             raise
 
         return state
@@ -215,21 +234,23 @@ class BaseAgent(ABC):
     def _stream_with_mcp_tools(self, state: AgentState, tool_names: list[str], system_ctx: str):
         """Shared streaming loop: LLM + MCP tool calls with retries and tracing."""
         from langchain_core.messages import SystemMessage
-        from core.observability.tracing import TraceCollector
+        from core.observability.tracing import acquire_trace, finalize_trace
         from graph.handoff import detect_handoff
 
         self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
-        trace = TraceCollector(
+        trace, owns_trace = acquire_trace(
             agent_type=state.get("agent_type", self.name),
             user_id=state["user_id"],
             conversation_id=state.get("context", {}).get("conversation_id"),
+            links=_trace_links_from_state(state),
+            input_message=(
+                getattr(state["messages"][-1], "content", "")
+                if state.get("messages") else ""
+            ),
+            input_context=state.get("context"),
         )
-        if state.get("messages"):
-            last_msg = state["messages"][-1]
-            trace.input_message = getattr(last_msg, "content", "")
-        trace.input_context = state.get("context")
 
         from tools.protocol import get_tool_runtime
         from tools.protocol.adapters import descriptors_to_llm_tools
@@ -284,7 +305,7 @@ class BaseAgent(ABC):
                 except LLMError as e:
                     if iteration == 0:
                         yield {"type": "error", "message": e.user_message}
-                        trace.save(status="failed", error=e)
+                        finalize_trace(trace, owns_trace, status="failed", error=e)
                         trace_saved = True
                         return
                     break
@@ -331,7 +352,8 @@ class BaseAgent(ABC):
                 error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
                 state["final_response"] = error.user_message
                 yield {"type": "error", "message": error.user_message}
-                trace.save(status="limit_exceeded", response=error.user_message, error=error)
+                finalize_trace(trace, owns_trace, status="limit_exceeded",
+                               response=error.user_message, error=error)
                 trace_saved = True
                 return
 
@@ -342,14 +364,15 @@ class BaseAgent(ABC):
                 yield {"type": "handoff", "target": state["handoff_to"],
                        "reason": state.get("handoff_reason", "")}
 
-            trace.save(status="completed", response=state.get("final_response", ""))
+            finalize_trace(trace, owns_trace, status="completed",
+                           response=state.get("final_response", ""))
             trace_saved = True
         except GeneratorExit:
             if not trace_saved:
-                trace.save(status="interrupted")
+                finalize_trace(trace, owns_trace, status="interrupted")
                 trace_saved = True
         except Exception as e:
             if not trace_saved:
-                trace.save(status="failed", error=e)
+                finalize_trace(trace, owns_trace, status="failed", error=e)
                 trace_saved = True
             raise

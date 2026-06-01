@@ -386,9 +386,25 @@ Expected:
 
 ## 5. Agent Harness 与运行时 trace 绑定
 
-### Task 3: 统一 Agent Harness（方向 A：双接口 `run()` + `stream()`）
+### Task 3: 统一 Agent Harness（方向 A 双接口 + 渐进式 B 单 trace） ✅ 已完成（Phase 4）
 
-**决策（2026-06-01）：采用方向 A。**
+> 状态：Step 1-5 全部完成。`AgentHarness` 拥有单一逻辑 trace，驱动单 agent + handoff
+> 链；worker 聊天路径改用 `AgentHarness.stream()`；`agents/base.py` 与
+> `agents/generator/agent.py` 改为 `acquire_trace`/`finalize_trace`（渐进式 B）。
+> 验证：`tests/test_agent_harness_trace_binding.py` 2 passed。
+
+**决策（2026-06-01，修订 2026-06-02）：采用方向 A 的双接口形态，trace 语义采用「渐进式 B」。**
+
+「渐进式 B」目标模型：一次 chat task / workflow run / eval case / handoff chain 就是
+**一条逻辑 trace**。`AgentHarness` 拥有这条 trace 的生命周期；`BaseAgent` 不再是 trace 主人，
+只作为执行单元，向「当前 trace」(ambient TraceCollector，经 contextvar 暴露) 写 span/event/token。
+渐进落地：当存在 ambient trace（harness 驱动）时 agent 只写不存；当**没有** ambient trace（直接
+`agent.invoke()/stream()`、`evals/runner.py` 旧路径、既有单元测试）时 agent 退回自持并 `save()`
+自己的 trace，保持向后兼容（`test_stream_persists_trace` 仍是单条 trace）。
+
+本轮（Phase 4）落地范围：聊天**单 agent + handoff 链**热路径收敛为单条 trace + `trace_id` 核心传播；
+supervisor-workflow 分支的整体搬迁作为后续增量（harness 仍咨询 `_should_use_workflow`、透传其事件并
+绑定 trace，但不在本轮重写 workflow 执行）。
 
 `AgentHarness` 同时提供**批处理** `run()` 与**流式** `stream()` 两个接口，二者共享同一套
 trace 绑定逻辑（同一个 `TraceCollector` 生命周期、同一套 budget / link 处理）：
@@ -641,7 +657,9 @@ all trace API tests pass
 
 ## 7. Dataset Store
 
-### Task 5: 正式化 eval datasets
+### Task 5: 正式化 eval datasets ✅ 已完成（Phase 5）
+
+> **状态（Phase 5）**：已实现 `evals/datasets/schema.py`（`CASE_TYPES`、`DIR_TO_CASE_TYPE`、`DEFAULT_BUDGET`、`EvalCase`/`EvalCaseInput`/`GraderSpec`）与 `evals/datasets/store.py`（`DatasetStore.load_cases` 支持 `all` / `<case_type>` / `<case_type>:<suite>` 选择器、`load_legacy_cases` 将 `judges` 转为 `deterministic.<name>`、`create_from_trace` 直接查询 `AgentTraceRun`）。物理迁移（DP3）已完成：37 条 legacy 用例迁入 `golden/`，并新增 `hidden/`、`regression/`、`production_failures/` 种子用例。测试 `tests/test_eval_dataset_store.py`（3 个）通过。
 
 **Files:**
 - Create: `evals/datasets/schema.py`
@@ -808,7 +826,9 @@ all eval harness tests passed
 
 ## 9. Graders
 
-### Task 7: 完整 grader 系统
+### Task 7: 完整 grader 系统 🟡 部分完成（Phase 5；非确定性 grader 延后 Phase 6）
+
+> **状态（Phase 5）**：按 DP4 实现确定性 grader 封装。已完成 Step 1/2/6：`evals/graders/base.py`（`GraderResult` dataclass、`run_grader` 按 `<family>.<name>` 分派、未知 family → `error_result` 而非静默通过）、`evals/graders/deterministic.py`（封装 `JUDGE_REGISTRY`，输出统一 `GraderResult`、含 `latency_ms`）、`evals/graders/__init__.py` 导出。`evals/judges/judges.py` 标注 `evals.graders.deterministic` 为规范入口。测试 `tests/test_eval_graders.py`（5 个）通过。**延后 Phase 6**：Step 3 `unit_tests`、Step 4 `static_checks`、Step 5 `llm_judge` 三个非确定性 family 暂返回 `error_result`，待 Phase 6 接入。
 
 **Files:**
 - Create: `evals/graders/base.py`
@@ -947,7 +967,9 @@ eval-report.md exists
 
 ## 11. MCP、权限、sandbox 与 trace 关联
 
-### Task 9: MCP guard 和 sandbox 进入 trace
+### Task 9: MCP guard 和 sandbox 进入 trace 🟡 部分完成（Phase 4；sandbox 延后）
+
+> **状态（Phase 4）**：按 DP2 仅做 trace_id 核心传播。已完成 Step 1/2 + Step 4 验证：`MCPClientIdentity` 新增 `trace_id`，经 `InProcessMCPToolClient`（`build_caller_context`）与 `StreamableHTTPMCPToolClient`（`mint_internal_token` 新增 `trace_id` claim）两条传输链路传播；`mcp_gateway/middleware/core.py` 从 claims 还原 `trace_id`（缺失时回退 `uuid.uuid4().hex`）；`agents/executor.py` 从 `state.context.trace_id` 注入。测试 `tests/test_trace_mcp_links.py`（2 个）通过。**延后**：Step 3 sandbox 执行 span 接入 trace 暂缓（DP2 范围外）。
 
 **Files:**
 - Modify: `mcp_gateway/middleware/core.py`
@@ -1296,7 +1318,9 @@ node --check app\static\js\traces.js
 .\.venv\Scripts\python.exe -m pytest tests/test_trace_api_complete.py -q
 ```
 
-### Phase 4: 绑定 agent runtime 到新 trace
+### Phase 4: 绑定 agent runtime 到新 trace ✅ 已完成
+
+> **状态**：AgentHarness 拥有单一逻辑 trace（渐进式 B），`BaseAgent`/generator 改为通过 `acquire_trace`/`finalize_trace` 写入环境 trace（`use_current_trace` contextvar），无环境 trace 时回退自有 trace。worker `_run_chat_task` 经 `AgentHarness().stream(...)` 驱动并吞掉 harness `done` 事件、改发自身带 `message_id` 的 done。MCP trace_id 经两条传输链路传播（DP2 核心部分）。验证测试通过。
 
 **包含任务：**
 - Task 3: 统一 Agent Harness
@@ -1324,7 +1348,9 @@ node --check app\static\js\traces.js
 .\.venv\Scripts\python.exe -m pytest tests/test_agent_harness_trace_binding.py tests/test_trace_mcp_links.py tests/test_agent_hooks.py -q
 ```
 
-### Phase 5: Dataset Store 与 deterministic graders
+### Phase 5: Dataset Store 与 deterministic graders ✅ 已完成
+
+> **状态**：dataset schema + `DatasetStore`（选择器、legacy 转换、`create_from_trace`）落地；37 条 legacy 用例物理迁入 `golden/`（DP3），并补 `hidden/`、`regression/`、`production_failures/` 种子。deterministic grader 封装（DP4）完成，非确定性 family 暂返回 `error_result` 延后 Phase 6。验证测试通过。
 
 **包含任务：**
 - Task 5: 正式化 eval datasets

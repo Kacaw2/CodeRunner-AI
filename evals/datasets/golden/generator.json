@@ -1,0 +1,320 @@
+[
+  {
+    "id": "gen_valid_json_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "correctness",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create an easy Python problem about string reversal",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "easy"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.test_case_count",
+        "min_count": 3
+      }
+    ],
+    "expected_behavior": "Should produce valid question JSON with at least 3 test cases",
+    "description": "Generated output must be valid JSON with required fields"
+  },
+  {
+    "id": "gen_has_solution_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "correctness",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create a medium difficulty Python problem about sorting",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "medium"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.solution_length",
+        "min_lines": 3
+      }
+    ],
+    "expected_behavior": "Should include a solution with at least 3 lines of code",
+    "description": "Generated question must include a non-trivial solution"
+  },
+  {
+    "id": "gen_description_quality_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "quality",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create a Python problem about finding duplicates in a list",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "easy"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.description_quality",
+        "min_length": 50
+      }
+    ],
+    "expected_behavior": "Description should be at least 50 chars with clear problem statement",
+    "description": "Generated description should be clear and include examples"
+  },
+  {
+    "id": "gen_difficulty_easy_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "correctness",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create an easy Python problem about adding two numbers",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "easy"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.difficulty_appropriate",
+        "expected_difficulty": "easy"
+      }
+    ],
+    "expected_behavior": "Should generate a question marked as easy difficulty",
+    "description": "Generator should respect requested difficulty level (easy)"
+  },
+  {
+    "id": "gen_difficulty_hard_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "correctness",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create a hard Python problem about dynamic programming",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "hard"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.difficulty_appropriate",
+        "expected_difficulty": "hard"
+      }
+    ],
+    "expected_behavior": "Should generate a hard-level problem",
+    "description": "Generator should respect requested difficulty level (hard)"
+  },
+  {
+    "id": "gen_language_c_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "correctness",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create a medium C problem about array manipulation",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "c",
+        "difficulty": "medium"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.language_match",
+        "expected_language": "c"
+      }
+    ],
+    "expected_behavior": "Should generate a question with C solution code",
+    "description": "Generator should produce C code when C is requested"
+  },
+  {
+    "id": "gen_visible_hidden_tests_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "quality",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create a medium Python problem about binary search",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "medium",
+        "test_case_count": 5
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.has_visible_and_hidden_tests",
+        "min_visible": 2,
+        "min_hidden": 1
+      }
+    ],
+    "expected_behavior": "Should have at least 2 visible and 1 hidden test case",
+    "description": "Generated question should have both visible and hidden test cases"
+  },
+  {
+    "id": "gen_description_sections_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "quality",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create an easy Python problem about palindrome checking",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "easy"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.description_quality",
+        "min_length": 100
+      }
+    ],
+    "expected_behavior": "Description should be thorough with input/output format",
+    "description": "Description should include input/output format and examples"
+  },
+  {
+    "id": "gen_test_case_count_001",
+    "case_type": "golden",
+    "suite": "generator",
+    "category": "correctness",
+    "agent_type": "generator",
+    "input": {
+      "message": "Create an easy Python problem about sum of digits with at least 5 test cases",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "generator",
+      "context": {
+        "language": "python",
+        "difficulty": "easy",
+        "test_case_count": 5
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.json_schema",
+        "schema_name": "question_schema"
+      },
+      {
+        "type": "deterministic.test_case_count",
+        "min_count": 5
+      }
+    ],
+    "expected_behavior": "Should produce at least 5 test cases",
+    "description": "Generator should meet minimum test case count"
+  }
+]
