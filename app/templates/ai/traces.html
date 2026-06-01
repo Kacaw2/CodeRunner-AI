@@ -22,6 +22,15 @@
         <option value="generator">Generator</option>
         <option value="analytics">Analytics</option>
       </select>
+      <select class="form-select form-select-sm" id="statusFilter">
+        <option value="">All Status</option>
+        <option value="completed">Completed</option>
+        <option value="failed">Failed</option>
+        <option value="error">Error</option>
+        <option value="limit_exceeded">Limit Exceeded</option>
+      </select>
+      <input type="search" class="form-control form-control-sm" id="searchInput"
+             placeholder="Search input/output/id…" style="max-width: 220px;">
       <button class="btn btn-sm btn-outline-primary" id="refreshBtn">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>

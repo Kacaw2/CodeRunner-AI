@@ -552,7 +552,13 @@ all selected tests passed
 - Modify: `app/api/v1/agents/traces.py`
 - Test: `tests/test_trace_api_complete.py`
 
-- [ ] **Step 1: 写 API 测试**
+> **Phase 3 实现说明（2026-06-01）：** 测试使用现有 `mock_auth_teacher` fixture（patch
+> `get_current_user_or_401`）+ 直接用 `core.db.models.agent_trace` 写库，而非 plan 示例里
+> 不存在的 `teacher_token` / `seeded_complete_trace` fixture。API 改读新 `agent_trace_*`
+> 表，旧 `agent_runs.id` 走 `TraceQueryService._legacy_trace` 只读 fallback（backfill 延后到
+> Phase 7）。
+
+- [x] **Step 1: 写 API 测试**
 
 ```python
 def test_trace_detail_returns_tree_cost_artifacts_and_links(client, teacher_token, seeded_complete_trace):
@@ -570,11 +576,11 @@ def test_trace_detail_returns_tree_cost_artifacts_and_links(client, teacher_toke
     assert data["run"]["cost_cny"] is not None
 ```
 
-- [ ] **Step 2: 查询服务**
+- [x] **Step 2: 查询服务**
 
 `TraceQueryService.get_trace(trace_id, viewer)` 返回完整但脱敏后的 trace。教师/admin 可看完整 preview；学生只能看自己的 trace 且隐藏 tool args、system prompt、其他学生信息。
 
-- [ ] **Step 3: 列表过滤**
+- [x] **Step 3: 列表过滤**
 
 `GET /api/v1/ai/traces` 支持：
 
@@ -590,7 +596,7 @@ def test_trace_detail_returns_tree_cost_artifacts_and_links(client, teacher_toke
 - `limit`
 - `offset`
 
-- [ ] **Step 4: 页面升级**
+- [x] **Step 4: 页面升级**
 
 `app/static/js/traces.js` 展示：
 
@@ -611,7 +617,7 @@ paginationEl.innerHTML = `
 `;
 ```
 
-- [ ] **Step 5: 验证**
+- [x] **Step 5: 验证**
 
 Run:
 
@@ -626,6 +632,10 @@ Expected:
 node syntax check passes
 all trace API tests pass
 ```
+
+> 实测：`node --check` 通过；`tests/test_trace_api_complete.py` 5 passed。
+> 未改 `app/api/v1/agents/traces.py`（FastAPI 薄代理）——它原样转发 JSON，新 shape 自动透传；
+> 该路径只支持 limit/offset，不传新过滤参数，留待后续按需扩展。
 
 ---
 
@@ -1256,9 +1266,11 @@ eval-report.md exists
 
 ## 18. 后续执行 Phase 拆分
 
-> 当前状态：Task 1-2 已完成。Task 2 采用「只写新表 + 改旧测试让它查 `AgentTraceRun`」方案，因此新 trace 写入已经转向单一数据源，但 `/ai/traces` UI 在 Task 4 完成前会临时读取不到新表数据。
+> 当前状态：Task 1-2 已完成，Phase 3（Task 4 + Task 11 兼容查询部分）已完成。新 trace 写入与
+> 读取均已对齐新 `agent_trace_*` 表，`/ai/traces` UI 临时破损已结束；旧 `agent_runs` 走只读
+> fallback，backfill 留待 Phase 7。
 
-### Phase 3: 修复 trace 读取面，结束 UI 临时破损
+### Phase 3: 修复 trace 读取面，结束 UI 临时破损（已完成）
 
 **包含任务：**
 - Task 4: 完整 trace 查询 API

@@ -164,13 +164,26 @@ def get_trace(jwt_token: str, run_id: str) -> dict | None:
     return resp.json()
 
 
-def list_traces(jwt_token: str, limit: int = 20, offset: int = 0) -> dict:
-    """Call Flask GET /api/v1/ai/traces."""
+def list_traces(
+    jwt_token: str,
+    limit: int = 20,
+    offset: int = 0,
+    filters: dict | None = None,
+) -> dict:
+    """Call Flask GET /api/v1/ai/traces.
+
+    ``filters`` forwards the new agent_trace_* query params (agent_type, status,
+    source, eval_run_id, conversation_id, chat_task_id, from, to, q).
+    """
     url = f"{_base_url()}/api/v1/ai/traces"
+    params = {"limit": limit, "offset": offset}
+    for key, value in (filters or {}).items():
+        if value not in (None, ""):
+            params[key] = value
     resp = httpx.get(
         url,
         headers=_auth_headers(jwt_token),
-        params={"limit": limit, "offset": offset},
+        params=params,
         timeout=10,
     )
     resp.raise_for_status()

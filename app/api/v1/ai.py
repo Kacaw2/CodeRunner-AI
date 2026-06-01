@@ -1451,24 +1451,32 @@ def save_as_draft():
 @bp.route("/traces", methods=["GET"])
 @require_teacher
 def list_traces():
-    """List agent run traces. Teacher/admin only."""
+    """List agent traces from the new agent_trace_* tables. Teacher/admin only."""
     user = get_current_user_or_401()
-    from app.models.agent_trace import AgentRun
+    from app.services.trace_query_service import TraceQueryService
 
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
-    agent_type = request.args.get("agent_type")
+    filters = {
+        key: request.args.get(key)
+        for key in (
+            "agent_type",
+            "status",
+            "source",
+            "eval_run_id",
+            "conversation_id",
+            "chat_task_id",
+            "from",
+            "to",
+            "q",
+        )
+        if request.args.get(key) not in (None, "")
+    }
 
-    query = AgentRun.query
-    if agent_type:
-        query = query.filter_by(agent_type=agent_type)
-
-    total = query.count()
-    runs = query.order_by(AgentRun.created_at.desc()).offset(offset).limit(limit).all()
-    return jsonify({
-        "traces": [r.to_dict() for r in runs],
-        "total": total,
-    })
+    result = TraceQueryService().list_traces(
+        viewer=user, filters=filters, limit=limit, offset=offset
+    )
+    return jsonify(result)
 
 
 # ── GET /api/v1/ai/traces/<run_id> ─────────────────────────
@@ -1476,16 +1484,18 @@ def list_traces():
 @bp.route("/traces/<run_id>", methods=["GET"])
 @require_teacher
 def get_trace(run_id):
-    """Get detailed trace for a single agent run."""
-    from app.models.agent_trace import AgentRun, AgentRunStep
-    run = AgentRun.query.get(run_id)
-    if not run:
+    """Get the complete trace tree (run/spans/events/artifacts/links).
+
+    Reads the new agent_trace_* tables and falls back to a read-only view of a
+    legacy ``agent_runs`` row until the Phase 7 backfill runs.
+    """
+    user = get_current_user_or_401()
+    from app.services.trace_query_service import TraceQueryService
+
+    trace = TraceQueryService().get_trace(run_id, viewer=user)
+    if trace is None:
         return _error_response("not_found", "Trace not found", 404)
-    steps = AgentRunStep.query.filter_by(run_id=run_id).order_by(AgentRunStep.step_index).all()
-    return jsonify({
-        "run": run.to_dict(),
-        "steps": [s.to_dict() for s in steps],
-    })
+    return jsonify(trace)
 
 
 # ── GET /api/v1/ai/analytics/<student_id> ────────────────────
