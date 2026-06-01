@@ -386,7 +386,23 @@ Expected:
 
 ## 5. Agent Harness 与运行时 trace 绑定
 
-### Task 3: 统一 Agent Harness
+### Task 3: 统一 Agent Harness（方向 A：双接口 `run()` + `stream()`）
+
+**决策（2026-06-01）：采用方向 A。**
+
+`AgentHarness` 同时提供**批处理** `run()` 与**流式** `stream()` 两个接口，二者共享同一套
+trace 绑定逻辑（同一个 `TraceCollector` 生命周期、同一套 budget / link 处理）：
+
+- `run()` —— 一次性返回 `AgentHarnessResult`，供 **eval harness**（Task 9+）以及任何
+  不需要逐 token 的调用方使用。内部实现 = 消费自身的 `stream()` 并把 token 聚合成
+  `final_response`，**确保 run 与 stream 是同一条执行/trace 路径**，不会出现两套分叉逻辑。
+- `stream()` —— 产出与现有 `agent.stream(state)` 兼容的 event 序列（`token` / `route` /
+  `handoff_start` / `tool_*` / `done` / `error`），供 **`workers/task_runner.py`** 把事件原样
+  推入 Redis，从而**保留前端的实时流式体验**。
+
+这样做的理由：现有 worker 热路径本质是「流式 + 多 agent handoff」，单纯的批处理 `run()`
+无法承载逐 token 推送；方向 A 让 worker 继续走流式，同时把 agent 执行、trace 绑定、budget
+统一收口到 Harness，避免 run/stream 两套逻辑各写一遍 trace（消除回归面）。
 
 **Files:**
 - Create: `evals/harness/agent_harness.py`
@@ -395,7 +411,7 @@ Expected:
 - Modify: `agents/executor.py`
 - Test: `tests/test_agent_harness_trace_binding.py`
 
-- [ ] **Step 1: 写测试：chat task 绑定 trace**
+- [ ] **Step 1: 写测试：chat task 绑定 trace（覆盖 run 与 stream 两个接口）**
 
 ```python
 def test_agent_harness_binds_chat_task_to_trace(fake_llm, db_session):
@@ -413,11 +429,34 @@ def test_agent_harness_binds_chat_task_to_trace(fake_llm, db_session):
 
     assert result.trace_id
     assert result.status in {"completed", "limit_exceeded", "failed"}
+
+
+def test_agent_harness_stream_yields_events_and_binds_trace(fake_llm, db_session):
+    """stream() 必须产出 token/done 事件，且与 run() 走同一条 trace 绑定路径。"""
+    from evals.harness.agent_harness import AgentHarness
+
+    events = list(
+        AgentHarness().stream(
+            agent_type="tutor",
+            message="help",
+            user_id=2,
+            user_role="teacher",
+            source="workers",
+            context={"conversation_id": 10, "chat_task_id": "task-1"},
+        )
+    )
+
+    types = {e["type"] for e in events}
+    assert "token" in types
+    assert "done" in types
+    # 终结事件携带 trace_id，供 worker 落库 / 关联 ChatTask。
+    done = next(e for e in events if e["type"] == "done")
+    assert done.get("trace_id")
 ```
 
-- [ ] **Step 2: 实现 Harness 输入输出**
+- [ ] **Step 2: 实现 Harness 输入输出（双接口）**
 
-`AgentHarness.run()` 返回：
+`stream()` 是**主实现**（承载执行 + trace 绑定 + handoff 编排），`run()` 在其之上聚合：
 
 ```python
 @dataclass
@@ -431,11 +470,42 @@ class AgentHarnessResult:
     cost_cny: Decimal | None
     latency_ms: int
     error: str = ""
+
+
+class AgentHarness:
+    def stream(self, *, agent_type, message, user_id, user_role,
+               source="agent", context=None, budget=None,
+               links=None) -> Iterator[dict]:
+        """主实现：建立 TraceCollector + budget，逐 token 产出 event；
+        最后一个 done/error 事件携带 trace_id 与汇总指标。
+        承载 supervisor-workflow 优先、单 agent、handoff 链编排。"""
+
+    def run(self, **kwargs) -> AgentHarnessResult:
+        """消费 self.stream(**kwargs)，聚合 token → final_response，
+        返回 AgentHarnessResult。与 stream 共享同一 trace。"""
 ```
 
-- [ ] **Step 3: 将 workers 调用改为 Harness**
+- [ ] **Step 3: 将 workers 调用改为 Harness（保留流式）**
 
-`workers/task_runner.py` 不再直接拼完整 agent 执行逻辑；它负责 ChatTask 生命周期、Redis event、消息落库，agent 执行交给 `AgentHarness`。Harness 必须接收 `chat_task_id`、`conversation_id`、`workflow_run_id`。
+`workers/task_runner.py._run_chat_task` 不再内联完整 agent 执行逻辑；它仍负责 **ChatTask 生命周期、
+Redis event 推送、assistant 消息落库**，但把「supervisor-workflow 优先 → 单 agent → handoff 链」
+整段编排交给 `AgentHarness.stream(...)`：
+
+```python
+for event in AgentHarness().stream(
+    agent_type=resolved_agent_type, message=message,
+    user_id=task.user_id, user_role=user_role, source="workers",
+    context=context,
+    links={"chat_task_id": task_id, "conversation_id": task.conversation_id},
+):
+    if event["type"] == "token":
+        full_response += event["content"]
+    redis_buffer.ct_push_event(task_id, event)
+```
+
+Harness 必须接收并向 trace 绑定 `chat_task_id`、`conversation_id`、`workflow_run_id`。
+`_run_workflow` 同理：workflow 执行也走 Harness（或 Harness 复用 `WorkflowEngine`），统一 trace 绑定。
+迁移以「行为等价」为准：worker 对外的 Redis event 序列、落库行为、handoff 上限须与改造前一致。
 
 - [ ] **Step 4: 工具调用 span**
 
@@ -462,6 +532,12 @@ Expected:
 
 ```text
 all selected tests passed
+```
+
+并额外跑 worker 流式回归（确保改造后 token/handoff 行为不变）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_agents.py -q
 ```
 
 ---
@@ -1175,3 +1251,198 @@ eval-report.md exists
 7. `feat(evals): add graders and reports`
 8. `feat(trace): link MCP and sandbox decisions`
 9. `docs: document complete traces and evals`
+
+---
+
+## 18. 后续执行 Phase 拆分
+
+> 当前状态：Task 1-2 已完成。Task 2 采用「只写新表 + 改旧测试让它查 `AgentTraceRun`」方案，因此新 trace 写入已经转向单一数据源，但 `/ai/traces` UI 在 Task 4 完成前会临时读取不到新表数据。
+
+### Phase 3: 修复 trace 读取面，结束 UI 临时破损
+
+**包含任务：**
+- Task 4: 完整 trace 查询 API
+- Task 11: 历史 trace 兼容查询部分
+
+**目标：**
+- `/api/v1/ai/traces` 和 `/api/v1/ai/traces/<id>` 改为读取新 `agent_trace_*` 表。
+- `/ai/traces` 页面至少能展示 Task 2 写入的新 trace。
+- 旧 `agent_runs.id` 查询先做只读 fallback，backfill 延后到 Phase 7。
+
+**建议一起修改：**
+- `app/services/trace_query_service.py`
+- `app/api/v1/ai.py`
+- `app/api/v1/agents/traces.py`
+- `app/static/js/traces.js`
+- `app/templates/ai/traces.html`
+- `tests/test_trace_api_complete.py`
+
+**验证：**
+
+```powershell
+node --check app\static\js\traces.js
+.\.venv\Scripts\python.exe -m pytest tests/test_trace_api_complete.py -q
+```
+
+### Phase 4: 绑定 agent runtime 到新 trace
+
+**包含任务：**
+- Task 3: 统一 Agent Harness
+- Task 9: MCP guard / sandbox 进入 trace 的核心传播部分
+
+**目标：**
+- worker/chat task、AgentHarness、agent、tool executor、MCP client 使用同一个 `trace_id`。
+- agent 执行产生 run/span/event/link。
+- MCP denied、approval required、transport timeout、sandbox execution 至少有核心 trace 记录。
+
+**建议一起修改：**
+- `evals/harness/agent_harness.py`
+- `workers/task_runner.py`
+- `agents/base.py`
+- `agents/executor.py`
+- `mcp_gateway/client.py`
+- `mcp_gateway/middleware/core.py`
+- `tools/protocol/policies/guard.py`
+- `tests/test_agent_harness_trace_binding.py`
+- `tests/test_trace_mcp_links.py`
+
+**验证：**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_agent_harness_trace_binding.py tests/test_trace_mcp_links.py tests/test_agent_hooks.py -q
+```
+
+### Phase 5: Dataset Store 与 deterministic graders
+
+**包含任务：**
+- Task 5: 正式化 eval datasets
+- Task 7: grader 系统中的 base / deterministic 部分
+
+**目标：**
+- Eval case 有正式 schema 和 dataset store。
+- golden / hidden / regression / production_failure case 类型可加载。
+- deterministic grader 可独立运行，不依赖 LLM、sandbox 或完整 EvalHarness。
+
+**建议一起修改：**
+- `evals/datasets/schema.py`
+- `evals/datasets/store.py`
+- `evals/datasets/golden/`
+- `evals/datasets/hidden/`
+- `evals/datasets/regression/`
+- `evals/datasets/production_failures/`
+- `evals/graders/base.py`
+- `evals/graders/deterministic.py`
+- `evals/judges/judges.py`
+- `tests/test_eval_dataset_store.py`
+- `tests/test_eval_graders.py`
+
+**验证：**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_eval_dataset_store.py tests/test_eval_graders.py -q
+```
+
+### Phase 6: EvalHarness 与 eval 持久化
+
+**包含任务：**
+- Task 6: 完整 Eval Harness
+- Task 7: unit/static/LLM grader 的接口接入与轻量实现
+
+**目标：**
+- EvalHarness 能加载 dataset、调用 AgentHarness、运行 graders。
+- 每个 eval case run 都绑定 `trace_id`。
+- 写入 `EvalRun`、`EvalCaseRun`、`EvalCaseGraderResult`。
+- 复杂 unit/static/LLM judge 可以先接稳定接口，deterministic grader 必须真实可用。
+
+**建议一起修改：**
+- `evals/harness/eval_harness.py`
+- `evals/runner.py`
+- `evals/graders/unit_tests.py`
+- `evals/graders/static_checks.py`
+- `evals/graders/llm_judge.py`
+- `app/api/v1/ai.py`
+- `tests/test_eval_harness_trace_binding.py`
+- `tests/test_eval_graders.py`
+
+**验证：**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_eval_harness_trace_binding.py tests/test_eval_graders.py -q
+```
+
+### Phase 7: Reports、页面联动与 backfill
+
+**包含任务：**
+- Task 8: Report Generator
+- Task 10: Eval 页面与 Trace 页面联动
+- Task 11: 历史 trace backfill 剩余部分
+
+**目标：**
+- Eval report 输出 pass rate、cost、latency、failure types、regression diff。
+- Eval 页面能展示 history、report summary、failed cases、case trace links。
+- Trace detail 有 Eval tab。
+- 旧 `agent_runs` 可通过 backfill 复制到新 trace 表。
+- production failure 可生成 regression dataset case。
+
+**建议一起修改：**
+- `evals/reports/generator.py`
+- `evals/reports/regression.py`
+- `evals/ci.py`
+- `app/templates/ai/evals.html`
+- `app/static/js/evals.js`
+- `app/templates/ai/traces.html`
+- `app/static/js/traces.js`
+- `scripts/backfill_agent_traces.py`
+- `tests/test_eval_report_generator.py`
+- `tests/test_eval_pages.py`
+- `tests/test_trace_backfill.py`
+
+**验证：**
+
+```powershell
+node --check app\static\js\traces.js
+node --check app\static\js\evals.js
+.\.venv\Scripts\python.exe -m pytest tests/test_eval_report_generator.py tests/test_eval_pages.py tests/test_trace_backfill.py -q
+```
+
+### Phase 8: CI、文档与最终 runtime 验证
+
+**包含任务：**
+- Task 12: 完整验证门
+
+**目标：**
+- CI 能跑 traces/evals 相关测试并上传 eval report artifact。
+- docs 说明新的 trace/eval 数据链路、API、runtime 边界。
+- Docker runtime 中 workers 不再出现 `TRACE_SAVE_FAIL`。
+
+**建议一起修改：**
+- `.github/workflows/evals.yml`
+- `.github/workflows/tests.yml`
+- `docs/architecture/ai-agents.md`
+- `docs/api/ai-api.md`
+
+**验证：**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest `
+  tests/test_trace_schema_contract.py `
+  tests/test_trace_store_runtime_neutral.py `
+  tests/test_agent_harness_trace_binding.py `
+  tests/test_trace_api_complete.py `
+  tests/test_eval_dataset_store.py `
+  tests/test_eval_harness_trace_binding.py `
+  tests/test_eval_graders.py `
+  tests/test_eval_report_generator.py `
+  tests/test_trace_mcp_links.py `
+  tests/test_trace_backfill.py `
+  -q
+
+docker compose up -d --build web workers mcp_gateway
+docker compose logs workers --tail=200 | Select-String -Pattern "TRACE_SAVE_FAIL"
+```
+
+**期望：**
+- 所有 selected pytest 通过。
+- JS syntax check 通过。
+- 新 agent request 后 workers 日志没有新的 `TRACE_SAVE_FAIL`。
+- `/ai/traces` 能看到新 trace，eval report 能跳转到 case trace。
