@@ -41,8 +41,8 @@ langchain-core>=0.3.0
 redis>=5.0.0
 
 # Phase 3: Knowledge base / RAG
-# Pin chromadb <1.0 to avoid Rust bindings requirement in Docker slim images
-chromadb>=0.5.0,<1.0.0
+# Pin Chroma 1.x to avoid accidental storage/API drift during Docker rebuilds.
+chromadb==1.5.9
 sentence-transformers>=3.0.0
 
 # Phase 1: FastAPI Agent Host

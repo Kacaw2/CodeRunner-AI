@@ -6,31 +6,98 @@ logger = logging.getLogger(__name__)
 _kb_instance = None
 
 
+def create_chroma_client():
+    """Create a Chroma client from runtime settings."""
+    import chromadb
+    from chromadb.config import Settings
+
+    from core.config import get_settings
+
+    cfg = get_settings()
+    if cfg.CHROMA_MODE == "http":
+        return chromadb.HttpClient(
+            host=cfg.CHROMA_HOST,
+            port=cfg.CHROMA_PORT,
+            ssl=cfg.CHROMA_SSL,
+        )
+
+    if cfg.CHROMA_MODE == "persistent":
+        os.makedirs(cfg.CHROMA_PERSIST_DIR, exist_ok=True)
+        return chromadb.PersistentClient(
+            path=cfg.CHROMA_PERSIST_DIR,
+            settings=Settings(anonymized_telemetry=cfg.CHROMA_ANONYMIZED_TELEMETRY),
+        )
+
+    raise ValueError(f"Unsupported CHROMA_MODE: {cfg.CHROMA_MODE}")
+
+
+def get_or_create_cosine_collection(client, name: str):
+    """Create Chroma 1.x collections with cosine HNSW distance."""
+    try:
+        return client.get_or_create_collection(
+            name=name,
+            configuration={"hnsw": {"space": "cosine"}},
+        )
+    except (AttributeError, ValueError) as exc:
+        # Chroma 0.6 local clients expect internal configuration objects while
+        # Chroma 1.x clients expect a plain dict. Keep this fallback so older
+        # local test environments still work during the upgrade window.
+        message = str(exc)
+        if (
+            "'dict' object has no attribute" not in message
+            and "CollectionConfiguration" not in message
+        ):
+            raise
+
+    from chromadb.api.configuration import (
+        CollectionConfigurationInternal,
+        ConfigurationParameter,
+        HNSWConfigurationInternal,
+    )
+
+    hnsw = HNSWConfigurationInternal(
+        parameters=[ConfigurationParameter(name="space", value="cosine")]
+    )
+
+    return client.get_or_create_collection(
+        name=name,
+        configuration=CollectionConfigurationInternal(
+            parameters=[ConfigurationParameter(name="hnsw_configuration", value=hnsw)]
+        ),
+    )
+
+
 class KnowledgeBase:
     """Vector-based knowledge base using ChromaDB for problem similarity search and knowledge retrieval."""
 
     def __init__(self, persist_dir=None):
-        import chromadb
         from sentence_transformers import SentenceTransformer
 
         from core.config import get_settings
 
-        if persist_dir is None:
-            persist_dir = os.path.join(os.getcwd(), "data", "knowledge_base")
-        os.makedirs(persist_dir, exist_ok=True)
+        cfg = get_settings()
+        if persist_dir is not None:
+            # Explicit local persistence (isolated tests / one-off scripts).
+            # Build a PersistentClient directly so we don't mutate the cached
+            # settings singleton and leak mode into other callers.
+            import chromadb
+            from chromadb.config import Settings
 
-        self.client = chromadb.PersistentClient(path=persist_dir)
-        self.embedder = SentenceTransformer(get_settings().RAG_EMBED_MODEL)
+            os.makedirs(persist_dir, exist_ok=True)
+            self.client = chromadb.PersistentClient(
+                path=persist_dir,
+                settings=Settings(
+                    anonymized_telemetry=cfg.CHROMA_ANONYMIZED_TELEMETRY
+                ),
+            )
+        else:
+            self.client = create_chroma_client()
 
-        self.questions = self.client.get_or_create_collection(
-            "questions", metadata={"hnsw:space": "cosine"},
-        )
-        self.knowledge = self.client.get_or_create_collection(
-            "knowledge_points", metadata={"hnsw:space": "cosine"},
-        )
-        self.error_patterns = self.client.get_or_create_collection(
-            "error_patterns", metadata={"hnsw:space": "cosine"},
-        )
+        self.embedder = SentenceTransformer(cfg.RAG_EMBED_MODEL)
+
+        self.questions = get_or_create_cosine_collection(self.client, "questions")
+        self.knowledge = get_or_create_cosine_collection(self.client, "knowledge_points")
+        self.error_patterns = get_or_create_cosine_collection(self.client, "error_patterns")
 
     def _split_text(self, text: str) -> list:
         """Split text into chunks for embedding (langchain splitter, pure-Python fallback)."""
