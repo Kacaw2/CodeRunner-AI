@@ -51,6 +51,13 @@ def db_session(app, _setup_db):
     with app.app_context():
         yield _db.session
         _db.session.rollback()
+        import core.db.session as core_session
+
+        # Trace/eval tables live on core Base, not Flask metadata. Clear them too
+        # so autoincrement eval_run_id values from one test don't collide with
+        # leftover child rows (eval_case_runs, grader results) from another.
+        for table in reversed(core_session.Base.metadata.sorted_tables):
+            _db.session.execute(table.delete())
         for table in reversed(_db.metadata.sorted_tables):
             _db.session.execute(table.delete())
         _db.session.commit()

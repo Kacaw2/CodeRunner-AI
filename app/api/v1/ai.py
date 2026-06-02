@@ -2017,6 +2017,93 @@ def eval_history():
     return jsonify({"runs": [r.to_dict() for r in runs], "total": total})
 
 
+@bp.route("/evals/runs/<int:run_id>", methods=["GET"])
+@require_teacher
+def eval_run_report(run_id: int):
+    """Full report for one eval run (summary + cases + optional regressions)."""
+    from evals.reports.generator import ReportGenerator
+
+    compare_to = request.args.get("compare_to", default=0, type=int)
+    try:
+        report = ReportGenerator().build(
+            eval_run_id=run_id, compare_to_eval_run_id=compare_to
+        )
+    except Exception as e:  # noqa: BLE001 — report boundary
+        logger.exception("Eval report build error")
+        return _error_response("ai_service_error", f"Report failed: {e}", 500)
+    return jsonify(report.to_dict())
+
+
+@bp.route("/evals/cases/by-trace/<trace_id>", methods=["GET"])
+@require_teacher
+def eval_case_by_trace(trace_id: str):
+    """Eval case + grader results bound to a trace (for the trace Eval tab)."""
+    from core.db.session import db_session
+    from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
+
+    with db_session() as session:
+        case = (
+            session.query(EvalCaseRun)
+            .filter_by(trace_id=trace_id)
+            .order_by(EvalCaseRun.created_at.desc())
+            .first()
+        )
+        if case is None:
+            return jsonify({"case": None})
+        graders = (
+            session.query(EvalCaseGraderResult)
+            .filter_by(case_run_id=case.id)
+            .all()
+        )
+        payload = {
+            "case_id": case.case_id,
+            "case_type": case.case_type,
+            "suite": case.suite,
+            "agent_type": case.agent_type,
+            "eval_run_id": case.eval_run_id,
+            "status": case.status,
+            "passed": bool(case.passed),
+            "failure_type": case.failure_type,
+            "graders": [
+                {
+                    "grader_type": g.grader_type,
+                    "grader_name": g.grader_name,
+                    "passed": g.passed,
+                    "score": g.score,
+                    "reason": g.reason,
+                }
+                for g in graders
+            ],
+        }
+    return jsonify({"case": payload})
+
+
+@bp.route("/evals/promote-regression", methods=["POST"])
+@require_teacher
+def promote_regression():
+    """Promote a trace into a regression/production-failure dataset case."""
+    data = request.get_json(silent=True) or {}
+    trace_id = (data.get("trace_id") or "").strip()
+    if not trace_id:
+        return _error_response("invalid_request", "trace_id is required", 400)
+
+    from evals.datasets.store import DatasetStore
+
+    try:
+        case = DatasetStore().create_from_trace(
+            trace_id,
+            case_type=data.get("case_type", "regression"),
+            reason=data.get("reason", ""),
+            suite=data.get("suite"),
+        )
+    except ValueError as e:
+        return _error_response("not_found", str(e), 404)
+    except Exception as e:  # noqa: BLE001 — dataset write boundary
+        logger.exception("Promote regression error")
+        return _error_response("ai_service_error", f"Promote failed: {e}", 500)
+    return jsonify({"case": case.to_dict()})
+
+
 # ── Phase 2: Supervisor Workflow Endpoints ──────────────────
 
 

@@ -261,11 +261,49 @@
     if (run.eval_run_id == null && run.eval_case_id == null) {
       return '<p class="text-muted small">This trace is not linked to an eval run.</p>';
     }
+    const reportLink = run.eval_run_id != null
+      ? `<a href="/ai/evals?run=${encodeURIComponent(run.eval_run_id)}">View eval report &rarr;</a>`
+      : '';
+    // Grader results are loaded lazily from the eval case bound to this trace.
+    if (run.trace_id) loadEvalCase(run.trace_id);
     return `<div class="trace-detail-stats">
       ${stat('Eval Run', run.eval_run_id != null ? run.eval_run_id : '-')}
       ${stat('Eval Case', run.eval_case_id || '-')}
     </div>
+    <div style="margin-top:8px;">${reportLink}</div>
+    <div id="evalGraderBox" class="small text-muted" style="margin-top:10px;">Loading graders…</div>
     ${links.length ? `<div class="small text-muted" style="margin-top:8px;">Links: ${links.map(l => escapeHtml(`${l.link_type}:${l.target_id}`)).join(', ')}</div>` : ''}`;
+  }
+
+  function loadEvalCase(traceId) {
+    fetch(`/api/v1/ai/evals/cases/by-trace/${encodeURIComponent(traceId)}`)
+      .then(r => r.json())
+      .then(data => {
+        const box = document.getElementById('evalGraderBox');
+        if (!box) return;
+        const c = data.case;
+        if (!c) { box.innerHTML = 'No eval case bound to this trace.'; return; }
+        const verdict = c.passed
+          ? '<span class="trace-status-badge completed">passed</span>'
+          : `<span class="trace-status-badge failed">${escapeHtml(c.failure_type || 'failed')}</span>`;
+        const dataset = escapeHtml(`${c.case_type || ''} · ${c.suite || ''}`);
+        const graders = (c.graders || []).map(g => `
+          <tr>
+            <td><code>${escapeHtml(g.grader_type)}</code></td>
+            <td>${g.passed == null ? 'skipped' : (g.passed ? 'pass' : 'fail')}</td>
+            <td>${g.score == null ? '-' : Number(g.score).toFixed(2)}</td>
+            <td><pre>${escapeHtml(String(g.reason || '').substring(0, 160))}</pre></td>
+          </tr>`).join('');
+        box.innerHTML = `
+          <div style="margin-bottom:6px;">Dataset: <strong>${dataset}</strong> &nbsp; ${verdict}</div>
+          ${graders ? `<table class="trace-table">
+            <thead><tr><th>Grader</th><th>Result</th><th>Score</th><th>Reason</th></tr></thead>
+            <tbody>${graders}</tbody></table>` : '<div>No graders recorded.</div>'}`;
+      })
+      .catch(() => {
+        const box = document.getElementById('evalGraderBox');
+        if (box) box.innerHTML = 'Failed to load grader results.';
+      });
   }
 
   // ── Helpers ───────────────────────────────────────────────

@@ -33,3 +33,9 @@ def review_queue_page():
 @web_teacher_required
 def traces_page():
     return render_template("ai/traces.html")
+
+
+@ai_chat_bp.route("/evals")
+@web_teacher_required
+def evals_page():
+    return render_template("ai/evals.html")

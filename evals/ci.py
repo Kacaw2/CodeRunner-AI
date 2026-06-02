@@ -13,6 +13,11 @@ Usage:
     python -m evals.ci --update-baseline     # run + (re)write baseline.json
     python -m evals.ci --report-out out.json # also dump a full JSON report
     python -m evals.ci --tolerance 0.10      # allow a 10pp drop before failing
+
+    # Harness mode (DB-backed): run the EvalHarness over a dataset selector,
+    # persist results, then emit a full ReportGenerator report and gate on it.
+    python -m evals.ci --use-harness --selector all \
+        --report-out eval-report.json
 """
 
 from __future__ import annotations
@@ -40,6 +45,64 @@ def _load_baseline(path: Path) -> dict:
         return {}
 
 
+def _run_harness_mode(args) -> int:
+    """Run the EvalHarness, emit a full report, and gate on it.
+
+    Gate fails when any case regressed against ``--compare-to`` or when the
+    overall pass rate falls below ``baseline floor - tolerance`` (baseline reused
+    from ``baseline.json`` keyed by suite, falling back to the whole run).
+    """
+    from evals.harness.eval_harness import EvalHarness
+    from evals.reports.generator import ReportGenerator
+
+    run_report = EvalHarness().run(selector=args.selector)
+    report = ReportGenerator().build(
+        eval_run_id=run_report.eval_run_id,
+        compare_to_eval_run_id=args.compare_to,
+    )
+    summary = report.summary
+
+    if args.report_out:
+        Path(args.report_out).write_text(
+            json.dumps(report.to_dict(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("Wrote report JSON to %s", args.report_out)
+    Path(args.report_md_out).write_text(report.to_markdown(), encoding="utf-8")
+    Path(args.regressions_out).write_text(
+        json.dumps(summary.get("regressions", []), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    print("\n=== Eval report ===")
+    print(report.to_markdown())
+
+    regressions = summary.get("regressions", [])
+    pass_rate = summary.get("pass_rate", 0.0)
+    baseline = _load_baseline(Path(args.baseline))
+    suite = summary.get("suite_name") or args.selector
+    floor = float(baseline.get(suite, {}).get("min_pass_rate", 0.0))
+    threshold = floor - args.tolerance
+
+    failed = False
+    if regressions:
+        failed = True
+        print(f"\nEval gate FAILED — {len(regressions)} case(s) regressed:")
+        for r in regressions:
+            print(f"  - {r['case_id']} ({r.get('failure_type') or 'failed'})")
+    if floor and pass_rate < threshold:
+        failed = True
+        print(
+            f"\nEval gate FAILED — pass rate {pass_rate:.1%} < "
+            f"baseline {floor:.1%} - tolerance {args.tolerance:.0%}"
+        )
+
+    if failed:
+        return 1
+    print("\nEval gate PASSED.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -65,7 +128,36 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Optional path to write a full per-case JSON report.",
     )
+    parser.add_argument(
+        "--use-harness",
+        action="store_true",
+        help="Run the DB-backed EvalHarness and gate on a full report.",
+    )
+    parser.add_argument(
+        "--selector",
+        default="all",
+        help="Harness-mode dataset selector (all / <type> / <type>:<suite>).",
+    )
+    parser.add_argument(
+        "--compare-to",
+        type=int,
+        default=0,
+        help="Harness-mode prior eval_run_id to compare against for regressions.",
+    )
+    parser.add_argument(
+        "--report-md-out",
+        default="eval-report.md",
+        help="Harness-mode path for the Markdown report.",
+    )
+    parser.add_argument(
+        "--regressions-out",
+        default="eval-regressions.json",
+        help="Harness-mode path for the regressions JSON.",
+    )
     args = parser.parse_args(argv)
+
+    if args.use_harness:
+        return _run_harness_mode(args)
 
     runner = EvalRunner(use_real_llm=True)
     reports = runner.run_all_suites(args.cases_dir)
