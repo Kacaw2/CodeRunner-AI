@@ -1,11 +1,11 @@
 import json
 import logging
-import re
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from agents.base import BaseAgent
 from agents.config import AIConfig
+from agents.json_utils import extract_first_json_object
 from core.exceptions import LLMError
 from models.tiers import ModelTier
 from core.security import SECURITY_PROMPT_ADDENDUM
@@ -19,17 +19,14 @@ MAX_VALIDATION_ROUNDS = 3
 
 
 def _extract_json(text: str) -> dict | None:
-    """Extract the first JSON object from LLM output (possibly inside ```json fences)."""
-    fence_match = re.search(r"```json\s*\n?(.*?)```", text, re.DOTALL)
-    if fence_match:
-        text = fence_match.group(1)
-    brace_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not brace_match:
-        return None
-    try:
-        return json.loads(brace_match.group())
-    except json.JSONDecodeError:
-        return None
+    """Extract the JSON object from LLM output.
+
+    The scanner is string-aware and tries each balanced object candidate, so
+    braces or triple-backtick code fences inside ``description`` strings do not
+    truncate extraction and non-JSON braces around the fenced payload are
+    ignored.
+    """
+    return extract_first_json_object(text)
 
 
 def validate_reference_solution(

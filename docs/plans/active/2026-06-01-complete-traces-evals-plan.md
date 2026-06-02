@@ -1382,6 +1382,8 @@ node --check app\static\js\traces.js
 
 ### Phase 6: EvalHarness 与 eval 持久化
 
+> **状态（2026-06-03）**：已完成。`EvalHarness`、eval case 持久化、deterministic/static/unit/LLM grader 接口均已落地；验证 `tests/test_eval_harness_trace_binding.py tests/test_eval_graders.py` 通过（12 passed）。
+
 **包含任务：**
 - Task 6: 完整 Eval Harness
 - Task 7: unit/static/LLM grader 的接口接入与轻量实现
@@ -1409,6 +1411,8 @@ node --check app\static\js\traces.js
 ```
 
 ### Phase 7: Reports、页面联动与 backfill
+
+> **状态（2026-06-03）**：已完成。ReportGenerator、eval 页面/trace 联动、历史 trace backfill 已落地；本轮补齐 `evals.ci --cases-dir evals/datasets/<type>` 到 DB-backed harness selector 的兼容入口。验证 `tests/test_eval_report_generator.py tests/test_eval_pages.py tests/test_trace_backfill.py tests/test_evals_ci.py` 通过（12 passed），`node --check app\static\js\traces.js app\static\js\evals.js` 通过。
 
 **包含任务：**
 - Task 8: Report Generator
@@ -1444,6 +1448,8 @@ node --check app\static\js\evals.js
 ```
 
 ### Phase 8: CI、文档与最终 runtime 验证
+
+> **状态（2026-06-03）**：已完成。CI tests gate 增加 JS syntax check，evals workflow 已用 DB-backed harness 输出 `eval-report.json` / `eval-report.md` / `eval-regressions.json` artifact；架构/API 文档已覆盖 runtime-neutral trace/eval 数据链路。验证：selected trace/eval pytest 37 passed，MCP/agent 回归 194 passed，`node --check` 通过，`docker compose up -d --build web workers mcp_gateway` 成功且服务 healthy。真实 workers chat 请求 `e717cc19-30f6-403c-b36b-a2cdd2d412ee` 生成 trace `f3cab6d4-4df4-4af4-98b3-e1f05acebafb`，状态 `completed`，含 LLM span、chat_task/conversation links、tokens/cost/latency；workers 日志显示 `TRACE_SAVE_OK` 且无 `TRACE_SAVE_FAIL`。
 
 **包含任务：**
 - Task 12: 完整验证门

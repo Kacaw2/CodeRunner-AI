@@ -1,11 +1,13 @@
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.config import AIConfig, MAX_TOOL_ITERATIONS
 from agents.executor import ToolCallExecutor
+from agents.json_utils import extract_first_json_object
 from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
 from models.tiers import ModelTier
 from core.state import AgentState
@@ -26,6 +28,85 @@ def _trace_links_from_state(state: dict) -> dict:
     """Pull trace link keys from the agent state's context (when present)."""
     ctx = state.get("context") or {}
     return {k: ctx[k] for k in _TRACE_LINK_KEYS if ctx.get(k) is not None}
+
+
+_LEGACY_FUNCTION_RE = re.compile(
+    r"<function(?:\s+name=['\"]?([A-Za-z0-9_.-]+)['\"]?)?\s*>(.*?)</function>",
+    re.DOTALL | re.IGNORECASE,
+)
+_FUNCTION_MARKER = "<function"
+
+
+def _parse_legacy_function_text(content: str, allowed_tools: list[str]) -> dict | None:
+    """Convert old text-form function markup into a canonical tool call.
+
+    Some providers may emit literal text such as
+    ``<function>get_class_statistics({"teacher_id": 1})</function>`` instead
+    of LangChain ``tool_calls``. Treat it as a tool call only when it resolves
+    to a tool in the current agent's allowlist.
+    """
+    if not content:
+        return None
+
+    match = _LEGACY_FUNCTION_RE.search(content)
+    if not match:
+        return None
+
+    name = (match.group(1) or "").strip()
+    body = (match.group(2) or "").strip()
+    args_text = body
+
+    if not name:
+        call_match = re.match(r"^([A-Za-z0-9_.-]+)\s*(?:\((.*)\))?\s*$", body, re.DOTALL)
+        if call_match:
+            name = call_match.group(1)
+            args_text = call_match.group(2) or ""
+        else:
+            lines = body.splitlines()
+            if lines:
+                name = lines[0].strip()
+                args_text = "\n".join(lines[1:])
+
+    if not name:
+        return None
+
+    try:
+        from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+        canonical_name = EXTERNAL_TOOL_MAP.get(name, name)
+    except Exception:
+        canonical_name = name
+
+    if canonical_name not in set(allowed_tools):
+        return None
+
+    args = extract_first_json_object(args_text) or {}
+    return {
+        "name": canonical_name,
+        "args": args,
+        "id": f"legacy_{canonical_name.replace('.', '_')}",
+    }
+
+
+def _usage_number(metadata, key: str) -> int:
+    if not isinstance(metadata, dict):
+        return 0
+    value = metadata.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
+def _split_safe_stream_content(buffer: str) -> tuple[str, str]:
+    """Return text safe to stream now and text that might be function markup."""
+    lower = buffer.lower()
+    marker_pos = lower.find(_FUNCTION_MARKER)
+    if marker_pos >= 0:
+        return buffer[:marker_pos], buffer[marker_pos:]
+
+    max_suffix = min(len(_FUNCTION_MARKER) - 1, len(buffer))
+    for length in range(max_suffix, 0, -1):
+        if _FUNCTION_MARKER.startswith(lower[-length:]):
+            return buffer[:-length], buffer[-length:]
+
+    return buffer, ""
 
 
 class BaseAgent(ABC):
@@ -174,13 +255,18 @@ class BaseAgent(ABC):
 
                     input_tokens = 0
                     output_tokens = 0
-                    if hasattr(response, "usage_metadata") and response.usage_metadata:
-                        input_tokens = response.usage_metadata.get("input_tokens", 0)
-                        output_tokens = response.usage_metadata.get("output_tokens", 0)
-                    elif hasattr(response, "response_metadata"):
-                        usage = response.response_metadata.get("token_usage", {})
-                        input_tokens = usage.get("prompt_tokens", 0)
-                        output_tokens = usage.get("completion_tokens", 0)
+                    usage_metadata = getattr(response, "usage_metadata", None)
+                    if isinstance(usage_metadata, dict) and usage_metadata:
+                        input_tokens = _usage_number(usage_metadata, "input_tokens")
+                        output_tokens = _usage_number(usage_metadata, "output_tokens")
+                    else:
+                        response_metadata = getattr(response, "response_metadata", None)
+                        usage = (
+                            response_metadata.get("token_usage", {})
+                            if isinstance(response_metadata, dict) else {}
+                        )
+                        input_tokens = _usage_number(usage, "prompt_tokens")
+                        output_tokens = _usage_number(usage, "completion_tokens")
                     if input_tokens or output_tokens:
                         trace.total_input_tokens += input_tokens
                         trace.total_output_tokens += output_tokens
@@ -188,6 +274,11 @@ class BaseAgent(ABC):
                         llm_step["completion_tokens"] = output_tokens
 
                 messages.append(response)
+                legacy_tool_call = _parse_legacy_function_text(
+                    getattr(response, "content", ""), tool_names)
+                if legacy_tool_call and not response.tool_calls:
+                    response = AIMessage(content="", tool_calls=[legacy_tool_call])
+                    messages[-1] = response
 
                 if not response.tool_calls:
                     break
@@ -274,6 +365,7 @@ class BaseAgent(ABC):
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 collected_content = ""
+                pending_content = ""
                 tool_calls = []
 
                 try:
@@ -282,7 +374,10 @@ class BaseAgent(ABC):
                         for chunk in stream:
                             if chunk.content:
                                 collected_content += chunk.content
-                                yield {"type": "token", "content": chunk.content}
+                                pending_content += chunk.content
+                                safe_content, pending_content = _split_safe_stream_content(pending_content)
+                                if safe_content:
+                                    yield {"type": "token", "content": safe_content}
                             if chunk.tool_call_chunks:
                                 for tc_chunk in chunk.tool_call_chunks:
                                     if tc_chunk.get("index") is not None:
@@ -295,9 +390,10 @@ class BaseAgent(ABC):
                                             tool_calls[idx]["args"] += tc_chunk["args"]
                                         if tc_chunk.get("id"):
                                             tool_calls[idx]["id"] = tc_chunk["id"]
-                            if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                                input_t = chunk.usage_metadata.get("input_tokens", 0)
-                                output_t = chunk.usage_metadata.get("output_tokens", 0)
+                            usage_metadata = getattr(chunk, "usage_metadata", None)
+                            if isinstance(usage_metadata, dict) and usage_metadata:
+                                input_t = _usage_number(usage_metadata, "input_tokens")
+                                output_t = _usage_number(usage_metadata, "output_tokens")
                                 trace.total_input_tokens += input_t
                                 trace.total_output_tokens += output_t
                                 llm_step["prompt_tokens"] = llm_step.get("prompt_tokens", 0) + input_t
@@ -310,7 +406,14 @@ class BaseAgent(ABC):
                         return
                     break
 
+                legacy_tool_call = _parse_legacy_function_text(collected_content, tool_names)
+                if legacy_tool_call and not tool_calls:
+                    tool_calls = [legacy_tool_call]
+                    collected_content = ""
+
                 if not tool_calls:
+                    if pending_content:
+                        yield {"type": "token", "content": pending_content}
                     state["final_response"] = collected_content
                     messages.append(AIMessage(content=collected_content))
                     break

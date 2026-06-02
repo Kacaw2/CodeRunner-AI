@@ -219,16 +219,8 @@ def _load_history(conversation_id: int) -> list:
 
 def _try_parse_review_json(text: str) -> dict | None:
     """Try to extract a structured review JSON from the LLM response."""
-    import re
-    fence = re.search(r"```json\s*\n?(.*?)```", text, re.DOTALL)
-    raw = fence.group(1) if fence else text
-    brace = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not brace:
-        return None
-    try:
-        return json.loads(brace.group())
-    except json.JSONDecodeError:
-        return None
+    from agents.json_utils import extract_first_json_object
+    return extract_first_json_object(text)
 
 
 def _slugify_problem_title(title: str) -> str:

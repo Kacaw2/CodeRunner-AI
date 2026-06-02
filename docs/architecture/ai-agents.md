@@ -865,7 +865,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 mcp-runtime.md） | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
 | 架构 Phase F | Human Gate 与 AgentTask 状态机打通（部分完成）| ⚠️ 进行中 |
-| 架构 Phase G | Observability 和评估闭环 | ❌ 未开始 |
+| 架构 Phase G | Observability 和评估闭环 | ✅ 完成 |
 | Phase D (旧) | RAG 深度集成：知识库种子数据、教师知识库管理 API | ❌ 未开始 |
 
 ---

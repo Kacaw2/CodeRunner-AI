@@ -529,6 +529,61 @@ class TestAnalyticsAgent:
 
             assert "progress" in result["final_response"]
 
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_stream_executes_legacy_function_text_without_leaking_it(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.analytics.agent import AnalyticsAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            class FunctionTextChunk:
+                content = '<function>\nget_class_statistics({"teacher_id": 10})\n</function>'
+                usage_metadata = {}
+                tool_call_chunks = []
+
+            class FinalChunk:
+                content = '{"summary": "Class activity is steady", "progress": {"trend": "stable"}}'
+                usage_metadata = {}
+                tool_call_chunks = []
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.stream.side_effect = [[FunctionTextChunk()], [FinalChunk()]]
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True,
+                tool="coderunner.analytics.class_statistics",
+                data={"classrooms": [], "total_students": 0},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = AnalyticsAgent()
+                state = {
+                    "messages": [HumanMessage(content="Analyze my class")],
+                    "agent_type": "analytics",
+                    "user_id": 10,
+                    "user_role": "teacher",
+                    "context": {"period": "30d"},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                events = list(agent.stream(state))
+            finally:
+                reset_tool_runtime()
+
+            token_text = "".join(e.get("content", "") for e in events if e["type"] == "token")
+            assert "<function>" not in token_text
+            assert any(e["type"] == "tool_call" and e["tool"] == "coderunner.analytics.class_statistics"
+                       for e in events)
+            mock_runtime.call_sync.assert_called()
+            assert state["final_response"].startswith('{"summary"')
+
 
 class TestOrchestrator:
     def test_routes_to_correct_agent(self, app):

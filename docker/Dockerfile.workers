@@ -38,6 +38,7 @@ COPY --chown=appuser:appuser core/ ./core/
 COPY --chown=appuser:appuser tools/ ./tools/
 COPY --chown=appuser:appuser agents/ ./agents/
 COPY --chown=appuser:appuser graph/ ./graph/
+COPY --chown=appuser:appuser evals/ ./evals/
 COPY --chown=appuser:appuser memory/ ./memory/
 COPY --chown=appuser:appuser knowledge/ ./knowledge/
 COPY --chown=appuser:appuser models/ ./models/

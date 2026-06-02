@@ -172,6 +172,28 @@ def _run_harness_mode(args) -> int:
     return 0
 
 
+def _selector_from_dataset_cases_dir(cases_dir: str) -> str | None:
+    """Map evals/datasets paths to DatasetStore selectors.
+
+    The legacy CI runner uses ``evals/cases`` suites. Phase 5 moved canonical
+    cases under ``evals/datasets/{golden,hidden,regression,production_failures}``,
+    so a cases-dir pointing there should use the DB-backed harness path.
+    """
+    path = Path(cases_dir)
+    parts = [part.lower() for part in path.parts]
+    if not parts:
+        return None
+
+    if parts[-1] == "datasets":
+        return "all"
+
+    dataset_types = {"golden", "hidden", "regression", "production_failures"}
+    if len(parts) >= 2 and parts[-2] == "datasets" and parts[-1] in dataset_types:
+        return parts[-1]
+
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -234,6 +256,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Harness-mode: override SQLALCHEMY_DATABASE_URI when bootstrapping.",
     )
     args = parser.parse_args(argv)
+
+    dataset_selector = _selector_from_dataset_cases_dir(args.cases_dir)
+    if dataset_selector and not args.use_harness:
+        args.use_harness = True
+        if args.selector == "all":
+            args.selector = dataset_selector
 
     if args.use_harness:
         return _run_harness_cli(args)
