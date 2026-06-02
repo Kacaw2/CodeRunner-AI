@@ -138,6 +138,28 @@ class AgentTraceLink(Base):
     created_at = Column(DateTime, nullable=False, default=_now_china)
 
 
+class EvalRun(Base):
+    """Runtime-neutral mirror of ``eval_runs`` (Flask model in app.models).
+
+    The eval harness owns eval-run persistence and must never depend on a Flask
+    app context, so it writes through this plain-SQLAlchemy mapping. Columns mirror
+    the Alembic-owned ``eval_runs`` table; the Flask ``app.models.eval_run.EvalRun``
+    stays the read model for the web layer.
+    """
+
+    __tablename__ = "eval_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    suite_name = Column(String(50), nullable=False)
+    run_at = Column(DateTime, nullable=True, default=_now_china)
+    model_name = Column(String(50), nullable=True)
+    total_cases = Column(Integer, nullable=True)
+    passed_cases = Column(Integer, nullable=True)
+    pass_rate = Column(Float, nullable=True)
+    results_json = Column(JSON, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+
+
 class EvalCaseRun(Base):
     __tablename__ = "eval_case_runs"
 

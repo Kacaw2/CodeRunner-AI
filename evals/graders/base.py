@@ -49,6 +49,36 @@ def error_result(
     )
 
 
+def skipped_result(
+    grader_type: str,
+    grader_name: str,
+    reason: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+    trace_id: str | None = None,
+) -> GraderResult:
+    """A neutral, non-failing result for a known grader that did not evaluate.
+
+    Used by placeholder/optional graders (``unit_tests`` without a sandbox,
+    ``llm_judge`` without an API key). Distinct from :func:`error_result`: a skip
+    is *not applicable*, not a failure, so it does not block a case. ``score`` is
+    ``None`` so report aggregation can exclude it.
+    """
+    meta = {"skipped": True}
+    if metadata:
+        meta.update(metadata)
+    return GraderResult(
+        grader_type=grader_type,
+        grader_name=grader_name,
+        passed=True,
+        score=None,
+        reason=reason,
+        metadata=meta,
+        latency_ms=0,
+        trace_id=trace_id,
+    )
+
+
 def split_grader_type(grader_type: str) -> tuple[str, str]:
     """Split ``<family>.<name>`` into ``(family, name)``.
 
@@ -78,6 +108,21 @@ def run_grader(
         return run_deterministic_grader(
             grader_type, response, params, trace_id=trace_id
         )
+
+    if family == "static_checks":
+        from evals.graders.static_checks import run_static_check_grader
+
+        return run_static_check_grader(grader_type, response, params, trace_id=trace_id)
+
+    if family == "unit_tests":
+        from evals.graders.unit_tests import run_unit_test_grader
+
+        return run_unit_test_grader(grader_type, response, params, trace_id=trace_id)
+
+    if family == "llm_judge":
+        from evals.graders.llm_judge import run_llm_judge_grader
+
+        return run_llm_judge_grader(grader_type, response, params, trace_id=trace_id)
 
     return error_result(
         family,

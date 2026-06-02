@@ -69,3 +69,61 @@ def test_run_grader_rejects_unknown_family():
 
     assert result.passed is False
     assert result.grader_type == "telepathy"
+
+
+# ── Phase 6 / Task 7: non-deterministic grader families ──────────
+
+
+def test_static_checks_python_parse_passes_on_valid_code():
+    from evals.graders.base import run_grader
+
+    code = "```python\ndef f(x):\n    return x + 1\n```"
+    result = run_grader({"type": "static_checks.python_parses"}, code)
+
+    assert result.grader_type == "static_checks"
+    assert result.passed is True
+
+
+def test_static_checks_python_parse_fails_on_syntax_error():
+    from evals.graders.base import run_grader
+
+    code = "```python\ndef f(x):\n    return x +\n```"
+    result = run_grader({"type": "static_checks.python_parses"}, code)
+
+    assert result.passed is False
+    assert result.reason
+
+
+def test_static_checks_flags_dangerous_imports():
+    from evals.graders.base import run_grader
+
+    code = "```python\nimport os\nos.system('rm -rf /')\n```"
+    result = run_grader({"type": "static_checks.no_dangerous_imports"}, code)
+
+    assert result.passed is False
+    assert "os" in result.reason
+
+
+def test_unit_tests_grader_skips_without_sandbox():
+    from evals.graders.base import run_grader
+
+    result = run_grader(
+        {"type": "unit_tests.run", "tests": "assert f(1) == 2"},
+        "```python\ndef f(x):\n    return x + 1\n```",
+    )
+
+    assert result.grader_type == "unit_tests"
+    assert result.metadata.get("skipped") is True
+
+
+def test_llm_judge_skips_without_api_key(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    from evals.graders.base import run_grader
+
+    result = run_grader(
+        {"type": "llm_judge.quality", "rubric": "Is the answer helpful?"},
+        "A genuinely helpful and clear response.",
+    )
+
+    assert result.grader_type == "llm_judge"
+    assert result.metadata.get("skipped") is True

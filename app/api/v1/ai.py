@@ -1893,10 +1893,21 @@ def delete_knowledge(knowledge_id):
 @bp.route("/evals/run", methods=["POST"])
 @require_teacher
 def run_evals():
-    """Run an eval suite. Teacher/admin only."""
-    data = request.get_json(silent=True) or {}
-    suite = data.get("suite", "all")
+    """Run an eval suite. Teacher/admin only.
 
+    Two modes:
+    - ``selector`` (preferred): run dataset cases through the EvalHarness, which
+      binds each case to a trace and persists ``EvalRun`` / ``EvalCaseRun`` /
+      ``EvalCaseGraderResult`` through the runtime-neutral store.
+    - ``suite`` (legacy): run the old ``evals/cases/*_evals.json`` files.
+    """
+    data = request.get_json(silent=True) or {}
+    selector = data.get("selector")
+
+    if selector:
+        return _run_evals_harness(data, selector)
+
+    suite = data.get("suite", "all")
     try:
         from evals.runner import EvalRunner, report_to_dict
         runner = EvalRunner(use_real_llm=True)
@@ -1932,6 +1943,64 @@ def run_evals():
         db.session.rollback()
         logger.exception("Eval run error")
         return _error_response("ai_service_error", f"Eval run failed: {e}", 500)
+
+
+def _run_evals_harness(data: dict, selector: str):
+    """Selector-based eval run via the EvalHarness (persists through core store)."""
+    try:
+        from evals.harness.eval_harness import EvalHarness
+
+        budget = data.get("budget") or {}
+        report = EvalHarness().run(
+            selector=selector,
+            model_name=data.get("model_name"),
+            max_cases=budget.get("max_cases"),
+        )
+        return jsonify({"report": _eval_harness_report_to_dict(report)})
+    except Exception as e:
+        logger.exception("EvalHarness run error")
+        return _error_response("ai_service_error", f"Eval run failed: {e}", 500)
+
+
+def _eval_harness_report_to_dict(report) -> dict:
+    return {
+        "eval_run_id": report.eval_run_id,
+        "selector": report.selector,
+        "model_name": report.model_name,
+        "total": report.total,
+        "passed": report.passed,
+        "failed": report.failed,
+        "errors": report.errors,
+        "pass_rate": report.pass_rate,
+        "cases": [
+            {
+                "case_id": c.case_id,
+                "case_type": c.case_type,
+                "suite": c.suite,
+                "agent_type": c.agent_type,
+                "trace_id": c.trace_id,
+                "status": c.status,
+                "passed": c.passed,
+                "failure_type": c.failure_type,
+                "duration_ms": c.duration_ms,
+                "tokens_input": c.tokens_input,
+                "tokens_output": c.tokens_output,
+                "cost_cny": float(c.cost_cny) if c.cost_cny is not None else None,
+                "output_preview": c.output_preview,
+                "graders": [
+                    {
+                        "grader_type": g.grader_type,
+                        "grader_name": g.grader_name,
+                        "passed": g.passed,
+                        "score": g.score,
+                        "reason": g.reason,
+                    }
+                    for g in c.grader_results
+                ],
+            }
+            for c in report.case_results
+        ],
+    }
 
 
 @bp.route("/evals/history", methods=["GET"])

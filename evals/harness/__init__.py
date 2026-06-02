@@ -6,5 +6,16 @@ spans into the harness-owned ambient trace.
 """
 
 from evals.harness.agent_harness import AgentHarness, AgentResult
+from evals.harness.eval_harness import (
+    EvalHarness,
+    EvalRunReport,
+    EvalCaseResult,
+)
 
-__all__ = ["AgentHarness", "AgentResult"]
+__all__ = [
+    "AgentHarness",
+    "AgentResult",
+    "EvalHarness",
+    "EvalRunReport",
+    "EvalCaseResult",
+]
