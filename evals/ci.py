@@ -18,6 +18,10 @@ Usage:
     # persist results, then emit a full ReportGenerator report and gate on it.
     python -m evals.ci --use-harness --selector all \
         --report-out eval-report.json
+
+    # Harness mode in CI on an empty SQLite DB (creates the schema first):
+    python -m evals.ci --use-harness --bootstrap-schema \
+        --db-url sqlite:///eval_ci.db --selector all --report-out eval-report.json
 """
 
 from __future__ import annotations
@@ -43,6 +47,54 @@ def _load_baseline(path: Path) -> dict:
     except (ValueError, OSError) as exc:
         logger.warning("Could not read baseline %s: %s", path, exc)
         return {}
+
+
+def _run_harness_cli(args) -> int:
+    """Entry wrapper for harness mode: own a Flask app context (+ optional schema).
+
+    The DB-backed harness drives *real* agents (which read/write through Flask
+    models) and persists results into the runtime-neutral ``agent_trace_*`` /
+    ``eval_*`` tables. A CLI/CI invocation has none of the pytest fixtures that
+    normally provide an app context and a ready schema, so we establish both here:
+
+    - always run inside ``create_app().app_context()`` so agents can resolve
+      services / models / MCP transports;
+    - when ``--bootstrap-schema`` is set (CI on an empty SQLite file), mirror the
+      test harness setup — create Flask + core ``Base`` tables on one engine — so
+      the harness has somewhere to write. Production omits the flag and keeps its
+      migrated MySQL schema and separately-configured core session untouched.
+    """
+    from app import create_app
+
+    config_name = "testing" if args.bootstrap_schema else None
+    app = create_app(config_name) if config_name else create_app()
+    if args.bootstrap_schema and args.db_url:
+        app.config["SQLALCHEMY_DATABASE_URI"] = args.db_url
+
+    with app.app_context():
+        if args.bootstrap_schema:
+            _bootstrap_eval_schema()
+        return _run_harness_mode(args)
+
+
+def _bootstrap_eval_schema() -> None:
+    """Create Flask + core ``Base`` tables on a single engine (CI / empty DB).
+
+    Mirrors ``tests/conftest.py``: the trace/eval tables are declared on
+    ``core.db.session.Base`` (plain SQLAlchemy), so we point the core session at
+    the Flask engine and create both metadatas on the same database. This is a
+    test/CI convenience only — production owns this schema via Alembic.
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.extensions import db as _db
+    import core.db.session as core_session
+    import core.db.models.agent_trace  # noqa: F401  register tables on Base
+
+    _db.create_all()
+    core_session._engine = _db.engine
+    core_session._SessionLocal = sessionmaker(bind=_db.engine, expire_on_commit=False)
+    core_session.Base.metadata.create_all(bind=_db.engine)
 
 
 def _run_harness_mode(args) -> int:
@@ -79,8 +131,25 @@ def _run_harness_mode(args) -> int:
 
     regressions = summary.get("regressions", [])
     pass_rate = summary.get("pass_rate", 0.0)
-    baseline = _load_baseline(Path(args.baseline))
     suite = summary.get("suite_name") or args.selector
+
+    # Calibration: write this run's pass rate as the new baseline floor and exit
+    # 0 without gating. Lets the harness path self-calibrate baseline.json the way
+    # the legacy runner does via --update-baseline.
+    if getattr(args, "update_baseline", False):
+        Path(args.baseline).write_text(
+            json.dumps(
+                {suite: {"min_pass_rate": round(pass_rate, 4)}},
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        logger.info("Updated baseline at %s (suite=%s)", args.baseline, suite)
+        return 0
+
+    baseline = _load_baseline(Path(args.baseline))
     floor = float(baseline.get(suite, {}).get("min_pass_rate", 0.0))
     threshold = floor - args.tolerance
 
@@ -154,10 +223,20 @@ def main(argv: list[str] | None = None) -> int:
         default="eval-regressions.json",
         help="Harness-mode path for the regressions JSON.",
     )
+    parser.add_argument(
+        "--bootstrap-schema",
+        action="store_true",
+        help="Harness-mode: create Flask + core tables on an empty DB (CI only).",
+    )
+    parser.add_argument(
+        "--db-url",
+        default="",
+        help="Harness-mode: override SQLALCHEMY_DATABASE_URI when bootstrapping.",
+    )
     args = parser.parse_args(argv)
 
     if args.use_harness:
-        return _run_harness_mode(args)
+        return _run_harness_cli(args)
 
     runner = EvalRunner(use_real_llm=True)
     reports = runner.run_all_suites(args.cases_dir)

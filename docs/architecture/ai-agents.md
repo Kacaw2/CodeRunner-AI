@@ -2,7 +2,7 @@
 
 本文档描述 CodeRunner-AI 的 AI Agent 模块设计与实现现状。该模块在现有评测平台基础上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。
 
-> 最后更新: 2026-05-30
+> 最后更新: 2026-06-02
 
 ### 项目定位
 
@@ -30,7 +30,7 @@
 | Human Gate | ⚠️ 生成草稿审批流 | 与 AgentTask 状态机完整打通 |
 | Subagent 隔离 | ❌ Agent 共享上下文 | 独立上下文窗口和工具权限 |
 | 多模型路由 | ✅ tier 抽象，单 provider | 多 provider + 动态路由策略 |
-| Observability | ⚠️ TraceCollector + AgentRun/Step | 统一 trace/audit/approval 关联 |
+| Observability | ✅ runtime-neutral trace/eval（`agent_trace_*` / `eval_*`）+ Harness 单 trace + Report/Regression | 统一 trace/audit/approval 关联 |
 
 ---
 
@@ -672,6 +672,37 @@ LLM 生成题目 + 测试用例 + 参考答案
 | latency_ms | INT | 该步骤耗时 |
 | error | TEXT | |
 
+> **runtime 边界（重要）**：`agent_runs` / `agent_run_steps` 是 **Flask-SQLAlchemy** 旧模型，
+> 仅供历史查询。新的 trace/eval 持久化已迁出 Flask，落到下面这套 **runtime-neutral** 表
+> （plain SQLAlchemy，声明在 `core.db.session.Base`），由 workers / MCP gateway / evals 直接写入，
+> 不再触发 Flask mapper（根除旧的 `TRACE_SAVE_FAIL`）。
+
+### 完整 Trace（runtime-neutral，`core/db/models/agent_trace.py`）
+
+一次 agent 执行 / eval case / handoff 链 = **一条逻辑 trace**。`AgentHarness` 拥有该 trace 生命周期，
+`BaseAgent` 作为执行单元向当前 ambient trace 写 span/event。
+
+| 表 | 用途 | 关键字段 |
+|----|------|---------|
+| `agent_trace_runs` | trace 顶层 run | `trace_id`(unique)、`legacy_run_id`、`source`(agent/workers/eval)、`agent_type`、`status`、`tokens_input/output`、`cost_cny`、`*_latency_ms`、`budget_json`、`metadata_json`、`started_at/ended_at` |
+| `agent_trace_spans` | LLM/tool/MCP/sandbox/grader 步骤 | `trace_id`、`parent_span_id`、`span_type`、`name`、`status`、`sequence`、`latency_ms`、`tokens_*` |
+| `agent_trace_events` | token/route/handoff/approval/retry/error 事件 | `trace_id`、`span_id`、`event_type`、`payload_json` |
+| `agent_trace_artifacts` | prompt/tool IO/sandbox 输出/judge 等产物 | `trace_id`、`span_id`、`artifact_type`、`mime_type`、`storage_uri`、`preview_text`、`payload_json` |
+| `agent_trace_links` | 关联业务对象（不加硬外键） | `trace_id`、`link_type`、`target_table`、`target_id` |
+
+### 完整 Eval（runtime-neutral）
+
+| 表 | 用途 | 关键字段 |
+|----|------|---------|
+| `eval_runs` | 一次 eval suite 运行 | `suite_name`、`model_name`、`total_cases`、`passed_cases`、`pass_rate`、`results_json` |
+| `eval_case_runs` | 单个 case 执行（绑定 trace） | `eval_run_id`、`case_id`、`case_type`、`suite`、`agent_type`、`trace_id`、`status`、`passed`、`failure_type`、`cost_cny`、`duration_ms` |
+| `eval_case_grader_results` | 每个 grader 结果 | `case_run_id`、`grader_type`(`<family>.<name>`)、`grader_name`、`passed`、`score`、`reason`、`latency_ms`、`cost_cny`、`trace_id` |
+
+**数据链路**：`workers/task_runner` / `EvalHarness` → `AgentHarness`（建 `TraceCollector` + 绑 `trace_id`）
+→ `TraceStore.save_run`（plain SQLAlchemy 写 `agent_trace_*`）→ graders 写 `eval_case_grader_results`
+→ `ReportGenerator` 聚合（pass_rate / cost / latency / failure_types / regressions）→ `/ai/evals` + `/ai/traces` 只读展示。
+旧 `agent_runs` 可经 `scripts/backfill_agent_traces.py` 回填为新 trace（`id` 复用为 `trace_id` 并存入 `legacy_run_id`）。
+
 ### 任务管理
 
 #### agent_tasks
@@ -785,16 +816,19 @@ LLM 生成题目 + 测试用例 + 参考答案
 |------|------|------|
 | `/api/v1/ai/tasks/<task_id>` | GET | 查询任务状态 |
 | `/api/v1/ai/tasks/<task_id>/retry` | POST | 重试失败任务 |
-| `/api/v1/ai/traces` | GET | Agent 运行追踪列表 |
-| `/api/v1/ai/traces/<run_id>` | GET | Agent 运行详情（含 steps） |
+| `/api/v1/ai/traces` | GET | Trace 列表（过滤 agent_type/status/source/eval_run_id/conversation_id/chat_task_id/from/to/q） |
+| `/api/v1/ai/traces/<trace_id>` | GET | 完整 trace（run/spans/events/artifacts/links/cost；旧 `agent_runs.id` 走只读 fallback） |
 
 ### 知识库与评估
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/v1/ai/knowledge/index` | POST | 手动触发知识库全量索引 |
-| `/api/v1/ai/evals/run` | POST | 运行评估套件 |
+| `/api/v1/ai/evals/run` | POST | 运行评估套件（harness） |
 | `/api/v1/ai/evals/history` | GET | 评估历史 |
+| `/api/v1/ai/evals/runs/<run_id>` | GET | 完整 eval 报告（pass_rate/cost/latency/failure_types/regressions） |
+| `/api/v1/ai/evals/cases/by-trace/<trace_id>` | GET | 按 trace 查 eval case + grader 结果（无则返回 `{"case": null}`） |
+| `/api/v1/ai/evals/promote-regression` | POST | 把某 trace 提升为 regression dataset case |
 
 ---
 

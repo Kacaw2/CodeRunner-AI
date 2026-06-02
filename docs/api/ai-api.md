@@ -1,6 +1,6 @@
 # AI API 端点参考
 
-> 最后更新: 2026-05-28
+> 最后更新: 2026-06-02
 
 AI Agent 模块的 REST API 分两条独立路径：
 
@@ -367,6 +367,59 @@ data: [DONE]
 **权限**：对话所有者 / Admin
 
 **响应** `204`
+
+---
+
+## 五-B、Trace 与 Eval
+
+完整的运行时可观测面。Trace/eval 数据落在 runtime-neutral 表（`agent_trace_*` / `eval_*`，
+plain SQLAlchemy），由 workers / eval harness 直接写入；下列端点只读聚合并按角色脱敏。
+
+**权限**：Teacher / Admin（学生仅可见自己的 trace，且隐藏 tool args / system prompt）
+
+### GET /api/v1/ai/traces
+
+Trace 列表。支持过滤参数：`agent_type`、`status`、`source`、`eval_run_id`、`conversation_id`、
+`chat_task_id`、`from`、`to`、`q`、`limit`、`offset`。
+
+### GET /api/v1/ai/traces/:trace_id
+
+返回单条完整 trace。旧 `agent_runs.id` 走只读 fallback。
+
+```json
+{
+  "run": { "trace_id": "...", "agent_type": "tutor", "status": "completed",
+           "tokens_input": 120, "tokens_output": 80, "cost_cny": 0.0021,
+           "total_latency_ms": 1500 },
+  "spans": [ { "span_type": "llm", "name": "deepseek-chat", "latency_ms": 900 },
+             { "span_type": "tool", "name": "coderunner.search", "status": "completed" } ],
+  "events": [ ... ],
+  "artifacts": [ ... ],
+  "links": [ { "link_type": "chat_task", "target_table": "agent_tasks", "target_id": "..." } ]
+}
+```
+
+### POST /api/v1/ai/evals/run
+
+运行 eval suite（harness）。请求体 `{ "selector": "golden:tutor", "model_name": "deepseek-chat" }`，
+返回 `{ "report": { "eval_run_id": N, ... } }`。
+
+### GET /api/v1/ai/evals/history
+
+eval 运行历史列表（`?limit=30`）。
+
+### GET /api/v1/ai/evals/runs/:run_id
+
+完整 eval 报告：`summary`（pass_rate、cost_cny、latency_ms、grader_pass_rates、failure_types、
+regressions）+ `cases`（逐 case，含 `trace_id`）。`?compare_to=<eval_run_id>` 指定回归对比基线。
+
+### GET /api/v1/ai/evals/cases/by-trace/:trace_id
+
+按 trace 反查 eval case 及其 grader 结果；无匹配返回 `{ "case": null }`。
+
+### POST /api/v1/ai/evals/promote-regression
+
+把一条失败 trace 提升为 regression dataset case。请求体 `{ "trace_id": "...", "reason": "..." }`。
 
 ---
 
