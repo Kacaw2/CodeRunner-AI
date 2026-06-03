@@ -404,7 +404,10 @@
       "Bash(./.venv/Scripts/python.exe -m pytest tests/test_agent_harness_trace_binding.py tests/test_trace_store_runtime_neutral.py tests/test_trace_schema_contract.py tests/test_eval_dataset_store.py tests/test_trace_mcp_links.py -q)",
       "Bash(./.venv/Scripts/python.exe -m py_compile evals/ci.py)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/test_eval_report_generator.py tests/test_eval_harness_trace_binding.py tests/test_eval_pages.py tests/test_trace_backfill.py -q)",
-      "Bash(grep -nA1 \"op.create_table\" migrations/versions/20260601_complete_traces_evals.py)"
+      "Bash(grep -nA1 \"op.create_table\" migrations/versions/20260601_complete_traces_evals.py)",
+      "Bash(python -m pytest tests/test_agents.py -q -k \"Recovery or Crash\")",
+      "Bash(python -m pytest tests/test_agents.py -q -k \"MemorySummaryReplay or CrossAgentCallGuardrail or ToolLoopExhaustion\")",
+      "Bash(python -m pytest tests/test_agents.py tests/test_graph_engine.py -q)"
     ]
   }
 }
