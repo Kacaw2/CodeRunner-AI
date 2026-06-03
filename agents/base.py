@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agents.config import AIConfig, MAX_LLM_CALLS_PER_TRACE, MAX_TOOL_ITERATIONS
+from agents.config import MAX_LLM_CALLS_PER_TRACE, MAX_TOOL_ITERATIONS
 from agents.executor import ToolCallExecutor
 from agents.json_utils import extract_first_json_object
 from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
@@ -204,291 +204,30 @@ class BaseAgent(ABC):
         return descriptors_to_llm_tools(descriptors)
 
     def _invoke_with_mcp_tools(self, state: AgentState, tool_names: list[str], system_ctx: str) -> AgentState:
-        """Shared invoke loop: LLM + MCP tool calls with retries and tracing."""
-        from langchain_core.messages import SystemMessage
-        from core.observability.tracing import acquire_trace, finalize_trace
+        """Build a session and delegate the invoke loop to AgentRuntime."""
+        from agents.runtime import AgentRuntime
+        from agents.session import AgentSession
 
         self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
-        trace, owns_trace = acquire_trace(
-            agent_type=state.get("agent_type", self.name),
-            user_id=state["user_id"],
-            conversation_id=state.get("context", {}).get("conversation_id"),
-            links=_trace_links_from_state(state),
-            input_message=(
-                getattr(state["messages"][-1], "content", "")
-                if state.get("messages") else ""
-            ),
-            input_context=state.get("context"),
-        )
-
-        from tools.protocol import get_tool_runtime
-        from tools.protocol.adapters import descriptors_to_llm_tools
-        runtime = get_tool_runtime()
-        descriptors = runtime.list_tools(names=tool_names)
-        tool_schemas = descriptors_to_llm_tools(descriptors)
-
-        llm = AIConfig.get_llm(tier=self.default_model_tier)
-        llm_with_tools = llm.bind_tools(tool_schemas)
-
-        messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
-
-        try:
-            from memory.service import MemoryService
-            messages = MemoryService.compact_messages(messages, max_messages=20)
-        except Exception as e:
-            logger.warning("Message compaction failed: %s", e)
-
-        response = None
-        limit_exceeded = False
-
-        try:
-            for iteration in range(MAX_TOOL_ITERATIONS):
-                if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
-                    logger.warning(
-                        "Trace %s hit cross-agent LLM call budget (%d); aborting %s loop",
-                        trace.run_id, MAX_LLM_CALLS_PER_TRACE, self.name)
-                    limit_exceeded = True
-                    break
-                with trace.trace_llm_call() as llm_step:
-                    try:
-                        response = self._llm_invoke(llm_with_tools, messages)
-                    except LLMError:
-                        if iteration == 0:
-                            raise
-                        break
-
-                    input_tokens = 0
-                    output_tokens = 0
-                    usage_metadata = getattr(response, "usage_metadata", None)
-                    if isinstance(usage_metadata, dict) and usage_metadata:
-                        input_tokens = _usage_number(usage_metadata, "input_tokens")
-                        output_tokens = _usage_number(usage_metadata, "output_tokens")
-                    else:
-                        response_metadata = getattr(response, "response_metadata", None)
-                        usage = (
-                            response_metadata.get("token_usage", {})
-                            if isinstance(response_metadata, dict) else {}
-                        )
-                        input_tokens = _usage_number(usage, "prompt_tokens")
-                        output_tokens = _usage_number(usage, "completion_tokens")
-                    if input_tokens or output_tokens:
-                        trace.total_input_tokens += input_tokens
-                        trace.total_output_tokens += output_tokens
-                        llm_step["prompt_tokens"] = input_tokens
-                        llm_step["completion_tokens"] = output_tokens
-
-                messages.append(response)
-                legacy_tool_call = _parse_legacy_function_text(
-                    getattr(response, "content", ""), tool_names)
-                if legacy_tool_call and not response.tool_calls:
-                    response = AIMessage(content="", tool_calls=[legacy_tool_call])
-                    messages[-1] = response
-
-                if not response.tool_calls:
-                    break
-
-                for tc in response.tool_calls:
-                    with trace.trace_tool_call(tc["name"], tc["args"]):
-                        tool_msg = self._run_mcp_tool(tc, state)
-                        messages.append(tool_msg)
-            else:
-                # Loop exhausted MAX_TOOL_ITERATIONS without the model ever
-                # returning a tool-call-free response: the last response still
-                # has pending tool calls and no final answer was produced.
-                limit_exceeded = bool(response and response.tool_calls)
-
-            # Phase 2: never persist the injected system prompt back into
-            # conversation history; only user/assistant/tool turns survive.
-            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
-            state["trace_id"] = trace.run_id
-
-            if limit_exceeded:
-                # Phase 1: make the exhausted tool loop explicit instead of
-                # silently saving an empty "completed" trace.
-                error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
-                state["final_response"] = error.user_message
-                finalize_trace(trace, owns_trace, status="limit_exceeded",
-                               response=error.user_message, error=error)
-                return state
-
-            state["final_response"] = (response.content if response and response.content else "")
-
-            self._fire_after_agent_run(state)
-
-            from graph.handoff import detect_handoff
-            state = detect_handoff(state)
-
-            finalize_trace(trace, owns_trace, status="completed",
-                           response=state["final_response"])
-        except Exception as e:
-            finalize_trace(trace, owns_trace, status="failed", error=e)
-            raise
-
+        session = AgentSession.from_state(state, agent_name=self.name)
+        result = AgentRuntime().run(session, tool_names=tool_names, system_ctx=system_ctx)
+        # Preserve the historical in-place mutation contract: callers and the
+        # harness read the updated state dict they passed in.
+        state.update(result)
         return state
 
     def _stream_with_mcp_tools(self, state: AgentState, tool_names: list[str], system_ctx: str):
-        """Shared streaming loop: LLM + MCP tool calls with retries and tracing."""
-        from langchain_core.messages import SystemMessage
-        from core.observability.tracing import acquire_trace, finalize_trace
-        from graph.handoff import detect_handoff
+        """Build a session and delegate the stream loop to AgentRuntime."""
+        from agents.runtime import AgentRuntime
+        from agents.session import AgentSession
 
         self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
-        trace, owns_trace = acquire_trace(
-            agent_type=state.get("agent_type", self.name),
-            user_id=state["user_id"],
-            conversation_id=state.get("context", {}).get("conversation_id"),
-            links=_trace_links_from_state(state),
-            input_message=(
-                getattr(state["messages"][-1], "content", "")
-                if state.get("messages") else ""
-            ),
-            input_context=state.get("context"),
-        )
-
-        from tools.protocol import get_tool_runtime
-        from tools.protocol.adapters import descriptors_to_llm_tools
-        runtime = get_tool_runtime()
-        descriptors = runtime.list_tools(names=tool_names)
-        tool_schemas = descriptors_to_llm_tools(descriptors)
-
-        llm = AIConfig.get_llm(tier=self.default_model_tier)
-        llm_with_tools = llm.bind_tools(tool_schemas)
-
-        messages = [SystemMessage(content=system_ctx)] + list(state["messages"])
-
-        try:
-            from memory.service import MemoryService
-            messages = MemoryService.compact_messages(messages, max_messages=20)
-        except Exception as e:
-            logger.warning("Message compaction failed (stream): %s", e)
-
-        trace_saved = False
-        limit_exceeded = False
-        try:
-            for iteration in range(MAX_TOOL_ITERATIONS):
-                if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
-                    logger.warning(
-                        "Trace %s hit cross-agent LLM call budget (%d); aborting %s stream",
-                        trace.run_id, MAX_LLM_CALLS_PER_TRACE, self.name)
-                    limit_exceeded = True
-                    break
-
-                collected_content = ""
-                pending_content = ""
-                tool_calls = []
-
-                try:
-                    with trace.trace_llm_call() as llm_step:
-                        stream = self._llm_stream(llm_with_tools, messages)
-                        for chunk in stream:
-                            if chunk.content:
-                                collected_content += chunk.content
-                                pending_content += chunk.content
-                                safe_content, pending_content = _split_safe_stream_content(pending_content)
-                                if safe_content:
-                                    yield {"type": "token", "content": safe_content}
-                            if chunk.tool_call_chunks:
-                                for tc_chunk in chunk.tool_call_chunks:
-                                    if tc_chunk.get("index") is not None:
-                                        idx = tc_chunk["index"]
-                                        while len(tool_calls) <= idx:
-                                            tool_calls.append({"name": "", "args": "", "id": ""})
-                                        if tc_chunk.get("name"):
-                                            tool_calls[idx]["name"] = tc_chunk["name"]
-                                        if tc_chunk.get("args"):
-                                            tool_calls[idx]["args"] += tc_chunk["args"]
-                                        if tc_chunk.get("id"):
-                                            tool_calls[idx]["id"] = tc_chunk["id"]
-                            usage_metadata = getattr(chunk, "usage_metadata", None)
-                            if isinstance(usage_metadata, dict) and usage_metadata:
-                                input_t = _usage_number(usage_metadata, "input_tokens")
-                                output_t = _usage_number(usage_metadata, "output_tokens")
-                                trace.total_input_tokens += input_t
-                                trace.total_output_tokens += output_t
-                                llm_step["prompt_tokens"] = llm_step.get("prompt_tokens", 0) + input_t
-                                llm_step["completion_tokens"] = llm_step.get("completion_tokens", 0) + output_t
-                except LLMError as e:
-                    if iteration == 0:
-                        yield {"type": "error", "message": e.user_message}
-                        finalize_trace(trace, owns_trace, status="failed", error=e)
-                        trace_saved = True
-                        return
-                    break
-
-                legacy_tool_call = _parse_legacy_function_text(collected_content, tool_names)
-                if legacy_tool_call and not tool_calls:
-                    tool_calls = [legacy_tool_call]
-                    collected_content = ""
-
-                if not tool_calls:
-                    if pending_content:
-                        yield {"type": "token", "content": pending_content}
-                    state["final_response"] = collected_content
-                    messages.append(AIMessage(content=collected_content))
-                    break
-
-                parsed_calls = []
-                for tc in tool_calls:
-                    if not tc["name"]:
-                        continue
-                    args = tc["args"]
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except json.JSONDecodeError:
-                            args = {}
-                    parsed_calls.append({"name": tc["name"], "args": args, "id": tc["id"]})
-
-                ai_msg = AIMessage(content=collected_content, tool_calls=parsed_calls)
-                messages.append(ai_msg)
-
-                for tc in parsed_calls:
-                    yield {"type": "tool_call", "tool": tc["name"], "input": str(tc["args"])}
-                    with trace.trace_tool_call(tc["name"], tc["args"]):
-                        tool_msg = self._run_mcp_tool(tc, state)
-                        messages.append(tool_msg)
-                    yield {"type": "tool_result", "tool": tc["name"],
-                           "summary": f"Fetched {tc['name']} result"}
-            else:
-                # Exhausted MAX_TOOL_ITERATIONS while tool calls were still
-                # pending: no final answer was streamed.
-                limit_exceeded = True
-
-            # Phase 2: keep the injected system prompt out of persisted history.
-            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
-            state["trace_id"] = trace.run_id
-
-            if limit_exceeded:
-                # Phase 1: surface the exhausted tool loop as an explicit error
-                # event and a failed trace instead of a blank completed run.
-                error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
-                state["final_response"] = error.user_message
-                yield {"type": "error", "message": error.user_message}
-                finalize_trace(trace, owns_trace, status="limit_exceeded",
-                               response=error.user_message, error=error)
-                trace_saved = True
-                return
-
-            self._fire_after_agent_run(state)
-
-            state = detect_handoff(state)
-            if state.get("handoff_to"):
-                yield {"type": "handoff", "target": state["handoff_to"],
-                       "reason": state.get("handoff_reason", "")}
-
-            finalize_trace(trace, owns_trace, status="completed",
-                           response=state.get("final_response", ""))
-            trace_saved = True
-        except GeneratorExit:
-            if not trace_saved:
-                finalize_trace(trace, owns_trace, status="interrupted")
-                trace_saved = True
-        except Exception as e:
-            if not trace_saved:
-                finalize_trace(trace, owns_trace, status="failed", error=e)
-                trace_saved = True
-            raise
+        session = AgentSession.from_state(state, agent_name=self.name)
+        yield from AgentRuntime().stream(session, tool_names=tool_names, system_ctx=system_ctx)
+        # After the generator finishes, mirror final messages/final_response and
+        # handoff keys back onto the caller's state (AgentHarness reads handoff_to).
+        state.update(session.to_state())

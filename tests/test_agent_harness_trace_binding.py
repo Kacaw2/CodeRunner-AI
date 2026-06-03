@@ -27,7 +27,7 @@ def _mock_tutor_llm(text="Here is a hint to get you started."):
     return mock_llm
 
 
-@patch("agents.base.AIConfig")
+@patch("agents.runtime.AIConfig")
 def test_agent_harness_binds_chat_task_to_trace(mock_config, app, db_session, teacher_user):
     with app.app_context():
         from evals.harness.agent_harness import AgentHarness
@@ -67,7 +67,7 @@ def test_agent_harness_binds_chat_task_to_trace(mock_config, app, db_session, te
             assert run.chat_task_id == "task-1"
 
 
-@patch("agents.base.AIConfig")
+@patch("agents.runtime.AIConfig")
 def test_agent_harness_stream_yields_events_and_binds_trace(mock_config, app, db_session, teacher_user):
     """stream() must yield token/done events and share one trace with run()."""
     with app.app_context():

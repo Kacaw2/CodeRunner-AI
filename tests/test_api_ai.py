@@ -154,14 +154,14 @@ class TestAutoRoutingPerAgentLimit:
 
 
 class TestChatEndpoint:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_chat_requires_message(self, mock_config, client, mock_auth_student, mock_redis):
         resp = client.post("/api/v1/ai/chat", json={})
         assert resp.status_code == 400
         data = resp.get_json()
         assert data["error"] == "invalid_request"
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_chat_returns_response(self, mock_config, client, mock_auth_student, mock_redis, db_session):
         from langchain_core.messages import AIMessage as LCAIMessage
 
@@ -256,7 +256,7 @@ class TestReviewEndpoint:
         resp = client.post("/api/v1/ai/review", json={})
         assert resp.status_code == 400
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_review_returns_structured_result(self, mock_config, client, mock_auth_student, mock_redis, db_session):
         review = '```json\n{"overall_score": "A", "summary": "Great", "issues": [], "strengths": ["Clean"]}\n```'
         mock_llm = MagicMock()
@@ -331,7 +331,7 @@ class TestAnalyticsEndpoint:
         resp = client.get(f"/api/v1/ai/analytics/{other_id}")
         assert resp.status_code == 403
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_analytics_returns_report(self, mock_config, client, mock_auth_teacher, mock_redis, db_session):
         report = '```json\n{"summary": "Good", "progress": {"trend": "improving"}}\n```'
         mock_llm = MagicMock()

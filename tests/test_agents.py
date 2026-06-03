@@ -66,7 +66,7 @@ class TestToolLoopExhaustion:
     """Phase 1: an exhausted tool loop must be explicit, never a blank success."""
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_sync_exhaustion_is_explicit(self, mock_config, mock_save, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -112,7 +112,7 @@ class TestToolLoopExhaustion:
             assert "completed" not in statuses
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_stream_exhaustion_yields_error(self, mock_config, mock_save, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -166,7 +166,7 @@ class TestToolLoopExhaustion:
 class TestSystemContextIsolation:
     """Phase 2: the injected system prompt must never be persisted into history."""
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_strips_system_message(self, mock_config, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -241,7 +241,7 @@ class TestSystemContextIsolation:
 
 
 class TestTutorAgent:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -267,7 +267,7 @@ class TestTutorAgent:
             assert result["final_response"] == "Here's a hint about your loop."
             assert len(result["messages"]) > 1
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_with_tool_calls(self, mock_config, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -312,7 +312,7 @@ class TestTutorAgent:
 
 
 class TestReviewerAgent:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_returns_review(self, mock_config, app):
         with app.app_context():
             from agents.reviewer.agent import ReviewerAgent
@@ -515,7 +515,7 @@ class TestGeneratorAgent:
 
 
 class TestAnalyticsAgent:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_returns_report(self, mock_config, app):
         with app.app_context():
             from agents.analytics.agent import AnalyticsAgent
@@ -542,7 +542,7 @@ class TestAnalyticsAgent:
             assert "progress" in result["final_response"]
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_stream_executes_legacy_function_text_without_leaking_it(self, mock_config, mock_save, app):
         with app.app_context():
             from agents.analytics.agent import AnalyticsAgent
@@ -713,7 +713,7 @@ class TestOrchestrator:
             assert result["agent_type"] == "analytics"
             assert result.get("auto_routed") is True
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_run_agent_catches_ai_error(self, mock_config, app):
         with app.app_context():
             from graph.runner import _run_agent
@@ -734,7 +734,7 @@ class TestOrchestrator:
             result = _run_agent("tutor", state)
             assert "temporarily unavailable" in result["final_response"]
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_run_agent_catches_unexpected_error(self, mock_config, app):
         with app.app_context():
             from graph.runner import _run_agent
@@ -920,7 +920,7 @@ class TestCrossAgentCallGuardrail:
             pass
         assert trace.llm_call_count == 2
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_guardrail_aborts_when_shared_budget_exhausted(self, mock_config, app):
         with app.app_context():
             from agents.config import MAX_LLM_CALLS_PER_TRACE
