@@ -14,7 +14,7 @@
 
 ## Active
 
-当前无活跃计划。
+- [2026-06-04-claude-code-inspired-architecture-upgrade-plan.md](active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md)
 
 ## Archive
 
