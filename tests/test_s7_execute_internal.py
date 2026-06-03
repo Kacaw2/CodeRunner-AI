@@ -80,6 +80,7 @@ def test_output_schema_validation_is_warn_only(caplog):
 
     d = TOOL_CATALOG[INTERNAL_TOOL]
     bad_result = {"status": 123}  # status should be a string per schema
-    with caplog.at_level(logging.WARNING):
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="tools.protocol.runtime"):
         ToolRuntime._validate_output(d, bad_result, trace_id="t-1")
     assert any("output_schema mismatch" in r.message for r in caplog.records)

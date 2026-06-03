@@ -439,6 +439,7 @@ class TestGeneratorAgent:
         with app.app_context():
             from langchain_core.messages import HumanMessage
             from agents.generator.agent import GeneratorAgent
+            from core.observability.tracing import TraceCollector
             from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
             from core.db.session import db_session as core_db_session
 
@@ -472,6 +473,13 @@ class TestGeneratorAgent:
                     {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
                 ]
 
+                unrelated_trace = TraceCollector(
+                    agent_type="generator",
+                    user_id=teacher_user.id,
+                    conversation_id=999,
+                )
+                unrelated_trace.save(status="completed", response="older trace")
+
                 state = {
                     "messages": [HumanMessage(content="Create a simple addition problem")],
                     "agent_type": "generator",
@@ -487,7 +495,11 @@ class TestGeneratorAgent:
             with core_db_session() as session:
                 run = (
                     session.query(AgentTraceRun)
-                    .filter_by(agent_type="generator")
+                    .filter_by(
+                        agent_type="generator",
+                        user_id=teacher_user.id,
+                        conversation_id=123,
+                    )
                     .one()
                 )
                 assert run.conversation_id == 123

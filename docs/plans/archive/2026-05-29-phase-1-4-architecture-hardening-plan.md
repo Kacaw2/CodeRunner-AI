@@ -6,8 +6,8 @@
 >
 > | 阶段 | 状态 | 说明 |
 > |---|---|---|
-> | Phase 0（安全三项） | ✅ 已完成 | commit `9acb2cb`，方案已归档至 `archive/plans/2026-05-29-0329-phase-0-security-hardening-plan.md` |
-> | Phase 1（架构合一） | ✅ 已完成 | 详细方案已归档至 `archive/plans/2026-05-29-phase-1-architecture-unification-detailed.md`；并由 `2026-05-29-mcp-architecture-repair-plan.md` 接续完善（仅剩 Docker 运行时 smoke） |
+> | Phase 0（安全三项） | ✅ 已完成 | commit `9acb2cb`，方案已归档至 `docs/plans/archive/2026-05-29-0329-phase-0-security-hardening-plan.md` |
+> | Phase 1（架构合一） | ✅ 已完成 | 详细方案已归档至 `docs/plans/archive/2026-05-29-phase-1-architecture-unification-detailed.md`；并由 `2026-05-29-mcp-architecture-repair-plan.md` 接续完善（仅剩 Docker 运行时 smoke） |
 > | **Phase 2（RAG + 编排）** | ⏳ **未开始 · 仍有效** | 唯一仍活跃的剩余项，详见 `2026-05-29-phase-2-rag-orchestration-detailed.md` |
 > | Phase 3（工具契约 + 可观测） | ➡️ **已并入** `2026-05-30-production-readiness-audit.md`（F2/F8/F9），以审计修复计划为准 |
 > | Phase 4（评测 + Agent 契约） | ➡️ **部分并入** 审计 F3（eval CI）；4.2 Agent 契约仍为低优先未排期 |
