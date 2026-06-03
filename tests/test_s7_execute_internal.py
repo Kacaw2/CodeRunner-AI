@@ -73,14 +73,41 @@ def test_generator_scopes_include_execute_internal():
     assert "code:execute_internal" in granted
 
 
-def test_output_schema_validation_is_warn_only(caplog):
-    """A result that violates output_schema must not raise."""
+def test_output_schema_validation_is_warn_only():
+    """A result that violates output_schema must not raise — it only warns.
+
+    Captures via a handler attached directly to the runtime logger instead of
+    ``caplog``: in the full suite, global logging state (``logging.disable`` /
+    propagation / level changes left by other tests) can suppress root-level
+    capture, which made this assertion flaky in CI. A local handler with the
+    logger force-enabled is immune to that cross-test pollution.
+    """
     import logging
-    from tools.protocol.runtime import ToolRuntime
+    from tools.protocol.runtime import ToolRuntime, logger as runtime_logger
 
     d = TOOL_CATALOG[INTERNAL_TOOL]
     bad_result = {"status": 123}  # status should be a string per schema
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="tools.protocol.runtime"):
-        ToolRuntime._validate_output(d, bad_result, trace_id="t-1")
-    assert any("output_schema mismatch" in r.message for r in caplog.records)
+
+    records: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Capture(level=logging.WARNING)
+    prev_disabled = runtime_logger.disabled
+    prev_level = runtime_logger.level
+    prev_global_disable = logging.root.manager.disable
+    runtime_logger.disabled = False
+    runtime_logger.setLevel(logging.WARNING)
+    logging.disable(logging.NOTSET)
+    runtime_logger.addHandler(handler)
+    try:
+        ToolRuntime._validate_output(d, bad_result, trace_id="t-1")  # must not raise
+    finally:
+        runtime_logger.removeHandler(handler)
+        runtime_logger.setLevel(prev_level)
+        runtime_logger.disabled = prev_disabled
+        logging.disable(prev_global_disable)
+
+    assert any("output_schema mismatch" in r.getMessage() for r in records)

@@ -14,7 +14,7 @@
 
 ## Active
 
-- [2026-06-01-complete-traces-evals-plan.md](active/2026-06-01-complete-traces-evals-plan.md)
+当前无活跃计划。
 
 ## Archive
 
@@ -29,6 +29,7 @@
 - [2026-05-29-phase-1-architecture-unification-detailed.md](archive/2026-05-29-phase-1-architecture-unification-detailed.md)
 - [2026-05-29-phase-2-rag-orchestration-detailed.md](archive/2026-05-29-phase-2-rag-orchestration-detailed.md)
 - [2026-05-31-agent-improvement-plan.md](archive/2026-05-31-agent-improvement-plan.md)
+- [2026-06-01-complete-traces-evals-plan.md](archive/2026-06-01-complete-traces-evals-plan.md)
 - [2026-06-02-chroma-1x-upgrade-plan.md](archive/2026-06-02-chroma-1x-upgrade-plan.md)
 - [AGENT_ARCHITECTURE_MATURITY_PLAN.md](archive/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
 - [FASTAPI_AGENT_HOST_MCP_WORKFLOW_PLAN_ZH.md](archive/FASTAPI_AGENT_HOST_MCP_WORKFLOW_PLAN_ZH.md)

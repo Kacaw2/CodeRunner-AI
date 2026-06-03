@@ -6,11 +6,11 @@
 
 ## Reports
 
-- [2026-06-03-production-maturity-priority-assessment.md](2026-06-03-production-maturity-priority-assessment.md)
-- [2026-06-03-agents-module-review-report.md](2026-06-03-agents-module-review-report.md)
 - [2026-05-30-production-readiness-audit.md](2026-05-30-production-readiness-audit.md)
 - [2026-05-30-agents-module-review-report.md](2026-05-30-agents-module-review-report.md)
 - [AI_AGENTS_STATUS.md](AI_AGENTS_STATUS.md)
+
+> 2026-06-03 的 maturity priority assessment 与 agents module review report 已迁入 [issues/](../issues/README.md)(当前未解决问题的入口),不在本目录重复保留。
 
 ## Visual Artifacts
 
@@ -18,6 +18,6 @@
 
 ## Usage
 
-- 用生产成熟度、CI、安全、迁移链、E2E 等问题时，先看最新 maturity assessment。
-- 用 agent 模块结构、问题清单和改进方向时，先看最新 agents module review report。
+- 用当前未解决问题(生产成熟度、CI、安全、迁移链、E2E 等)时，先看 [issues/README.md](../issues/README.md)。
+- 用 agent 模块结构、问题清单和改进方向时，先看 issues/ 下最新的 agents module review report。
 - 用历史对比时，按日期倒序阅读。

@@ -14,6 +14,7 @@
 | `validation/` | 测试、验证、MCP 合约和权限验证方法 |
 | `plans/` | 当前计划与历史计划的唯一入口 |
 | `status/` | 状态报告、审计报告、成熟度评估和知识图谱 |
+| `issues/` | 当前已知、尚未解决问题的唯一入口与跟踪清单 |
 | `archive/` | 非计划类历史材料，例如已完成的旧实现指南 |
 
 ## 快速使用
@@ -59,15 +60,15 @@
 - 已完成、被替代、暂停或仅供追溯的计划放在 `plans/archive/`。
 - 不再使用 `archive/plans/`，避免两个归档入口。
 
-当前活跃计划：
-
-| 文档 | 用途 |
-|---|---|
-| [plans/active/2026-06-01-complete-traces-evals-plan.md](plans/active/2026-06-01-complete-traces-evals-plan.md) | 完整 traces 与 eval 平台目标态实施计划 |
+当前无活跃计划;历史计划见 [plans/README.md](plans/README.md) 的 Archive 段。
 
 ## 状态与评估
 
 状态报告和审计报告只从 [status/README.md](status/README.md) 进入。这里包括生产成熟度评估、agent 模块审计、历史状态快照和知识图谱。
+
+## 当前已知问题
+
+尚未解决的问题清单从 [issues/README.md](issues/README.md) 进入。这里汇总当前需要跟踪/排期的 P1–P3 问题(含双层 ORM 数据模型、迁移基线缺失、E2E 未进 CI 等),并承接 status 报告里仍未解决的项。
 
 ## 历史材料
 
