@@ -873,12 +873,12 @@ LLM 生成题目 + 测试用例 + 参考答案
 ## 十六、相关文档
 
 - AI API 端点参考：[../api/ai-api.md](../api/ai-api.md)
-- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](../archive/status/AI_AGENTS_STATUS.md)
+- AI 模块能力状态总览：[AI_AGENTS_STATUS.md](../status/AI_AGENTS_STATUS.md)
 - Agent 增强指南：[AGENT_ENHANCEMENT_GUIDE.md](../archive/completed/AGENT_ENHANCEMENT_GUIDE.md)
-- 模块审计报告：[ai-agents-module-audit.md](../archive/superpowers/plans/ai-agents-module-audit.md)
-- 集成修复计划：[2026-05-23-agent-module-integration.md](../archive/superpowers/plans/2026-05-23-agent-module-integration.md)
-- Agent 架构成熟化计划（历史）：[../archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md](../archive/plans/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
-- 架构重构计划（Phase 6）：[../archive/plans/2026-05-28-architecture-refactor-plan.md](../archive/plans/2026-05-28-architecture-refactor-plan.md)
+- 模块审计报告：[ai-agents-module-audit.md](../plans/archive/superpowers/ai-agents-module-audit.md)
+- 集成修复计划：[2026-05-23-agent-module-integration.md](../plans/archive/superpowers/2026-05-23-agent-module-integration.md)
+- Agent 架构成熟化计划（历史）：[AGENT_ARCHITECTURE_MATURITY_PLAN.md](../plans/archive/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
+- 架构重构计划（Phase 6）：[2026-05-28-architecture-refactor-plan.md](../plans/archive/2026-05-28-architecture-refactor-plan.md)
 - MCP 运行时架构（工具边界 / scope / 身份隔离）：[mcp-runtime.md](mcp-runtime.md)
 - 系统架构总览：[overview.md](overview.md)
 - 现有 REST API：[../api/rest-api.md](../api/rest-api.md)

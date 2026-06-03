@@ -2,7 +2,7 @@
 
 > 日期：2026-05-26
 > 状态：待审阅
-> 前置文档：`docs/archive/plans/FASTAPI_AGENT_HOST_MCP_WORKFLOW_PLAN_ZH.md`、`docs/plans/2026-05-26-phase1-phase2-repair-plan.md`
+> 前置文档：`docs/plans/archive/FASTAPI_AGENT_HOST_MCP_WORKFLOW_PLAN_ZH.md`、`docs/plans/archive/2026-05-26-phase1-phase2-repair-plan.md`
 > 前置条件：Phase 1/2 修复完成（Agent Host 直接执行 Agent、Supervisor 接入主链路）
 
 ## 一、Phase 3 目标

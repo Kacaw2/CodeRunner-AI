@@ -122,7 +122,7 @@
 
 ## 五、统一执行顺序(跨 plan 主干 · 2026-05-30 重排)
 
-> 本节是全仓库所有活跃 plan 的**唯一执行主干**。已合并:本审计 F1–F9 + `2026-05-29-phase-2-rag-orchestration-detailed.md`(RAG/编排真 bug)。已完成的 Phase 0/1 详细方案见 `archive/plans/`;`2026-05-29-phase-1-4-architecture-hardening-plan.md` 的 Phase 3/4 已并入本表,不再单独执行。
+> 本节是全仓库所有活跃 plan 的**唯一执行主干**。已合并:本审计 F1–F9 + `2026-05-29-phase-2-rag-orchestration-detailed.md`(RAG/编排真 bug)。已完成的 Phase 0/1 详细方案见 `../plans/archive/`;`2026-05-29-phase-1-4-architecture-hardening-plan.md` 的 Phase 3/4 已并入本表,不再单独执行。
 
 ```
 【信任边界 — 已基本关闭】
