@@ -9,17 +9,10 @@ stream and aggregates a final ``AgentResult``.
 
 from dataclasses import dataclass, field
 
-from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
 from agents.base import _trace_links_from_state
+from agents.registry import AGENT_CLASSES, get_agent_instance
 from graph.handoff import apply_handoff
 from graph.runner import MAX_HANDOFFS, _classify_intent
-
-_AGENT_MAP = {
-    "tutor": TutorAgent,
-    "reviewer": ReviewerAgent,
-    "generator": GeneratorAgent,
-    "analytics": AnalyticsAgent,
-}
 
 
 @dataclass
@@ -90,7 +83,7 @@ class AgentHarness:
 
         final_response = ""
         with use_current_trace(trace):
-            agent = _AGENT_MAP.get(resolved, TutorAgent)()
+            agent = get_agent_instance(resolved, default="tutor")
             for event in agent.stream(state):
                 if event.get("type") == "token":
                     final_response += event.get("content", "")
@@ -101,7 +94,7 @@ class AgentHarness:
             while (
                 state.get("handoff_to")
                 and handoff_count < MAX_HANDOFFS
-                and state["handoff_to"] in _AGENT_MAP
+                and state["handoff_to"] in AGENT_CLASSES
                 and state["handoff_to"] not in previous_agents
             ):
                 target_type = state["handoff_to"]
@@ -113,7 +106,7 @@ class AgentHarness:
 
                 apply_handoff(state, use_reducer=False)
 
-                target_agent = _AGENT_MAP.get(target_type, TutorAgent)()
+                target_agent = get_agent_instance(target_type, default="tutor")
                 final_response = ""
                 for event in target_agent.stream(state):
                     if event.get("type") == "token":

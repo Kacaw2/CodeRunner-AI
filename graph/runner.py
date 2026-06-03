@@ -7,16 +7,11 @@ from agents.config import AIConfig
 from core.definitions import AGENT_DEFINITIONS, can_route_to
 from core.exceptions import AIError
 from core.state import AgentState
-from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
+from agents.registry import AGENT_CLASSES, get_agent_instance
 
 logger = logging.getLogger(__name__)
 
-_AGENTS = {
-    "tutor": TutorAgent(),
-    "reviewer": ReviewerAgent(),
-    "generator": GeneratorAgent(),
-    "analytics": AnalyticsAgent(),
-}
+_AGENTS = {name: get_agent_instance(name) for name in AGENT_CLASSES}
 
 VALID_AGENT_TYPES = set(_AGENTS.keys())
 

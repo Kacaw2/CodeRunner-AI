@@ -151,18 +151,9 @@ def _run_chat_task(task_id: str, app):
 
             context = {"conversation_id": task.conversation_id}
 
-            # ── Agent map ──
-            from agents import (
-                TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent,
-            )
+            # ── Agent factory ──
+            from agents.registry import AGENT_CLASSES, get_agent_instance
             from graph.runner import _classify_intent, MAX_HANDOFFS
-
-            _AGENT_MAP = {
-                "tutor": TutorAgent,
-                "reviewer": ReviewerAgent,
-                "generator": GeneratorAgent,
-                "analytics": AnalyticsAgent,
-            }
 
             # Phase 3: prefer the agent resolved (and rate-limited) at submission.
             resolved_agent_type = task.routed_agent or task.agent_type
@@ -201,8 +192,7 @@ def _run_chat_task(task_id: str, app):
                 })
 
             # ── Stream from agent ──
-            agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
-            agent = agent_cls()
+            agent = get_agent_instance(resolved_agent_type, default="tutor")
             full_response = ""
 
             for event in agent.stream(state):
@@ -216,7 +206,7 @@ def _run_chat_task(task_id: str, app):
 
             while (state.get("handoff_to")
                    and handoff_count < MAX_HANDOFFS
-                   and state["handoff_to"] in _AGENT_MAP
+                   and state["handoff_to"] in AGENT_CLASSES
                    and state["handoff_to"] not in previous_agents):
 
                 target_type = state["handoff_to"]
@@ -234,7 +224,7 @@ def _run_chat_task(task_id: str, app):
                 from graph.handoff import apply_handoff
                 apply_handoff(state, use_reducer=False)
 
-                target_agent = _AGENT_MAP.get(target_type, TutorAgent)()
+                target_agent = get_agent_instance(target_type, default="tutor")
                 full_response = ""
                 for event in target_agent.stream(state):
                     if event["type"] == "token":

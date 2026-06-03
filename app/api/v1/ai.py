@@ -435,15 +435,8 @@ def chat_stream():
 
     def generate():
         from langchain_core.messages import HumanMessage
-        from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
+        from agents.registry import AGENT_CLASSES, get_agent_instance
         from graph.runner import MAX_HANDOFFS
-
-        _AGENT_MAP = {
-            "tutor": TutorAgent,
-            "reviewer": ReviewerAgent,
-            "generator": GeneratorAgent,
-            "analytics": AnalyticsAgent,
-        }
 
         # Phase 3: the concrete agent was already resolved (and rate-limited)
         # before the response started streaming.
@@ -464,8 +457,7 @@ def chat_stream():
         if resolved_agent_type != agent_type:
             yield f"data: {json.dumps({'type': 'route', 'agent_type': resolved_agent_type})}\n\n"
 
-        agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
-        agent = agent_cls()
+        agent = get_agent_instance(resolved_agent_type, default="tutor")
         full_response = ""
         last_event_time = time.monotonic()
         handoff_count = 0
@@ -484,7 +476,7 @@ def chat_stream():
             previous_agents.append(resolved_agent_type)
             while (state.get("handoff_to")
                    and handoff_count < MAX_HANDOFFS
-                   and state["handoff_to"] in _AGENT_MAP
+                   and state["handoff_to"] in AGENT_CLASSES
                    and state["handoff_to"] not in previous_agents):
 
                 target_type = state["handoff_to"]
@@ -496,8 +488,7 @@ def chat_stream():
                 # Notify frontend of the handoff
                 yield f"data: {json.dumps({'type': 'handoff_start', 'target': target_type, 'reason': handoff_reason})}\n\n"
 
-                target_agent_cls = _AGENT_MAP.get(target_type, TutorAgent)
-                target_agent = target_agent_cls()
+                target_agent = get_agent_instance(target_type, default="tutor")
 
                 # Continue with accumulated messages from the previous agent
                 full_response = ""
@@ -867,9 +858,9 @@ def review_code():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents import ReviewerAgent
+        from agents.registry import get_agent_instance
 
-        agent = ReviewerAgent()
+        agent = get_agent_instance("reviewer")
         state = {
             "messages": [HumanMessage(content="Please review the code provided in the context.")],
             "agent_type": "reviewer",
@@ -943,9 +934,9 @@ def generate_question():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents import GeneratorAgent
+        from agents.registry import get_agent_instance
 
-        agent = GeneratorAgent()
+        agent = get_agent_instance("generator")
         state = {
             "messages": [HumanMessage(content=prompt)],
             "agent_type": "generator",
@@ -1362,7 +1353,7 @@ def _publish_draft(draft, created_by: int):
 
 def _trigger_revision(draft):
     """Use the Generator agent to revise based on teacher feedback."""
-    from agents.generator.agent import GeneratorAgent
+    from agents.registry import get_agent_instance
     from langchain_core.messages import HumanMessage as LCHumanMessage
 
     original_json = json.dumps(draft.question_data, indent=2, ensure_ascii=False)
@@ -1374,7 +1365,7 @@ def _trigger_revision(draft):
         f"complete updated JSON."
     )
 
-    agent = GeneratorAgent()
+    agent = get_agent_instance("generator")
     state = {
         "messages": [LCHumanMessage(content=revision_prompt)],
         "agent_type": "generator",
@@ -1530,9 +1521,9 @@ def analytics_report(student_id):
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents import AnalyticsAgent
+        from agents.registry import get_agent_instance
 
-        agent = AnalyticsAgent()
+        agent = get_agent_instance("analytics")
         state = {
             "messages": [HumanMessage(content=prompt)],
             "agent_type": "analytics",

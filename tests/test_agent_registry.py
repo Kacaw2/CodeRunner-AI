@@ -1,6 +1,9 @@
 """The factory is the single name->class resolution point. Every declared
 definition must resolve to a concrete BaseAgent subclass, and vice versa."""
 
+import re
+from pathlib import Path
+
 import pytest
 
 from core.definitions import AGENT_DEFINITIONS
@@ -39,3 +42,23 @@ def test_get_agent_instance_default_for_router_fallback():
 
     inst = get_agent_instance("garbage", default="tutor")
     assert isinstance(inst, TutorAgent)
+
+
+def test_no_runtime_module_redeclares_an_agent_class_map():
+    """Guard against a sixth hand-rolled name->class dict creeping back in.
+
+    Allowed to import the classes (e.g. for isinstance), but not to build a
+    `{"tutor": TutorAgent, ...}` dispatch dict outside agents/registry.py.
+    """
+    root = Path(__file__).resolve().parents[1]
+    suspects = [
+        root / "workers" / "chat.py",
+        root / "app" / "api" / "v1" / "ai.py",
+        root / "graph" / "runner.py",
+        root / "evals" / "runner.py",
+        root / "evals" / "harness" / "agent_harness.py",
+    ]
+    pattern = re.compile(r'["\']tutor["\']\s*:\s*TutorAgent')
+    for path in suspects:
+        text = path.read_text(encoding="utf-8")
+        assert not pattern.search(text), f"{path} still hand-rolls an agent map"
