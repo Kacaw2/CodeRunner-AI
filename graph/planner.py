@@ -130,6 +130,16 @@ REVIEW_TEMPLATE: list[WorkflowStepDef] = [
     },
 ]
 
+GENERAL_TEMPLATE: list[WorkflowStepDef] = [
+    {
+        "step_index": 0,
+        "step_type": "llm_call",
+        "instruction": "Analyze the user goal and produce a direct, actionable response",
+        "risk_level": "low",
+        "requires_approval": False,
+    },
+]
+
 TEMPLATES: dict[str, list[WorkflowStepDef]] = {
     "generation": GENERATION_TEMPLATE,
     "review": REVIEW_TEMPLATE,
@@ -166,6 +176,16 @@ def plan_from_template(workflow_type: str, goal: str, context: dict = None) -> W
         "context": context or {},
     }
     return plan
+
+
+def plan_general_fallback(goal: str, context: dict = None) -> WorkflowPlan:
+    """Minimal single-step plan used when LLM planning is unavailable."""
+    return {
+        "goal": goal,
+        "workflow_type": "general",
+        "steps": [dict(s) for s in GENERAL_TEMPLATE],
+        "context": context or {},
+    }
 
 
 def plan_with_llm(goal: str, user_role: str, context: dict = None) -> WorkflowPlan:
@@ -228,4 +248,9 @@ def create_plan(goal: str, user_role: str, context: dict = None) -> WorkflowPlan
             return plan
 
     logger.info("Using LLM planner for goal: %.80s", goal)
-    return plan_with_llm(goal, user_role, context)
+    plan = plan_with_llm(goal, user_role, context)
+    if plan:
+        return plan
+
+    logger.warning("LLM planner returned no plan; falling back to general template")
+    return plan_general_fallback(goal, context)
