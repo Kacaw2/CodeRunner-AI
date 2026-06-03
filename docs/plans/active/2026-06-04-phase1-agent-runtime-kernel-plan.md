@@ -57,7 +57,7 @@ But the real trace is created inside [agents/base.py:214](../../agents/base.py) 
 - Create: `agents/session.py`
 - Test: `tests/test_agent_session.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_agent_session.py
@@ -115,12 +115,12 @@ def test_mcp_identity_uses_session_trace_id_not_context():
     assert identity.conversation_id == 10
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_agent_session.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'agents.session'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # agents/session.py
@@ -207,12 +207,12 @@ class AgentSession:
         )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_agent_session.py -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add agents/session.py tests/test_agent_session.py
@@ -229,7 +229,7 @@ git commit -m "feat(agents): add AgentSession runtime-context carrier"
 
 This extracts the duplicated token-usage extraction (currently at [base.py:262-280](../../agents/base.py) and [base.py:406-413](../../agents/base.py)), the retrying invoke/stream ([base.py:135-142](../../agents/base.py)), and the compaction call ([base.py:238-241](../../agents/base.py)). No behavior change — `BaseAgent` keeps using these until Task 5.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_llm_runner.py
@@ -276,12 +276,12 @@ def test_compact_never_raises_and_returns_list():
     assert len(out) <= 30
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_llm_runner.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'agents.llm_runner'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # agents/llm_runner.py
@@ -348,12 +348,12 @@ class LLMRunner:
             return messages
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_llm_runner.py -v`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add agents/llm_runner.py tests/test_llm_runner.py
@@ -370,7 +370,7 @@ git commit -m "feat(agents): extract LLMRunner pure model helpers"
 
 `run()` gains an optional `session` parameter. When provided, identity comes from `session.mcp_identity()` (which carries the real `trace_id`); the agent name comes from the session. The existing `(tool_call, state, default_agent)` path is preserved as a fallback so nothing that still calls the old signature breaks.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_agent_runtime_kernel.py
@@ -419,12 +419,12 @@ def test_executor_uses_session_trace_id_for_identity():
         client_mod.set_mcp_tool_client(None)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_agent_runtime_kernel.py::test_executor_uses_session_trace_id_for_identity -v`
 Expected: FAIL with `TypeError: run() got an unexpected keyword argument 'session'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Modify `ToolCallExecutor.run` in [agents/executor.py](../../agents/executor.py) — change the signature and the identity/agent-name resolution:
 
@@ -472,17 +472,17 @@ The rest of the method (the `AfterToolCall` hook fire and envelope→content map
 
 Note the fallback also now reads `state.get("trace_id")` first — a defensive partial fix for any legacy caller.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_agent_runtime_kernel.py::test_executor_uses_session_trace_id_for_identity -v`
 Expected: PASS
 
-- [ ] **Step 5: Run the boundary suite to confirm no regression**
+- [x] **Step 5: Run the boundary suite to confirm no regression**
 
 Run: `pytest tests/test_agent_mcp_client_boundary.py -v`
 Expected: PASS (all existing tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agents/executor.py tests/test_agent_runtime_kernel.py
@@ -501,7 +501,7 @@ git commit -m "fix(agents): tool identity carries real trace_id via AgentSession
 
 Move the loop logic verbatim from `base.py`, with three substitutions: (a) `self._llm_invoke`→`LLMRunner.invoke`, token extraction→`LLMRunner.extract_usage`, compaction→`LLMRunner.compact`; (b) the legacy-function parsing and stream-split helpers stay importable from `agents.base` (do not duplicate — import them); (c) tool execution calls `self._executor.run(tc, state, session.agent_name, session=session)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # add to tests/test_agent_runtime_kernel.py
@@ -551,12 +551,12 @@ def test_runtime_run_sets_trace_id_and_strips_system_prompt(monkeypatch):
         reset_tool_runtime()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_agent_runtime_kernel.py::test_runtime_run_sets_trace_id_and_strips_system_prompt -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'agents.runtime'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # agents/runtime.py
@@ -829,12 +829,12 @@ class AgentRuntime:
 
 Note: `_apply_after_run` reproduces `BaseAgent._fire_after_agent_run` (which reads `agent_name=state.get("agent_type", self.name)` — equivalent to `session.agent_name`). The `BEFORE_AGENT_RUN` hook and the security-alert injection still happen in `BaseAgent` *before* it builds the session (Task 5), so the `system_ctx` passed in is already alerted.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_agent_runtime_kernel.py::test_runtime_run_sets_trace_id_and_strips_system_prompt -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add agents/runtime.py tests/test_agent_runtime_kernel.py
@@ -851,7 +851,7 @@ git commit -m "feat(agents): add AgentRuntime invoke/stream orchestration facade
 
 `BaseAgent` keeps `_fire_before_agent_run`, `_maybe_inject_security_alert`, `_run_mcp_tool`, `_tool_executor`, and the module-level helpers (`_parse_legacy_function_text`, `_split_safe_stream_content`, `_trace_links_from_state`, `_usage_number`) — `agents/runtime.py` imports the helpers. The two big methods shrink to: fire before-hook → inject alert → build session → delegate → copy result back into the caller's `state`.
 
-- [ ] **Step 1: Replace `_invoke_with_mcp_tools` body**
+- [x] **Step 1: Replace `_invoke_with_mcp_tools` body**
 
 Replace the entire method body ([base.py:206-329](../../agents/base.py)) with:
 
@@ -872,7 +872,7 @@ Replace the entire method body ([base.py:206-329](../../agents/base.py)) with:
         return state
 ```
 
-- [ ] **Step 2: Replace `_stream_with_mcp_tools` body**
+- [x] **Step 2: Replace `_stream_with_mcp_tools` body**
 
 Replace the entire method body ([base.py:331-494](../../agents/base.py)) with:
 
@@ -894,21 +894,21 @@ Replace the entire method body ([base.py:331-494](../../agents/base.py)) with:
 
 Note: `AgentRuntime._apply_after_run` writes handoff keys into `session.extra_state`, so `session.to_state()` carries them; this preserves the `AgentHarness` loop at [agent_harness.py:99](../../evals/harness/agent_harness.py).
 
-- [ ] **Step 3: Verify the leftover helpers are still present**
+- [x] **Step 3: Verify the leftover helpers are still present**
 
 Confirm these remain defined in `agents/base.py` (used by the runtime import and by direct callers/tests): `_parse_legacy_function_text`, `_split_safe_stream_content`, `_trace_links_from_state`, `_usage_number`, `BaseAgent._run_mcp_tool`, `BaseAgent._tool_executor`, `BaseAgent._fire_before_agent_run`, `BaseAgent._fire_after_agent_run`, `BaseAgent._maybe_inject_security_alert`. Do not delete them.
 
-- [ ] **Step 4: Run the agent + handoff suites**
+- [x] **Step 4: Run the agent + handoff suites**
 
 Run: `pytest tests/test_agents.py tests/test_agent_features.py tests/test_handoff_context.py -v`
 Expected: PASS. If a handoff test fails, verify Step 2's `state.update(session.to_state())` and that `_apply_after_run` populated `extra_state` with the handoff keys.
 
-- [ ] **Step 5: Run the runtime-kernel + boundary + hooks suites**
+- [x] **Step 5: Run the runtime-kernel + boundary + hooks suites**
 
 Run: `pytest tests/test_agent_runtime_kernel.py tests/test_agent_mcp_client_boundary.py tests/test_agent_hooks.py -v`
 Expected: PASS. `test_base_agent_delegates_tool_execution_to_executor` asserts `_run_mcp_tool` references `_tool_executor` — keep both defined.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agents/base.py
@@ -925,7 +925,7 @@ git commit -m "refactor(agents): BaseAgent delegates invoke/stream to AgentRunti
 
 The harness already owns the trace and binds it ambiently, so `acquire_trace` inside the runtime correctly reuses it (`owns_trace=False`) and the single-trace guarantee holds. `budget`/`source` flow to the runtime via the ambient `TraceCollector`, not via state. The change here is a regression test proving the harness path now produces a tool-call `trace_id` equal to the run `trace_id` (harness-level proof of the Task 3 fix), plus a clarifying comment.
 
-- [ ] **Step 1: Add a regression test for trace_id join via the harness**
+- [x] **Step 1: Add a regression test for trace_id join via the harness**
 
 ```python
 # add to tests/test_agent_harness_trace_binding.py
@@ -985,12 +985,12 @@ def test_harness_tool_calls_share_run_trace_id(mock_config, app, db_session, tea
         assert captured["trace_id"] == result.trace_id
 ```
 
-- [ ] **Step 2: Run test to verify it passes with the kernel in place**
+- [x] **Step 2: Run test to verify it passes with the kernel in place**
 
 Run: `pytest tests/test_agent_harness_trace_binding.py::test_harness_tool_calls_share_run_trace_id -v`
 Expected: PASS. If it fails with `trace_id is None`, the ambient trace's `run_id` is not reaching `session.trace_id` — confirm `AgentRuntime._acquire` sets `session.trace_id = trace.run_id` and that `@patch` targets `agents.runtime.AIConfig` (the runtime is where `get_llm` is now called).
 
-- [ ] **Step 3: Add a clarifying comment in the harness**
+- [x] **Step 3: Add a clarifying comment in the harness**
 
 In [agent_harness.py:62-70](../../evals/harness/agent_harness.py), above the `state = {...}` block, add:
 
@@ -1001,12 +1001,12 @@ In [agent_harness.py:62-70](../../evals/harness/agent_harness.py), above the `st
 
 Do NOT change the trace-creation block at [agent_harness.py:78-90](../../evals/harness/agent_harness.py) — it is load-bearing for the single-trace guarantee.
 
-- [ ] **Step 4: Run both harness suites**
+- [x] **Step 4: Run both harness suites**
 
 Run: `pytest tests/test_agent_harness_trace_binding.py tests/test_eval_harness_trace_binding.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add evals/harness/agent_harness.py tests/test_agent_harness_trace_binding.py
@@ -1022,12 +1022,12 @@ git commit -m "test(harness): assert harness tool calls share the run trace_id"
 
 Cover the Phase 1 acceptance criteria that aren't yet pinned by a focused test.
 
-- [ ] **Step 1: Read the limit-exceeded message before asserting on it**
+- [x] **Step 1: Read the limit-exceeded message before asserting on it**
 
 Run: `grep -n "class AgentExecutionLimitError" -A 15 core/exceptions.py`
 Note the exact `user_message` string so the next test asserts on real text.
 
-- [ ] **Step 2: Add limit_exceeded regression test**
+- [x] **Step 2: Add limit_exceeded regression test**
 
 ```python
 # add to tests/test_agent_runtime_kernel.py
@@ -1075,7 +1075,7 @@ def test_runtime_limit_exceeded_stops_after_max_iterations(monkeypatch):
         client_mod.set_mcp_tool_client(None)
 ```
 
-- [ ] **Step 3: Add tool-allowlist-deny still-blocks test**
+- [x] **Step 3: Add tool-allowlist-deny still-blocks test**
 
 ```python
 def test_runtime_blocks_undeclared_tool():
@@ -1096,17 +1096,17 @@ def test_runtime_blocks_undeclared_tool():
     assert "TOOL_NOT_ALLOWED" in msg.content
 ```
 
-- [ ] **Step 4: Run the full new file**
+- [x] **Step 4: Run the full new file**
 
 Run: `pytest tests/test_agent_runtime_kernel.py -v`
 Expected: PASS (all tests)
 
-- [ ] **Step 5: Run the full Phase 1 regression set**
+- [x] **Step 5: Run the full Phase 1 regression set**
 
 Run: `pytest tests/test_agents.py tests/test_agent_features.py tests/test_agent_hooks.py tests/test_agent_contracts.py tests/test_agent_mcp_client_boundary.py tests/test_agent_harness_trace_binding.py tests/test_eval_harness_trace_binding.py tests/test_handoff_context.py tests/test_agent_session.py tests/test_llm_runner.py tests/test_agent_runtime_kernel.py -v`
 Expected: PASS (the whole Phase 1 surface, green)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tests/test_agent_runtime_kernel.py
@@ -1117,11 +1117,11 @@ git commit -m "test(agents): pin Phase 1 runtime-kernel acceptance criteria"
 
 ## Acceptance Criteria (from the upgrade plan)
 
-- [ ] Every agent run maps to one session and one trace — `AgentSession` constructed per run; `acquire_trace` owns/borrows exactly as before.
-- [ ] Tool-call audit uses the same `trace_id` as the agent trace — `test_executor_uses_session_trace_id_for_identity` + `test_harness_tool_calls_share_run_trace_id`.
-- [ ] The system prompt is never written back into conversation history — `test_runtime_run_sets_trace_id_and_strips_system_prompt`.
-- [ ] `limit_exceeded`, hooks, handoff, output validation do not regress — Task 5/7 suites.
-- [ ] Sync invoke, stream, and worker harness tests still pass — Task 7 Step 5.
+- [x] Every agent run maps to one session and one trace — `AgentSession` constructed per run; `acquire_trace` owns/borrows exactly as before.
+- [x] Tool-call audit uses the same `trace_id` as the agent trace — `test_executor_uses_session_trace_id_for_identity` + `test_harness_tool_calls_share_run_trace_id`.
+- [x] The system prompt is never written back into conversation history — `test_runtime_run_sets_trace_id_and_strips_system_prompt`.
+- [x] `limit_exceeded`, hooks, handoff, output validation do not regress — Task 5/7 suites.
+- [x] Sync invoke, stream, and worker harness tests still pass — Task 7 Step 5.
 
 ## Out of scope (per the upgrade plan)
 
