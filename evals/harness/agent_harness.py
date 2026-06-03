@@ -59,6 +59,8 @@ class AgentHarness:
 
         context = dict(context or {})
 
+        # budget/source reach the agent runtime via the ambient TraceCollector
+        # below (use_current_trace), not through this state dict.
         state = {
             "messages": list(history or []) + [HumanMessage(content=message)],
             "agent_type": agent_type,
