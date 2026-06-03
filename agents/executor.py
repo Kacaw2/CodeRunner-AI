@@ -14,7 +14,7 @@ from langchain_core.messages import ToolMessage
 class ToolCallExecutor:
     """Runs a single LLM tool call through the MCP client adapter."""
 
-    def run(self, tool_call: dict, state: dict, default_agent: str) -> ToolMessage:
+    def run(self, tool_call: dict, state: dict, default_agent: str, *, session=None) -> ToolMessage:
         from mcp_gateway.client import MCPClientIdentity, get_mcp_tool_client
         from agents.hooks import HookContext, HookEvent, get_hook_manager
 
@@ -22,7 +22,7 @@ class ToolCallExecutor:
         args = tool_call.get("args", {})
         tc_id = tool_call.get("id", "")
 
-        agent_name = state.get("agent_type", default_agent)
+        agent_name = session.agent_name if session is not None else state.get("agent_type", default_agent)
         hooks = get_hook_manager()
 
         # BeforeToolCall: enforce the agent's tool allowlist before the call
@@ -40,14 +40,17 @@ class ToolCallExecutor:
             }, ensure_ascii=False)
             return ToolMessage(content=content, tool_call_id=tc_id)
 
-        identity = MCPClientIdentity(
-            user_id=state.get("user_id", 0),
-            role=state.get("user_role", "student"),
-            agent_type=state.get("agent_type", default_agent),
-            task_id=state.get("context", {}).get("task_id"),
-            conversation_id=state.get("context", {}).get("conversation_id"),
-            trace_id=state.get("context", {}).get("trace_id"),
-        )
+        if session is not None:
+            identity = session.mcp_identity()
+        else:
+            identity = MCPClientIdentity(
+                user_id=state.get("user_id", 0),
+                role=state.get("user_role", "student"),
+                agent_type=state.get("agent_type", default_agent),
+                task_id=state.get("context", {}).get("task_id"),
+                conversation_id=state.get("context", {}).get("conversation_id"),
+                trace_id=state.get("trace_id") or state.get("context", {}).get("trace_id"),
+            )
 
         envelope = get_mcp_tool_client().call_tool(name, args, identity, tool_call_id=tc_id)
 
