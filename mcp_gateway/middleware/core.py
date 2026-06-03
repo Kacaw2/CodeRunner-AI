@@ -8,6 +8,7 @@ import contextvars
 import json
 import logging
 import os
+import uuid
 
 from mcp_gateway.middleware.rate_limit import check_rate_limit
 from tools.protocol import get_tool_runtime, ToolCallContext
@@ -99,6 +100,7 @@ def _internal_caller_from_claims(claims: dict) -> dict:
         "agent_type": agent_type,
         "task_id": claims.get("task_id") or None,
         "conversation_id": claims.get("conversation_id") or None,
+        "trace_id": claims.get("trace_id") or None,
         "scopes": list(claims.get("scopes") or []),
         "rate_limit_rpm": rate_limit_rpm,
     }
@@ -163,6 +165,7 @@ def call_via_runtime(mcp_tool: str, args: dict) -> str:
                 agent_type=caller.get("agent_type", ""),
                 task_id=caller.get("task_id"),
                 conversation_id=caller.get("conversation_id"),
+                trace_id=caller.get("trace_id") or uuid.uuid4().hex,
             ),
             granted_scopes=caller.get("scopes") or [],
         )

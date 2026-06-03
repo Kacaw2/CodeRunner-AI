@@ -23,17 +23,28 @@ def seeded_kb(kb):
     return kb
 
 
+def _collection_space(collection):
+    config = getattr(collection, "configuration", None)
+    if config is None:
+        config = getattr(collection, "configuration_json", None)
+    if config is None and hasattr(collection, "get_configuration"):
+        config = collection.get_configuration()
+    if isinstance(config, dict):
+        if "hnsw" in config:
+            return config["hnsw"].get("space")
+        if "hnsw_configuration" in config:
+            return config["hnsw_configuration"].get("space")
+    config_json = config.to_json()
+    if "hnsw_configuration" in config_json:
+        return config_json["hnsw_configuration"].get("space")
+    return collection.metadata.get("hnsw:space")
+
+
 class TestCollectionSetup:
     def test_cosine_distance_metric(self, kb):
-        meta = kb.questions.metadata
-        assert meta is not None
-        assert meta.get("hnsw:space") == "cosine"
-
-        meta_kp = kb.knowledge.metadata
-        assert meta_kp.get("hnsw:space") == "cosine"
-
-        meta_ep = kb.error_patterns.metadata
-        assert meta_ep.get("hnsw:space") == "cosine"
+        assert _collection_space(kb.questions) == "cosine"
+        assert _collection_space(kb.knowledge) == "cosine"
+        assert _collection_space(kb.error_patterns) == "cosine"
 
 
 class TestIndexAndSearch:

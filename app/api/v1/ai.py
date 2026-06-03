@@ -219,16 +219,8 @@ def _load_history(conversation_id: int) -> list:
 
 def _try_parse_review_json(text: str) -> dict | None:
     """Try to extract a structured review JSON from the LLM response."""
-    import re
-    fence = re.search(r"```json\s*\n?(.*?)```", text, re.DOTALL)
-    raw = fence.group(1) if fence else text
-    brace = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not brace:
-        return None
-    try:
-        return json.loads(brace.group())
-    except json.JSONDecodeError:
-        return None
+    from agents.json_utils import extract_first_json_object
+    return extract_first_json_object(text)
 
 
 def _slugify_problem_title(title: str) -> str:
@@ -1451,24 +1443,32 @@ def save_as_draft():
 @bp.route("/traces", methods=["GET"])
 @require_teacher
 def list_traces():
-    """List agent run traces. Teacher/admin only."""
+    """List agent traces from the new agent_trace_* tables. Teacher/admin only."""
     user = get_current_user_or_401()
-    from app.models.agent_trace import AgentRun
+    from app.services.trace_query_service import TraceQueryService
 
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
-    agent_type = request.args.get("agent_type")
+    filters = {
+        key: request.args.get(key)
+        for key in (
+            "agent_type",
+            "status",
+            "source",
+            "eval_run_id",
+            "conversation_id",
+            "chat_task_id",
+            "from",
+            "to",
+            "q",
+        )
+        if request.args.get(key) not in (None, "")
+    }
 
-    query = AgentRun.query
-    if agent_type:
-        query = query.filter_by(agent_type=agent_type)
-
-    total = query.count()
-    runs = query.order_by(AgentRun.created_at.desc()).offset(offset).limit(limit).all()
-    return jsonify({
-        "traces": [r.to_dict() for r in runs],
-        "total": total,
-    })
+    result = TraceQueryService().list_traces(
+        viewer=user, filters=filters, limit=limit, offset=offset
+    )
+    return jsonify(result)
 
 
 # ── GET /api/v1/ai/traces/<run_id> ─────────────────────────
@@ -1476,16 +1476,18 @@ def list_traces():
 @bp.route("/traces/<run_id>", methods=["GET"])
 @require_teacher
 def get_trace(run_id):
-    """Get detailed trace for a single agent run."""
-    from app.models.agent_trace import AgentRun, AgentRunStep
-    run = AgentRun.query.get(run_id)
-    if not run:
+    """Get the complete trace tree (run/spans/events/artifacts/links).
+
+    Reads the new agent_trace_* tables and falls back to a read-only view of a
+    legacy ``agent_runs`` row until the Phase 7 backfill runs.
+    """
+    user = get_current_user_or_401()
+    from app.services.trace_query_service import TraceQueryService
+
+    trace = TraceQueryService().get_trace(run_id, viewer=user)
+    if trace is None:
         return _error_response("not_found", "Trace not found", 404)
-    steps = AgentRunStep.query.filter_by(run_id=run_id).order_by(AgentRunStep.step_index).all()
-    return jsonify({
-        "run": run.to_dict(),
-        "steps": [s.to_dict() for s in steps],
-    })
+    return jsonify(trace)
 
 
 # ── GET /api/v1/ai/analytics/<student_id> ────────────────────
@@ -1883,10 +1885,21 @@ def delete_knowledge(knowledge_id):
 @bp.route("/evals/run", methods=["POST"])
 @require_teacher
 def run_evals():
-    """Run an eval suite. Teacher/admin only."""
-    data = request.get_json(silent=True) or {}
-    suite = data.get("suite", "all")
+    """Run an eval suite. Teacher/admin only.
 
+    Two modes:
+    - ``selector`` (preferred): run dataset cases through the EvalHarness, which
+      binds each case to a trace and persists ``EvalRun`` / ``EvalCaseRun`` /
+      ``EvalCaseGraderResult`` through the runtime-neutral store.
+    - ``suite`` (legacy): run the old ``evals/cases/*_evals.json`` files.
+    """
+    data = request.get_json(silent=True) or {}
+    selector = data.get("selector")
+
+    if selector:
+        return _run_evals_harness(data, selector)
+
+    suite = data.get("suite", "all")
     try:
         from evals.runner import EvalRunner, report_to_dict
         runner = EvalRunner(use_real_llm=True)
@@ -1924,6 +1937,64 @@ def run_evals():
         return _error_response("ai_service_error", f"Eval run failed: {e}", 500)
 
 
+def _run_evals_harness(data: dict, selector: str):
+    """Selector-based eval run via the EvalHarness (persists through core store)."""
+    try:
+        from evals.harness.eval_harness import EvalHarness
+
+        budget = data.get("budget") or {}
+        report = EvalHarness().run(
+            selector=selector,
+            model_name=data.get("model_name"),
+            max_cases=budget.get("max_cases"),
+        )
+        return jsonify({"report": _eval_harness_report_to_dict(report)})
+    except Exception as e:
+        logger.exception("EvalHarness run error")
+        return _error_response("ai_service_error", f"Eval run failed: {e}", 500)
+
+
+def _eval_harness_report_to_dict(report) -> dict:
+    return {
+        "eval_run_id": report.eval_run_id,
+        "selector": report.selector,
+        "model_name": report.model_name,
+        "total": report.total,
+        "passed": report.passed,
+        "failed": report.failed,
+        "errors": report.errors,
+        "pass_rate": report.pass_rate,
+        "cases": [
+            {
+                "case_id": c.case_id,
+                "case_type": c.case_type,
+                "suite": c.suite,
+                "agent_type": c.agent_type,
+                "trace_id": c.trace_id,
+                "status": c.status,
+                "passed": c.passed,
+                "failure_type": c.failure_type,
+                "duration_ms": c.duration_ms,
+                "tokens_input": c.tokens_input,
+                "tokens_output": c.tokens_output,
+                "cost_cny": float(c.cost_cny) if c.cost_cny is not None else None,
+                "output_preview": c.output_preview,
+                "graders": [
+                    {
+                        "grader_type": g.grader_type,
+                        "grader_name": g.grader_name,
+                        "passed": g.passed,
+                        "score": g.score,
+                        "reason": g.reason,
+                    }
+                    for g in c.grader_results
+                ],
+            }
+            for c in report.case_results
+        ],
+    }
+
+
 @bp.route("/evals/history", methods=["GET"])
 @require_teacher
 def eval_history():
@@ -1936,6 +2007,93 @@ def eval_history():
     total = query.count()
     runs = query.offset(offset).limit(limit).all()
     return jsonify({"runs": [r.to_dict() for r in runs], "total": total})
+
+
+@bp.route("/evals/runs/<int:run_id>", methods=["GET"])
+@require_teacher
+def eval_run_report(run_id: int):
+    """Full report for one eval run (summary + cases + optional regressions)."""
+    from evals.reports.generator import ReportGenerator
+
+    compare_to = request.args.get("compare_to", default=0, type=int)
+    try:
+        report = ReportGenerator().build(
+            eval_run_id=run_id, compare_to_eval_run_id=compare_to
+        )
+    except Exception as e:  # noqa: BLE001 — report boundary
+        logger.exception("Eval report build error")
+        return _error_response("ai_service_error", f"Report failed: {e}", 500)
+    return jsonify(report.to_dict())
+
+
+@bp.route("/evals/cases/by-trace/<trace_id>", methods=["GET"])
+@require_teacher
+def eval_case_by_trace(trace_id: str):
+    """Eval case + grader results bound to a trace (for the trace Eval tab)."""
+    from core.db.session import db_session
+    from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
+
+    with db_session() as session:
+        case = (
+            session.query(EvalCaseRun)
+            .filter_by(trace_id=trace_id)
+            .order_by(EvalCaseRun.created_at.desc())
+            .first()
+        )
+        if case is None:
+            return jsonify({"case": None})
+        graders = (
+            session.query(EvalCaseGraderResult)
+            .filter_by(case_run_id=case.id)
+            .all()
+        )
+        payload = {
+            "case_id": case.case_id,
+            "case_type": case.case_type,
+            "suite": case.suite,
+            "agent_type": case.agent_type,
+            "eval_run_id": case.eval_run_id,
+            "status": case.status,
+            "passed": bool(case.passed),
+            "failure_type": case.failure_type,
+            "graders": [
+                {
+                    "grader_type": g.grader_type,
+                    "grader_name": g.grader_name,
+                    "passed": g.passed,
+                    "score": g.score,
+                    "reason": g.reason,
+                }
+                for g in graders
+            ],
+        }
+    return jsonify({"case": payload})
+
+
+@bp.route("/evals/promote-regression", methods=["POST"])
+@require_teacher
+def promote_regression():
+    """Promote a trace into a regression/production-failure dataset case."""
+    data = request.get_json(silent=True) or {}
+    trace_id = (data.get("trace_id") or "").strip()
+    if not trace_id:
+        return _error_response("invalid_request", "trace_id is required", 400)
+
+    from evals.datasets.store import DatasetStore
+
+    try:
+        case = DatasetStore().create_from_trace(
+            trace_id,
+            case_type=data.get("case_type", "regression"),
+            reason=data.get("reason", ""),
+            suite=data.get("suite"),
+        )
+    except ValueError as e:
+        return _error_response("not_found", str(e), 404)
+    except Exception as e:  # noqa: BLE001 — dataset write boundary
+        logger.exception("Promote regression error")
+        return _error_response("ai_service_error", f"Promote failed: {e}", 500)
+    return jsonify({"case": case.to_dict()})
 
 
 # ── Phase 2: Supervisor Workflow Endpoints ──────────────────

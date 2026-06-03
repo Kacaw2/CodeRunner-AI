@@ -439,7 +439,8 @@ class TestGeneratorAgent:
         with app.app_context():
             from langchain_core.messages import HumanMessage
             from agents.generator.agent import GeneratorAgent
-            from app.models.agent_trace import AgentRun, AgentRunStep
+            from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+            from core.db.session import db_session as core_db_session
 
             class Chunk:
                 def __init__(self, content, usage_metadata=None):
@@ -483,12 +484,22 @@ class TestGeneratorAgent:
                 events = list(GeneratorAgent().stream(state))
 
             assert any(event["type"] == "token" for event in events)
-            run = AgentRun.query.filter_by(agent_type="generator").one()
-            assert run.conversation_id == 123
-            assert run.status == "completed"
-            assert run.tokens_input == 10
-            assert run.tokens_output == 20
-            assert AgentRunStep.query.filter_by(run_id=run.id).count() >= 2
+            with core_db_session() as session:
+                run = (
+                    session.query(AgentTraceRun)
+                    .filter_by(agent_type="generator")
+                    .one()
+                )
+                assert run.conversation_id == 123
+                assert run.status == "completed"
+                assert run.tokens_input == 10
+                assert run.tokens_output == 20
+                span_count = (
+                    session.query(AgentTraceSpan)
+                    .filter_by(trace_id=run.trace_id)
+                    .count()
+                )
+                assert span_count >= 2
 
 
 class TestAnalyticsAgent:
@@ -517,6 +528,61 @@ class TestAnalyticsAgent:
             result = agent.invoke(state)
 
             assert "progress" in result["final_response"]
+
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_stream_executes_legacy_function_text_without_leaking_it(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.analytics.agent import AnalyticsAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            class FunctionTextChunk:
+                content = '<function>\nget_class_statistics({"teacher_id": 10})\n</function>'
+                usage_metadata = {}
+                tool_call_chunks = []
+
+            class FinalChunk:
+                content = '{"summary": "Class activity is steady", "progress": {"trend": "stable"}}'
+                usage_metadata = {}
+                tool_call_chunks = []
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.stream.side_effect = [[FunctionTextChunk()], [FinalChunk()]]
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True,
+                tool="coderunner.analytics.class_statistics",
+                data={"classrooms": [], "total_students": 0},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = AnalyticsAgent()
+                state = {
+                    "messages": [HumanMessage(content="Analyze my class")],
+                    "agent_type": "analytics",
+                    "user_id": 10,
+                    "user_role": "teacher",
+                    "context": {"period": "30d"},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                events = list(agent.stream(state))
+            finally:
+                reset_tool_runtime()
+
+            token_text = "".join(e.get("content", "") for e in events if e["type"] == "token")
+            assert "<function>" not in token_text
+            assert any(e["type"] == "tool_call" and e["tool"] == "coderunner.analytics.class_statistics"
+                       for e in events)
+            mock_runtime.call_sync.assert_called()
+            assert state["final_response"].startswith('{"summary"')
 
 
 class TestOrchestrator:
@@ -799,3 +865,89 @@ class TestCrashRecovery:
 
             recovered = AgentTask.query.get(task_id)
             assert recovered.status == "failed"
+
+
+class TestMemorySummaryReplay:
+    def test_get_memory_context_replays_recent_summaries(self, db_session, app):
+        with app.app_context():
+            from app.models.ai_conversation import AIConversation
+            from app.models.user import User, UserRole
+            from memory.service import MemoryService
+
+            user = User(username="mem_replay_user", password="x",
+                        email="memreplay@test.com", role=UserRole.STUDENT)
+            db_session.add(user)
+            db_session.flush()
+
+            past = AIConversation(
+                user_id=user.id, agent_type="tutor",
+                summary="Student struggled with recursion base cases.")
+            current = AIConversation(
+                user_id=user.id, agent_type="tutor",
+                summary="Currently working on linked lists.")
+            db_session.add_all([past, current])
+            db_session.commit()
+
+            ctx = MemoryService.get_memory_context(
+                user.id, "student", conversation_id=current.id)
+
+            assert "recursion base cases" in ctx
+            # The in-progress conversation must be excluded from its own context.
+            assert "linked lists" not in ctx
+
+
+class TestCrossAgentCallGuardrail:
+    def test_trace_llm_call_increments_counter(self):
+        from core.observability.tracing import TraceCollector
+
+        trace = TraceCollector(agent_type="tutor", user_id=1)
+        assert trace.llm_call_count == 0
+        with trace.trace_llm_call():
+            pass
+        with trace.trace_llm_call():
+            pass
+        assert trace.llm_call_count == 2
+
+    @patch("agents.base.AIConfig")
+    def test_guardrail_aborts_when_shared_budget_exhausted(self, mock_config, app):
+        with app.app_context():
+            from agents.config import MAX_LLM_CALLS_PER_TRACE
+            from agents.tutor.agent import TutorAgent
+            from core.observability.tracing import TraceCollector, use_current_trace
+            from tools.protocol.runtime import (
+                ToolRuntime, set_tool_runtime, reset_tool_runtime,
+            )
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            set_tool_runtime(mock_runtime)
+
+            # Simulate a handoff chain where earlier agents already spent the
+            # whole cross-agent LLM budget on this shared trace.
+            trace = TraceCollector(agent_type="supervisor", user_id=1)
+            trace.llm_call_count = MAX_LLM_CALLS_PER_TRACE
+            try:
+                with use_current_trace(trace):
+                    agent = TutorAgent()
+                    state = {
+                        "messages": [HumanMessage(content="Help me")],
+                        "agent_type": "tutor",
+                        "user_id": 1,
+                        "user_role": "student",
+                        "context": {"question_id": 1},
+                        "tool_results": [],
+                        "final_response": "",
+                    }
+                    result = agent.invoke(state)
+            finally:
+                reset_tool_runtime()
+
+            # Guardrail must trip before any further LLM call is made.
+            mock_llm.invoke.assert_not_called()
+            assert result["final_response"]
+            assert trace.pending_status == "limit_exceeded"

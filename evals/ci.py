@@ -13,6 +13,15 @@ Usage:
     python -m evals.ci --update-baseline     # run + (re)write baseline.json
     python -m evals.ci --report-out out.json # also dump a full JSON report
     python -m evals.ci --tolerance 0.10      # allow a 10pp drop before failing
+
+    # Harness mode (DB-backed): run the EvalHarness over a dataset selector,
+    # persist results, then emit a full ReportGenerator report and gate on it.
+    python -m evals.ci --use-harness --selector all \
+        --report-out eval-report.json
+
+    # Harness mode in CI on an empty SQLite DB (creates the schema first):
+    python -m evals.ci --use-harness --bootstrap-schema \
+        --db-url sqlite:///eval_ci.db --selector all --report-out eval-report.json
 """
 
 from __future__ import annotations
@@ -40,6 +49,151 @@ def _load_baseline(path: Path) -> dict:
         return {}
 
 
+def _run_harness_cli(args) -> int:
+    """Entry wrapper for harness mode: own a Flask app context (+ optional schema).
+
+    The DB-backed harness drives *real* agents (which read/write through Flask
+    models) and persists results into the runtime-neutral ``agent_trace_*`` /
+    ``eval_*`` tables. A CLI/CI invocation has none of the pytest fixtures that
+    normally provide an app context and a ready schema, so we establish both here:
+
+    - always run inside ``create_app().app_context()`` so agents can resolve
+      services / models / MCP transports;
+    - when ``--bootstrap-schema`` is set (CI on an empty SQLite file), mirror the
+      test harness setup — create Flask + core ``Base`` tables on one engine — so
+      the harness has somewhere to write. Production omits the flag and keeps its
+      migrated MySQL schema and separately-configured core session untouched.
+    """
+    from app import create_app
+
+    config_name = "testing" if args.bootstrap_schema else None
+    app = create_app(config_name) if config_name else create_app()
+    if args.bootstrap_schema and args.db_url:
+        app.config["SQLALCHEMY_DATABASE_URI"] = args.db_url
+
+    with app.app_context():
+        if args.bootstrap_schema:
+            _bootstrap_eval_schema()
+        return _run_harness_mode(args)
+
+
+def _bootstrap_eval_schema() -> None:
+    """Create Flask + core ``Base`` tables on a single engine (CI / empty DB).
+
+    Mirrors ``tests/conftest.py``: the trace/eval tables are declared on
+    ``core.db.session.Base`` (plain SQLAlchemy), so we point the core session at
+    the Flask engine and create both metadatas on the same database. This is a
+    test/CI convenience only — production owns this schema via Alembic.
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.extensions import db as _db
+    import core.db.session as core_session
+    import core.db.models.agent_trace  # noqa: F401  register tables on Base
+
+    _db.create_all()
+    core_session._engine = _db.engine
+    core_session._SessionLocal = sessionmaker(bind=_db.engine, expire_on_commit=False)
+    core_session.Base.metadata.create_all(bind=_db.engine)
+
+
+def _run_harness_mode(args) -> int:
+    """Run the EvalHarness, emit a full report, and gate on it.
+
+    Gate fails when any case regressed against ``--compare-to`` or when the
+    overall pass rate falls below ``baseline floor - tolerance`` (baseline reused
+    from ``baseline.json`` keyed by suite, falling back to the whole run).
+    """
+    from evals.harness.eval_harness import EvalHarness
+    from evals.reports.generator import ReportGenerator
+
+    run_report = EvalHarness().run(selector=args.selector)
+    report = ReportGenerator().build(
+        eval_run_id=run_report.eval_run_id,
+        compare_to_eval_run_id=args.compare_to,
+    )
+    summary = report.summary
+
+    if args.report_out:
+        Path(args.report_out).write_text(
+            json.dumps(report.to_dict(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("Wrote report JSON to %s", args.report_out)
+    Path(args.report_md_out).write_text(report.to_markdown(), encoding="utf-8")
+    Path(args.regressions_out).write_text(
+        json.dumps(summary.get("regressions", []), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    print("\n=== Eval report ===")
+    print(report.to_markdown())
+
+    regressions = summary.get("regressions", [])
+    pass_rate = summary.get("pass_rate", 0.0)
+    suite = summary.get("suite_name") or args.selector
+
+    # Calibration: write this run's pass rate as the new baseline floor and exit
+    # 0 without gating. Lets the harness path self-calibrate baseline.json the way
+    # the legacy runner does via --update-baseline.
+    if getattr(args, "update_baseline", False):
+        Path(args.baseline).write_text(
+            json.dumps(
+                {suite: {"min_pass_rate": round(pass_rate, 4)}},
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        logger.info("Updated baseline at %s (suite=%s)", args.baseline, suite)
+        return 0
+
+    baseline = _load_baseline(Path(args.baseline))
+    floor = float(baseline.get(suite, {}).get("min_pass_rate", 0.0))
+    threshold = floor - args.tolerance
+
+    failed = False
+    if regressions:
+        failed = True
+        print(f"\nEval gate FAILED — {len(regressions)} case(s) regressed:")
+        for r in regressions:
+            print(f"  - {r['case_id']} ({r.get('failure_type') or 'failed'})")
+    if floor and pass_rate < threshold:
+        failed = True
+        print(
+            f"\nEval gate FAILED — pass rate {pass_rate:.1%} < "
+            f"baseline {floor:.1%} - tolerance {args.tolerance:.0%}"
+        )
+
+    if failed:
+        return 1
+    print("\nEval gate PASSED.")
+    return 0
+
+
+def _selector_from_dataset_cases_dir(cases_dir: str) -> str | None:
+    """Map evals/datasets paths to DatasetStore selectors.
+
+    The legacy CI runner uses ``evals/cases`` suites. Phase 5 moved canonical
+    cases under ``evals/datasets/{golden,hidden,regression,production_failures}``,
+    so a cases-dir pointing there should use the DB-backed harness path.
+    """
+    path = Path(cases_dir)
+    parts = [part.lower() for part in path.parts]
+    if not parts:
+        return None
+
+    if parts[-1] == "datasets":
+        return "all"
+
+    dataset_types = {"golden", "hidden", "regression", "production_failures"}
+    if len(parts) >= 2 and parts[-2] == "datasets" and parts[-1] in dataset_types:
+        return parts[-1]
+
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -65,7 +219,52 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Optional path to write a full per-case JSON report.",
     )
+    parser.add_argument(
+        "--use-harness",
+        action="store_true",
+        help="Run the DB-backed EvalHarness and gate on a full report.",
+    )
+    parser.add_argument(
+        "--selector",
+        default="all",
+        help="Harness-mode dataset selector (all / <type> / <type>:<suite>).",
+    )
+    parser.add_argument(
+        "--compare-to",
+        type=int,
+        default=0,
+        help="Harness-mode prior eval_run_id to compare against for regressions.",
+    )
+    parser.add_argument(
+        "--report-md-out",
+        default="eval-report.md",
+        help="Harness-mode path for the Markdown report.",
+    )
+    parser.add_argument(
+        "--regressions-out",
+        default="eval-regressions.json",
+        help="Harness-mode path for the regressions JSON.",
+    )
+    parser.add_argument(
+        "--bootstrap-schema",
+        action="store_true",
+        help="Harness-mode: create Flask + core tables on an empty DB (CI only).",
+    )
+    parser.add_argument(
+        "--db-url",
+        default="",
+        help="Harness-mode: override SQLALCHEMY_DATABASE_URI when bootstrapping.",
+    )
     args = parser.parse_args(argv)
+
+    dataset_selector = _selector_from_dataset_cases_dir(args.cases_dir)
+    if dataset_selector and not args.use_harness:
+        args.use_harness = True
+        if args.selector == "all":
+            args.selector = dataset_selector
+
+    if args.use_harness:
+        return _run_harness_cli(args)
 
     runner = EvalRunner(use_real_llm=True)
     reports = runner.run_all_suites(args.cases_dir)

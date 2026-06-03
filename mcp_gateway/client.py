@@ -33,6 +33,7 @@ class MCPClientIdentity:
     agent_type: str
     task_id: str | None = None
     conversation_id: str | None = None
+    trace_id: str | None = None
 
 
 class MCPToolClient:
@@ -80,6 +81,7 @@ class InProcessMCPToolClient(MCPToolClient):
             agent_type=identity.agent_type,
             task_id=identity.task_id,
             conversation_id=identity.conversation_id,
+            trace_id=identity.trace_id,
         )
         ctx = ToolCallContext(
             caller=caller,
@@ -114,6 +116,7 @@ class StreamableHTTPMCPToolClient(MCPToolClient):
             scopes=scopes_for_agent(identity.agent_type),
             task_id=identity.task_id,
             conversation_id=identity.conversation_id,
+            trace_id=identity.trace_id,
             signing_key=self._signing_key,
         )
         return f"Bearer {token}"

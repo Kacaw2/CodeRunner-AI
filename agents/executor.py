@@ -46,6 +46,7 @@ class ToolCallExecutor:
             agent_type=state.get("agent_type", default_agent),
             task_id=state.get("context", {}).get("task_id"),
             conversation_id=state.get("context", {}).get("conversation_id"),
+            trace_id=state.get("context", {}).get("trace_id"),
         )
 
         envelope = get_mcp_tool_client().call_tool(name, args, identity, tool_call_id=tc_id)

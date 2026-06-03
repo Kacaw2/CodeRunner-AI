@@ -1,0 +1,224 @@
+[
+  {
+    "id": "reviewer_identifies_bug_001",
+    "case_type": "golden",
+    "suite": "reviewer",
+    "category": "correctness",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Please review this code",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "def divide(a, b):\n    return a / b\n\nresult = divide(10, 0)\nprint(result)"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.contains_any",
+        "keywords": [
+          "division by zero",
+          "ZeroDivisionError",
+          "divide by zero"
+        ]
+      }
+    ],
+    "expected_behavior": "Should identify the division by zero issue",
+    "description": "Reviewer should identify obvious bugs in code"
+  },
+  {
+    "id": "reviewer_structured_output_001",
+    "case_type": "golden",
+    "suite": "reviewer",
+    "category": "format",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Review this code",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "def add(a, b):\n    return a + b\n\nprint(add(1, 2))"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.contains_any",
+        "keywords": [
+          "score",
+          "issue",
+          "strength",
+          "suggestion"
+        ]
+      }
+    ],
+    "expected_behavior": "Should provide structured feedback",
+    "description": "Reviewer should produce structured review with scores"
+  },
+  {
+    "id": "reviewer_infinite_loop_001",
+    "case_type": "golden",
+    "suite": "reviewer",
+    "category": "correctness",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Please review my code for correctness",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "i = 0\nwhile i < 10:\n    print(i)\n    # forgot to increment i"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.contains_any",
+        "keywords": [
+          "infinite",
+          "loop",
+          "increment",
+          "never",
+          "termination",
+          "i += 1",
+          "i = i + 1"
+        ]
+      }
+    ],
+    "expected_behavior": "Should detect the missing increment leading to infinite loop",
+    "description": "Reviewer should detect potential infinite loops"
+  },
+  {
+    "id": "reviewer_off_by_one_001",
+    "case_type": "golden",
+    "suite": "reviewer",
+    "category": "correctness",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Review my array traversal code",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "arr = [1, 2, 3, 4, 5]\nfor i in range(1, len(arr) + 1):\n    print(arr[i])"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.contains_any",
+        "keywords": [
+          "index",
+          "out of range",
+          "IndexError",
+          "off-by-one",
+          "boundary",
+          "bounds"
+        ]
+      }
+    ],
+    "expected_behavior": "Should identify the index out of bounds error",
+    "description": "Reviewer should catch off-by-one errors"
+  },
+  {
+    "id": "reviewer_style_feedback_001",
+    "case_type": "golden",
+    "suite": "reviewer",
+    "category": "quality",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Review this code for quality",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "def f(x):\n    a = []\n    for i in x:\n        if i > 0:\n            a.append(i)\n    return a"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.contains_any",
+        "keywords": [
+          "naming",
+          "name",
+          "readability",
+          "descriptive",
+          "list comprehension",
+          "filter"
+        ]
+      },
+      {
+        "type": "deterministic.min_length",
+        "min_length": 50
+      }
+    ],
+    "expected_behavior": "Should suggest better naming and possible list comprehension",
+    "description": "Reviewer should provide style and improvement suggestions"
+  },
+  {
+    "id": "reviewer_security_issue_001",
+    "case_type": "golden",
+    "suite": "reviewer",
+    "category": "security",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Review this code",
+      "user_id": 1,
+      "user_role": "teacher",
+      "agent_type": "reviewer",
+      "context": {
+        "code": "import os\nuser_input = input()\nos.system(user_input)"
+      }
+    },
+    "budget": {
+      "max_tokens": 2048,
+      "max_tool_calls": 5,
+      "timeout_seconds": 90,
+      "max_cost_cny": 0.25
+    },
+    "graders": [
+      {
+        "type": "deterministic.contains_any",
+        "keywords": [
+          "injection",
+          "security",
+          "dangerous",
+          "os.system",
+          "arbitrary",
+          "command"
+        ]
+      }
+    ],
+    "expected_behavior": "Should flag command injection vulnerability",
+    "description": "Reviewer should flag security issues in code"
+  }
+]

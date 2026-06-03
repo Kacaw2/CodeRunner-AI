@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% set page = 'ai-evals' %}
+{% block title %}Agent Evals{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/traces.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="traces-container">
+  <div class="traces-header">
+    <div class="traces-title">
+      <i class="bi bi-clipboard-check"></i>
+      <h4>Agent Evals</h4>
+    </div>
+    <div class="traces-filters">
+      <select class="form-select form-select-sm" id="selectorFilter">
+        <option value="all">All datasets</option>
+        <option value="golden">Golden</option>
+        <option value="golden:tutor">Golden · Tutor</option>
+        <option value="golden:reviewer">Golden · Reviewer</option>
+        <option value="golden:generator">Golden · Generator</option>
+        <option value="golden:analytics">Golden · Analytics</option>
+        <option value="golden:security">Golden · Security</option>
+        <option value="hidden">Hidden</option>
+        <option value="regression">Regression</option>
+        <option value="production_failure">Production failures</option>
+      </select>
+      <button class="btn btn-sm btn-primary" id="runEvalBtn">
+        <i class="bi bi-play-fill"></i> Run eval
+      </button>
+      <button class="btn btn-sm btn-outline-primary" id="refreshHistoryBtn">
+        <i class="bi bi-arrow-clockwise"></i> Refresh
+      </button>
+    </div>
+  </div>
+
+  <div class="traces-body">
+    <!-- Eval run history -->
+    <div class="trace-list-panel">
+      <div class="trace-list" id="evalHistory">
+        <p class="text-muted small p-3">Loading eval history...</p>
+      </div>
+    </div>
+
+    <!-- Report detail -->
+    <div class="trace-detail-panel" id="evalReport">
+      <div class="trace-detail-empty">
+        <i class="bi bi-bar-chart" style="font-size: 2.5rem; opacity: 0.3;"></i>
+        <p>Run an eval or select a past run to view its report</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/evals.js') }}"></script>
+{% endblock %}

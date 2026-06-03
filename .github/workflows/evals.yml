@@ -2,8 +2,11 @@ name: evals
 
 # Agent quality / regression gate. UNLIKE tests.yml this needs a real LLM
 # (DEEPSEEK_API_KEY) and spends tokens, so it is NOT a per-PR required check.
-# It runs nightly and on manual dispatch, comparing each suite's pass rate
-# against evals/baseline.json (calibrate with: python -m evals.ci --update-baseline).
+# It runs nightly and on manual dispatch in DB-backed harness mode: it drives the
+# EvalHarness over the dataset, persists trace/eval rows to a throwaway SQLite DB,
+# and gates on a full ReportGenerator report (regressions + baseline floor from
+# evals/baseline.json). Calibrate the floor with the "update baseline" dispatch
+# (python -m evals.ci --use-harness --bootstrap-schema --update-baseline).
 
 on:
   workflow_dispatch:
@@ -33,6 +36,11 @@ jobs:
       SECRET_KEY: ci-test-secret-not-used-in-prod
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       AI_MODEL: ${{ vars.AI_MODEL || 'deepseek-chat' }}
+      # Harness mode persists trace/eval rows. CI has no MySQL service, so it runs
+      # against a throwaway SQLite file whose schema is bootstrapped per run
+      # (--bootstrap-schema). DB_URL keeps the core session pointed at the same DB.
+      DB_URL: sqlite:///eval_ci.db
+      DATABASE_URL: sqlite:///eval_ci.db
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,20 +64,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # DB-backed harness gate: runs the EvalHarness over the dataset, persists
+      # trace/eval rows, then gates on a full ReportGenerator report (regressions
+      # + baseline floor). Emits eval-report.json/.md and eval-regressions.json.
       - name: Run evals (gate)
         if: ${{ github.event_name == 'schedule' || inputs.update_baseline != true }}
         run: |
-          python -m evals.ci --tolerance "${{ inputs.tolerance || '0.05' }}" --report-out eval-report.json
+          python -m evals.ci --use-harness --bootstrap-schema \
+            --db-url "${DB_URL}" --selector all \
+            --tolerance "${{ inputs.tolerance || '0.05' }}" \
+            --report-out eval-report.json
 
       - name: Run evals (update baseline)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.update_baseline == true }}
         run: |
-          python -m evals.ci --update-baseline --report-out eval-report.json
+          python -m evals.ci --use-harness --bootstrap-schema \
+            --db-url "${DB_URL}" --selector all \
+            --update-baseline --report-out eval-report.json
 
       - name: Upload eval report
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: eval-report
-          path: eval-report.json
+          path: |
+            eval-report.json
+            eval-report.md
+            eval-regressions.json
           if-no-files-found: ignore

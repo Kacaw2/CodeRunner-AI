@@ -44,6 +44,25 @@ services:
     networks:
       - educode_network
 
+  chroma:
+    image: chromadb/chroma:1.5.9
+    container_name: educode_chroma
+    command: ["run", "--host", "0.0.0.0", "--port", "8000", "--path", "/chroma/chroma"]
+    environment:
+      ANONYMIZED_TELEMETRY: "FALSE"
+      CHROMA_ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - educode_network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000 && exec 3<&- && exec 3>&-"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -85,6 +104,12 @@ services:
       MAX_CONTENT_LENGTH: 16777216
       UPLOAD_FOLDER: /app/uploads
       HF_HOME: /app/.hf_cache
+
+      CHROMA_MODE: http
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      CHROMA_SSL: "False"
+      CHROMA_ANONYMIZED_TELEMETRY: "False"
     volumes:
       - ./app:/app/app:ro
       - ./core:/app/core:ro
@@ -100,8 +125,8 @@ services:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
       - executor_tmp:/tmp/executor
-      - kb_data:/app/data/knowledge_base
       - hf_cache:/app/.hf_cache
+      - ./tests:/app/tests:ro
     ports:
       - "${WEB_PORT:-9900}:9900"
     depends_on:
@@ -110,6 +135,8 @@ services:
       redis:
         condition: service_healthy
       executor:
+        condition: service_healthy
+      chroma:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9900/health"]
@@ -189,6 +216,12 @@ services:
       MCP_INTERNAL_SIGNING_KEY: ${MCP_INTERNAL_SIGNING_KEY}
       DEBUG: ${DEBUG:-False}
       HF_HOME: /app/.hf_cache
+
+      CHROMA_MODE: http
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      CHROMA_SSL: "False"
+      CHROMA_ANONYMIZED_TELEMETRY: "False"
     volumes:
       - hf_cache:/app/.hf_cache
     ports:
@@ -201,6 +234,8 @@ services:
       web:
         condition: service_healthy
       mcp_gateway:
+        condition: service_healthy
+      chroma:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/api/health"]
@@ -236,6 +271,12 @@ services:
       #   openssl pkey -in ed25519.pem -pubout | awk '{printf "%s\\n", $0}'
       MCP_INTERNAL_VERIFY_KEY: ${MCP_INTERNAL_VERIFY_KEY}
       HF_HOME: /app/.hf_cache
+
+      CHROMA_MODE: http
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      CHROMA_SSL: "False"
+      CHROMA_ANONYMIZED_TELEMETRY: "False"
     ports:
       - "${MCP_PORT:-8200}:8200"
     depends_on:
@@ -243,8 +284,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      chroma:
+        condition: service_healthy
     volumes:
-      - kb_data:/app/data/knowledge_base
       - hf_cache:/app/.hf_cache
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8200)); s.close()\""]
@@ -264,7 +306,7 @@ volumes:
     driver: local
   executor_tmp:
     driver: local
-  kb_data:
+  chroma_data:
     driver: local
   hf_cache:
     driver: local

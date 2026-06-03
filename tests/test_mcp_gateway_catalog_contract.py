@@ -98,7 +98,7 @@ def test_generated_tools_module_is_not_stale():
         "mcp_gateway",
         "generated_tools.py",
     )
-    with open(path, encoding="utf-8", newline="\n") as fh:
+    with open(path, encoding="utf-8") as fh:
         committed = fh.read()
     assert committed == render_generated_tools_module(), (
         "mcp_gateway/generated_tools.py is stale — regenerate with "

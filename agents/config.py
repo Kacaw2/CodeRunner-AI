@@ -15,6 +15,13 @@ AGENT_RATE_LIMITS: dict[str, int] = {
 
 MAX_TOOL_ITERATIONS = 5
 
+# Production-side guardrail on the total number of LLM calls charged to a single
+# logical trace. A trace is shared across an entire handoff chain / workflow /
+# chat task (see core.observability.tracing), so this caps aggregate LLM usage
+# ACROSS agents, complementing the per-loop MAX_TOOL_ITERATIONS ceiling. Must be
+# larger than MAX_TOOL_ITERATIONS so a single agent loop is never cut short.
+MAX_LLM_CALLS_PER_TRACE = 12
+
 
 class AIConfig:
     API_KEY: str = os.environ.get("DEEPSEEK_API_KEY", "")

@@ -46,6 +46,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Check browser JavaScript syntax
+        run: |
+          node --check app/static/js/traces.js
+          node --check app/static/js/evals.js
+
       - name: Run pytest
         run: |
           python -m pytest -q --tb=short

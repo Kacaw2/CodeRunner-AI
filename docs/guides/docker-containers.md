@@ -130,6 +130,23 @@ The important boundary is:
 - `app/services/executor_service.py`
 - `docker/executor_server.py`
 
+### `chroma` / `educode_chroma`
+
+**Purpose:** Shared Chroma 1.x vector database for RAG collections.
+
+`web`, `workers`, and `mcp_gateway` connect to it over the internal Docker
+network (`CHROMA_MODE=http`, `CHROMA_HOST=chroma`, `CHROMA_PORT=8000`) instead of
+each writing local Chroma files directly. This gives a single persistent
+boundary and keeps all app services on the same KB state.
+
+**Compose details:**
+
+- Image: `chromadb/chroma:1.5.9`
+- Internal service port: `8000` (not published to the host by default)
+- Network: `educode_network`
+- Persistent state: `chroma_data` volume mounted at `/chroma/chroma`
+- Health check: socket connect to `localhost:8000`
+
 ### `web` / `educode_web`
 
 **Purpose:** Main Flask application and user-facing backend.
@@ -141,7 +158,7 @@ The important boundary is:
 - Performs Flask-side validation before proxying agent requests when `USE_AGENT_HOST_PROXY=true`.
 - Calls the executor service for code execution.
 - Calls the Agent Host at `http://workers:8100` for async/agent workflows.
-- Loads the knowledge base health probe and shares vector-store data through `kb_data`.
+- Loads the knowledge base health probe and reads/writes vector data through the `chroma` HTTP service.
 
 **Compose details:**
 
@@ -156,6 +173,7 @@ The important boundary is:
   - `db`
   - `redis`
   - `executor`
+  - `chroma`
 
 **Bind-mounted source modules:**
 
@@ -179,7 +197,6 @@ can be picked up by recreating or restarting `web` without rebuilding the image:
 - `./uploads:/app/uploads`
 - `./logs:/app/logs`
 - `executor_tmp:/tmp/executor`
-- `kb_data:/app/data/knowledge_base`
 - `hf_cache:/app/.hf_cache`
 
 **Repository modules owned or served here:**
@@ -217,6 +234,7 @@ can be picked up by recreating or restarting `web` without rebuilding the image:
   - `redis`
   - `web`
   - `mcp_gateway`
+  - `chroma`
 
 **Source copied into image by `docker/Dockerfile.workers`:**
 
@@ -267,11 +285,11 @@ bind mounts.
 - Depends on healthy:
   - `db`
   - `redis`
+  - `chroma`
 - Health check: socket connect to `localhost:8200`
 
 **Volumes:**
 
-- `kb_data:/app/data/knowledge_base`
 - `hf_cache:/app/.hf_cache`
 
 **Repository modules owned or executed here:**
@@ -289,11 +307,12 @@ bind mounts.
 | `mysql_data` | `db` | Persistent MySQL data |
 | `redis_data` | `redis` | Persistent Redis data |
 | `executor_tmp` | `web` | Temporary executor working files mounted at `/tmp/executor` |
-| `kb_data` | `web`, `mcp_gateway` | Chroma / knowledge-base vector persistence |
+| `chroma_data` | `chroma` | Chroma 1.x vector-store persistence (mounted at `/chroma/chroma`) |
 | `hf_cache` | `web`, `workers`, `mcp_gateway` | HuggingFace / model cache |
 
 Do not remove `mysql_data` unless you intentionally want to reset the database.
-Removing `kb_data` resets the local vector index only, not the MySQL source data.
+Removing `chroma_data` resets the vector index only, not the MySQL source data;
+rebuild it with `scripts.migrate_kb` (and re-import manual collections).
 
 ## Common Local Commands
 
@@ -355,7 +374,16 @@ Invoke-RestMethod http://localhost:8100/api/health
   not apply changed port mappings. Use `docker compose up -d --force-recreate web`
   after changing `.env` port values.
 
-- A health response like `knowledge_base: degraded: '_type'` means the Chroma
-  vector-store data in `kb_data` is not compatible with the current ChromaDB
-  library format. The Flask app can still be healthy, but RAG/knowledge-base
-  features may be degraded until the vector index is reset or migrated.
+- A health response like `knowledge_base: degraded: '_type'` came from the old
+  embedded ChromaDB reading legacy on-disk collection config. The stack now runs
+  Chroma in server mode (`chroma` service) with a fresh `chroma_data` volume, so
+  this error should no longer occur. If KB health is `degraded`, check that the
+  `chroma` container is healthy and reachable at `chroma:8000` from app services.
+
+- After a Chroma dependency or schema change, export manual KB collections first,
+  then recreate Chroma and rebuild:
+
+  ```powershell
+  docker compose exec -T web python -m scripts.migrate_kb
+  docker compose exec -T web python -m scripts.import_kb_collections --input /tmp/kb-manual-export.json
+  ```

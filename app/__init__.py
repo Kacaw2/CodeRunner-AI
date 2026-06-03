@@ -80,12 +80,18 @@ def _ensure_tables(app):
 def _recover_orphaned_tasks(app):
     """C1: Resume tasks that were running when the server last crashed."""
     try:
-        from graph.recovery import recover_orphaned_tasks
+        from graph.recovery import recover_orphaned_tasks, recover_orphaned_workflows
         recovered = recover_orphaned_tasks()
         if recovered:
             app.logger.info("Startup: recovered %d orphaned tasks", recovered)
         else:
             app.logger.info("Startup: no orphaned tasks found")
+
+        recovered_workflows = recover_orphaned_workflows()
+        if recovered_workflows:
+            app.logger.info("Startup: recovered %d orphaned workflows", recovered_workflows)
+        else:
+            app.logger.info("Startup: no orphaned workflows found")
     except Exception as e:
         app.logger.warning("Startup: orphan recovery skipped: %s", e)
 

@@ -134,6 +134,22 @@ Browser / API client
 - `app/services/executor_service.py`
 - `docker/executor_server.py`
 
+### `chroma` / `educode_chroma`
+
+**用途：** 供 RAG 集合使用的共享 Chroma 1.x 向量数据库。
+
+`web`、`workers` 和 `mcp_gateway` 通过内部 Docker 网络连接它
+（`CHROMA_MODE=http`、`CHROMA_HOST=chroma`、`CHROMA_PORT=8000`），不再各自直接
+写本地 Chroma 文件。这样只有一个持久化边界，并让所有应用服务共享同一份 KB 状态。
+
+**Compose 细节：**
+
+- 镜像：`chromadb/chroma:1.5.9`
+- 内部服务端口：`8000`（默认不对宿主机暴露）
+- 网络：`educode_network`
+- 持久化：`chroma_data` 卷挂载到 `/chroma/chroma`
+- 健康检查：socket 连接 `localhost:8000`
+
 ### `web` / `educode_web`
 
 **用途：** 主 Flask 应用和用户可见后端。
@@ -145,7 +161,7 @@ Browser / API client
 - 当 `USE_AGENT_HOST_PROXY=true` 时，在代理到 Agent Host 前执行 Flask 侧请求校验。
 - 调用 `executor` 服务执行代码。
 - 调用 `http://workers:8100` 执行异步 / agent 工作流。
-- 加载知识库健康探针，并通过 `kb_data` 共享向量库数据。
+- 加载知识库健康探针，并通过 `chroma` HTTP 服务读写向量数据。
 
 **Compose 细节：**
 
@@ -160,6 +176,7 @@ Browser / API client
   - `db`
   - `redis`
   - `executor`
+  - `chroma`
 
 **bind mount 的源码模块：**
 
@@ -182,7 +199,6 @@ Browser / API client
 - `./uploads:/app/uploads`
 - `./logs:/app/logs`
 - `executor_tmp:/tmp/executor`
-- `kb_data:/app/data/knowledge_base`
 - `hf_cache:/app/.hf_cache`
 
 **主要负责或服务的仓库模块：**
@@ -220,6 +236,7 @@ Browser / API client
   - `redis`
   - `web`
   - `mcp_gateway`
+  - `chroma`
 
 **`docker/Dockerfile.workers` 复制进镜像的源码：**
 
@@ -267,11 +284,11 @@ Browser / API client
 - 依赖以下服务 healthy 后启动：
   - `db`
   - `redis`
+  - `chroma`
 - 健康检查：socket 连接 `localhost:8200`
 
 **数据卷：**
 
-- `kb_data:/app/data/knowledge_base`
 - `hf_cache:/app/.hf_cache`
 
 **主要负责或执行的仓库模块：**
@@ -289,11 +306,12 @@ Browser / API client
 | `mysql_data` | `db` | MySQL 持久化数据 |
 | `redis_data` | `redis` | Redis 持久化数据 |
 | `executor_tmp` | `web` | 挂载到 `/tmp/executor` 的临时执行目录 |
-| `kb_data` | `web`, `mcp_gateway` | Chroma / 知识库向量持久化 |
+| `chroma_data` | `chroma` | Chroma 1.x 向量库持久化（挂载到 `/chroma/chroma`） |
 | `hf_cache` | `web`, `workers`, `mcp_gateway` | HuggingFace / 模型缓存 |
 
 不要删除 `mysql_data`，除非你明确想重置数据库。
-删除 `kb_data` 只会重置本地向量索引，不会删除 MySQL 里的题目和业务源数据。
+删除 `chroma_data` 只会重置向量索引，不会删除 MySQL 里的题目和业务源数据；
+可用 `scripts.migrate_kb` 重建（并重新导入手工集合）。
 
 ## 常用本地命令
 
@@ -355,4 +373,14 @@ Invoke-RestMethod http://localhost:8100/api/health
   docker compose up -d --force-recreate web
   ```
 
-- 如果健康检查返回 `knowledge_base: degraded: '_type'`，说明 `kb_data` 里的 Chroma vector-store 数据和当前 ChromaDB 库格式不兼容。Flask 应用仍可 healthy，但 RAG / 知识库功能可能降级，直到重置或迁移向量索引。
+- 如果健康检查返回 `knowledge_base: degraded: '_type'`，这是旧的内嵌 ChromaDB 读取
+  历史磁盘集合配置时报的错。现在栈已改为服务模式（`chroma` 服务）并使用全新的
+  `chroma_data` 卷，正常情况下不会再出现该错误。如果 KB 健康仍为 `degraded`，检查
+  `chroma` 容器是否 healthy、应用服务能否通过 `chroma:8000` 访问到它。
+
+- 当 Chroma 依赖或 schema 变更后，先导出手工 KB 集合，再 recreate Chroma 并重建：
+
+  ```powershell
+  docker compose exec -T web python -m scripts.migrate_kb
+  docker compose exec -T web python -m scripts.import_kb_collections --input /tmp/kb-manual-export.json
+  ```

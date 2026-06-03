@@ -18,7 +18,9 @@ class AnalyticsAgent(BaseAgent):
         parts = [ANALYTICS_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
         memory_ctx = MemoryService.get_memory_context(
-            state.get("user_id", 0), state.get("user_role", "student")
+            state.get("user_id", 0),
+            state.get("user_role", "student"),
+            conversation_id=context.get("conversation_id"),
         )
         if memory_ctx:
             parts.append(f"\n## User Profile Context\n{memory_ctx}")

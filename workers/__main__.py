@@ -38,8 +38,20 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.debug("OTel init skipped", exc_info=True)
 
-    get_engine()
+    engine = get_engine()
     logger.info("Database engine created")
+
+    # Core-Base trace/eval tables have no Flask model and are not covered by the
+    # Flask app's db.create_all(); create the missing ones here so trace.save()
+    # and the eval pages work on any DB. Idempotent (checkfirst skips existing).
+    try:
+        import core.db.models.agent_trace  # noqa: F401  registers trace/eval tables
+        from core.db.session import Base
+
+        Base.metadata.create_all(engine)
+        logger.info("Core trace/eval tables ensured")
+    except Exception:
+        logger.warning("Core trace/eval table creation skipped", exc_info=True)
 
     r = get_redis()
     if r:
