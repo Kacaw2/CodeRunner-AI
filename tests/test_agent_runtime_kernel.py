@@ -41,3 +41,48 @@ def test_executor_uses_session_trace_id_for_identity():
         assert "Two Sum" in msg.content
     finally:
         client_mod.set_mcp_tool_client(None)
+
+
+def _mock_llm_no_tools(text="Here is a hint."):
+    class _Resp:
+        content = text
+        tool_calls = []
+        usage_metadata = {"input_tokens": 5, "output_tokens": 3}
+        response_metadata = {}
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.invoke.return_value = _Resp()
+    return llm
+
+
+def test_runtime_run_sets_trace_id_and_strips_system_prompt(monkeypatch):
+    from agents.runtime import AgentRuntime
+    from agents.session import AgentSession
+    from langchain_core.messages import SystemMessage
+    import agents.runtime as runtime_mod
+
+    monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
+                        staticmethod(lambda tier=None: _mock_llm_no_tools()))
+
+    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    try:
+        state = {
+            "messages": [HumanMessage(content="help")],
+            "agent_type": "tutor",
+            "user_id": 7,
+            "user_role": "student",
+            "context": {},
+            "tool_results": [],
+            "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        result = AgentRuntime().run(session, tool_names=[], system_ctx="SYS")
+
+        assert result["trace_id"]
+        assert result["final_response"] == "Here is a hint."
+        assert all(not isinstance(m, SystemMessage) for m in result["messages"])
+    finally:
+        reset_tool_runtime()
