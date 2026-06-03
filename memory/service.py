@@ -71,50 +71,83 @@ class MemoryService:
         db.session.commit()
 
     @staticmethod
-    def get_memory_context(user_id: int, user_role: str) -> str:
+    def _recent_conversation_summaries(
+        user_id: int, exclude_conversation_id: int = None, limit: int = 3
+    ) -> list[str]:
+        """Return summaries of the user's most recent prior conversations.
+
+        These are the mid-term memory produced by generate_conversation_summary
+        and persisted to AIConversation.summary. The current conversation is
+        excluded so the agent does not echo its own in-progress session back.
+        """
+        from app.models.ai_conversation import AIConversation
+
+        query = (
+            AIConversation.query
+            .filter(AIConversation.user_id == user_id)
+            .filter(AIConversation.summary.isnot(None))
+        )
+        if exclude_conversation_id is not None:
+            query = query.filter(AIConversation.id != exclude_conversation_id)
+
+        rows = query.order_by(AIConversation.updated_at.desc()).limit(limit).all()
+        return [c.summary.strip() for c in rows if c.summary and c.summary.strip()]
+
+    @staticmethod
+    def get_memory_context(
+        user_id: int, user_role: str, conversation_id: int = None
+    ) -> str:
         """Build memory context string to inject into system prompt.
 
-        Returns empty string if profile tables are not yet migrated,
-        ensuring graceful degradation before migration is applied.
+        Combines the static profile (learning summary, error patterns, weak
+        areas) with mid-term memory: summaries of the user's recent prior
+        conversations. Returns empty string if nothing is available or the
+        profile tables are not yet migrated, ensuring graceful degradation.
         """
         try:
+            parts = []
+
             if user_role == "student":
                 from app.models.student_profile import StudentProfile
 
                 profile = StudentProfile.query.filter_by(student_id=user_id).first()
-                if not profile:
-                    return ""
-                parts = []
-                if profile.learning_summary:
-                    parts.append(f"Student Background: {profile.learning_summary}")
-                if profile.error_patterns:
-                    parts.append(f"Error History: {profile.error_patterns}")
-                if profile.knowledge_map:
-                    weak = [k for k, v in profile.knowledge_map.items() if v < 0.5]
-                    if weak:
-                        parts.append(f"Weak Areas: {', '.join(weak)}")
-                if profile.current_hint_level:
-                    parts.append(f"Previous Hints Given: {profile.current_hint_level}")
-                return "\n".join(parts)
+                if profile:
+                    if profile.learning_summary:
+                        parts.append(f"Student Background: {profile.learning_summary}")
+                    if profile.error_patterns:
+                        parts.append(f"Error History: {profile.error_patterns}")
+                    if profile.knowledge_map:
+                        weak = [k for k, v in profile.knowledge_map.items() if v < 0.5]
+                        if weak:
+                            parts.append(f"Weak Areas: {', '.join(weak)}")
+                    if profile.current_hint_level:
+                        parts.append(f"Previous Hints Given: {profile.current_hint_level}")
 
             elif user_role == "teacher":
                 from app.models.student_profile import TeacherPreference
 
                 pref = TeacherPreference.query.filter_by(teacher_id=user_id).first()
-                if not pref:
-                    return ""
-                parts = []
-                if pref.style_notes:
-                    parts.append(f"Teacher Preferences: {pref.style_notes}")
-                if pref.class_weak_areas:
-                    parts.append(f"Class Weak Areas: {', '.join(pref.class_weak_areas)}")
-                return "\n".join(parts)
+                if pref:
+                    if pref.style_notes:
+                        parts.append(f"Teacher Preferences: {pref.style_notes}")
+                    if pref.class_weak_areas:
+                        parts.append(f"Class Weak Areas: {', '.join(pref.class_weak_areas)}")
+
+            try:
+                summaries = MemoryService._recent_conversation_summaries(
+                    user_id, exclude_conversation_id=conversation_id
+                )
+                if summaries:
+                    joined = "\n".join(f"- {s}" for s in summaries)
+                    parts.append(f"Recent Sessions:\n{joined}")
+            except Exception as e:
+                logger.debug("Recent conversation summaries unavailable: %s", e)
+
+            return "\n".join(parts)
 
         except Exception as e:
             logger.debug("Memory context unavailable (table may not exist yet): %s", e)
             return ""
-
-        return ""
 
     @staticmethod
     def compact_messages(messages: list, max_messages: int = 20) -> list:

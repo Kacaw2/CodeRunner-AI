@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agents.config import AIConfig, MAX_TOOL_ITERATIONS
+from agents.config import AIConfig, MAX_LLM_CALLS_PER_TRACE, MAX_TOOL_ITERATIONS
 from agents.executor import ToolCallExecutor
 from agents.json_utils import extract_first_json_object
 from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
@@ -245,6 +245,12 @@ class BaseAgent(ABC):
 
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
+                if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
+                    logger.warning(
+                        "Trace %s hit cross-agent LLM call budget (%d); aborting %s loop",
+                        trace.run_id, MAX_LLM_CALLS_PER_TRACE, self.name)
+                    limit_exceeded = True
+                    break
                 with trace.trace_llm_call() as llm_step:
                     try:
                         response = self._llm_invoke(llm_with_tools, messages)
@@ -364,6 +370,13 @@ class BaseAgent(ABC):
         limit_exceeded = False
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
+                if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
+                    logger.warning(
+                        "Trace %s hit cross-agent LLM call budget (%d); aborting %s stream",
+                        trace.run_id, MAX_LLM_CALLS_PER_TRACE, self.name)
+                    limit_exceeded = True
+                    break
+
                 collected_content = ""
                 pending_content = ""
                 tool_calls = []

@@ -139,6 +139,10 @@ class TraceCollector:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.tool_call_count = 0
+        # Aggregate LLM-call counter shared across every agent that writes into
+        # this trace (handoff chain / workflow / chat task), used by BaseAgent
+        # as a cross-agent total-call guardrail.
+        self.llm_call_count = 0
         self.input_message = ""
         self.input_context = None
         # Set by execution units (agents) that write into this trace without
@@ -149,6 +153,7 @@ class TraceCollector:
     @contextmanager
     def trace_llm_call(self):
         step = {"step_type": "llm_call", "step_index": len(self.steps)}
+        self.llm_call_count += 1
         start = time.monotonic()
         try:
             yield step

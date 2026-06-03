@@ -137,7 +137,11 @@ class GeneratorAgent(BaseAgent):
         context = state.get("context", {})
         parts = [GENERATOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
-        memory_ctx = MemoryService.get_memory_context(state["user_id"], state.get("user_role", "teacher"))
+        memory_ctx = MemoryService.get_memory_context(
+            state["user_id"],
+            state.get("user_role", "teacher"),
+            conversation_id=context.get("conversation_id"),
+        )
         if memory_ctx:
             parts.append(f"\n## Teacher Preferences (from profile)\n{memory_ctx}")
 

@@ -865,3 +865,89 @@ class TestCrashRecovery:
 
             recovered = AgentTask.query.get(task_id)
             assert recovered.status == "failed"
+
+
+class TestMemorySummaryReplay:
+    def test_get_memory_context_replays_recent_summaries(self, db_session, app):
+        with app.app_context():
+            from app.models.ai_conversation import AIConversation
+            from app.models.user import User, UserRole
+            from memory.service import MemoryService
+
+            user = User(username="mem_replay_user", password="x",
+                        email="memreplay@test.com", role=UserRole.STUDENT)
+            db_session.add(user)
+            db_session.flush()
+
+            past = AIConversation(
+                user_id=user.id, agent_type="tutor",
+                summary="Student struggled with recursion base cases.")
+            current = AIConversation(
+                user_id=user.id, agent_type="tutor",
+                summary="Currently working on linked lists.")
+            db_session.add_all([past, current])
+            db_session.commit()
+
+            ctx = MemoryService.get_memory_context(
+                user.id, "student", conversation_id=current.id)
+
+            assert "recursion base cases" in ctx
+            # The in-progress conversation must be excluded from its own context.
+            assert "linked lists" not in ctx
+
+
+class TestCrossAgentCallGuardrail:
+    def test_trace_llm_call_increments_counter(self):
+        from core.observability.tracing import TraceCollector
+
+        trace = TraceCollector(agent_type="tutor", user_id=1)
+        assert trace.llm_call_count == 0
+        with trace.trace_llm_call():
+            pass
+        with trace.trace_llm_call():
+            pass
+        assert trace.llm_call_count == 2
+
+    @patch("agents.base.AIConfig")
+    def test_guardrail_aborts_when_shared_budget_exhausted(self, mock_config, app):
+        with app.app_context():
+            from agents.config import MAX_LLM_CALLS_PER_TRACE
+            from agents.tutor.agent import TutorAgent
+            from core.observability.tracing import TraceCollector, use_current_trace
+            from tools.protocol.runtime import (
+                ToolRuntime, set_tool_runtime, reset_tool_runtime,
+            )
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            set_tool_runtime(mock_runtime)
+
+            # Simulate a handoff chain where earlier agents already spent the
+            # whole cross-agent LLM budget on this shared trace.
+            trace = TraceCollector(agent_type="supervisor", user_id=1)
+            trace.llm_call_count = MAX_LLM_CALLS_PER_TRACE
+            try:
+                with use_current_trace(trace):
+                    agent = TutorAgent()
+                    state = {
+                        "messages": [HumanMessage(content="Help me")],
+                        "agent_type": "tutor",
+                        "user_id": 1,
+                        "user_role": "student",
+                        "context": {"question_id": 1},
+                        "tool_results": [],
+                        "final_response": "",
+                    }
+                    result = agent.invoke(state)
+            finally:
+                reset_tool_runtime()
+
+            # Guardrail must trip before any further LLM call is made.
+            mock_llm.invoke.assert_not_called()
+            assert result["final_response"]
+            assert trace.pending_status == "limit_exceeded"

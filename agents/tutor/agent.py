@@ -17,7 +17,11 @@ class TutorAgent(BaseAgent):
         context = state.get("context", {})
         parts = [TUTOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
-        memory_ctx = MemoryService.get_memory_context(state["user_id"], state.get("user_role", "student"))
+        memory_ctx = MemoryService.get_memory_context(
+            state["user_id"],
+            state.get("user_role", "student"),
+            conversation_id=context.get("conversation_id"),
+        )
         if memory_ctx:
             parts.append(f"\n## Student Profile (from previous sessions)\n{memory_ctx}")
 
