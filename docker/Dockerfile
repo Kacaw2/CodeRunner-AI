@@ -37,6 +37,19 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-bundle the embedding (+ rerank) models into the image so the container
+# never downloads from HuggingFace at runtime (F6). Models land in /opt/models.
+ENV HF_HOME=/opt/models \
+    SENTENCE_TRANSFORMERS_HOME=/opt/models \
+    TRANSFORMERS_CACHE=/opt/models
+COPY scripts/prefetch_models.py /tmp/prefetch_models.py
+RUN python /tmp/prefetch_models.py && rm /tmp/prefetch_models.py && \
+    chown -R appuser:appuser /opt/models
+# Force fully-offline model loading at runtime: a missing model fails loudly
+# instead of silently reaching out to the network.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
 # Copy application code
 COPY --chown=appuser:appuser . .
 

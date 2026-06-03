@@ -146,75 +146,100 @@ class TestSanitization:
 # ── MCP Server tool count ──
 
 class TestMcpServerPhase4:
-    def test_server_registers_11_tools(self):
+    def test_server_registers_full_tool_surface(self):
         from mcp_gateway.server import create_mcp_server
+        from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
         mcp = create_mcp_server()
-        tools = list(mcp._tool_manager._tools.keys())
-        assert len(tools) == 11
-        expected = {
-            "search_knowledge", "search_similar_problems",
-            "get_problem_detail", "get_problem_difficulty_stats",
-            "get_student_activity", "get_class_statistics",
-            "get_agent_trace", "get_student_summary",
-            "execute_code", "save_generated_problem", "check_approval",
-        }
-        assert set(tools) == expected
+        tools = set(mcp._tool_manager._tools.keys())
+        assert tools == set(EXTERNAL_TOOL_MAP)
 
 
 # ── Permission matrix (Phase 4 additions) ──
 
 class TestPhase4Permissions:
     def test_teacher_allowed_medium_risk(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "get_agent_trace", "teacher")
-        assert check_tool_permission("mcp", "get_student_summary", "teacher")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="teacher")
+        for tool in ["coderunner.trace.get_agent_trace", "coderunner.student.get_summary"]:
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
 
     def test_teacher_allowed_high_risk(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "execute_code", "teacher")
-        assert check_tool_permission("mcp", "save_generated_problem", "teacher")
-        assert check_tool_permission("mcp", "check_approval", "teacher")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="teacher")
+        for tool in ["coderunner.code.execute", "coderunner.problem.save_generated"]:
+            desc = TOOL_CATALOG[tool]
+            result = run_guard(desc, ctx, granted_scopes=desc.required_scopes)
+            assert result.error.code.value == "MCP_APPROVAL_REQUIRED"
 
     def test_admin_allowed_all(self):
-        from mcp_gateway.middleware import check_tool_permission
-        for tool in ["get_agent_trace", "get_student_summary",
-                      "execute_code", "save_generated_problem", "check_approval"]:
-            assert check_tool_permission("mcp", tool, "admin")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="admin")
+        for tool in ["coderunner.trace.get_agent_trace", "coderunner.student.get_summary"]:
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
+        for tool in ["coderunner.code.execute", "coderunner.problem.save_generated"]:
+            desc = TOOL_CATALOG[tool]
+            result = run_guard(desc, ctx, granted_scopes=desc.required_scopes)
+            assert result.error.code.value == "MCP_APPROVAL_REQUIRED"
 
     def test_student_denied_medium_risk(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert not check_tool_permission("mcp", "get_agent_trace", "student")
-        assert not check_tool_permission("mcp", "get_student_summary", "student")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="student")
+        assert run_guard(TOOL_CATALOG["coderunner.trace.get_agent_trace"], ctx).rejected
+        assert run_guard(TOOL_CATALOG["coderunner.student.get_summary"], ctx).rejected
 
     def test_student_denied_high_risk_write(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "execute_code", "student")
-        assert not check_tool_permission("mcp", "save_generated_problem", "student")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="student")
+        exec_desc = TOOL_CATALOG["coderunner.code.execute"]
+        assert run_guard(
+            exec_desc, ctx, granted_scopes=exec_desc.required_scopes
+        ).error.code.value == "MCP_APPROVAL_REQUIRED"
+        # save_generated is denied at RBAC (role) before scope is even checked.
+        assert run_guard(
+            TOOL_CATALOG["coderunner.problem.save_generated"], ctx
+        ).error.code.value == "MCP_PERMISSION_DENIED"
 
 
 # ── Risk levels ──
 
 class TestRiskLevels:
     def test_all_tools_have_risk_level(self):
-        from mcp_gateway.middleware import TOOL_RISK_LEVELS
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
         expected_tools = {
-            "search_knowledge", "search_similar_problems",
-            "get_problem_detail", "get_problem_difficulty_stats",
-            "get_student_activity", "get_class_statistics",
-            "get_agent_trace", "get_student_summary",
-            "execute_code", "save_generated_problem", "check_approval",
+            "coderunner.knowledge.search", "coderunner.knowledge.search_similar_problems",
+            "coderunner.problem.get_detail", "coderunner.analytics.problem_difficulty",
+            "coderunner.analytics.student_activity", "coderunner.analytics.class_statistics",
+            "coderunner.trace.get_agent_trace", "coderunner.student.get_summary",
+            "coderunner.code.execute", "coderunner.problem.save_generated",
         }
-        assert set(TOOL_RISK_LEVELS.keys()) == expected_tools
+        assert expected_tools <= set(TOOL_CATALOG)
 
     def test_high_risk_tools(self):
-        from mcp_gateway.middleware import TOOL_RISK_LEVELS
-        assert TOOL_RISK_LEVELS["execute_code"] == "high"
-        assert TOOL_RISK_LEVELS["save_generated_problem"] == "high"
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        assert TOOL_CATALOG["coderunner.code.execute"].risk_level.value == "high"
+        assert TOOL_CATALOG["coderunner.problem.save_generated"].risk_level.value == "high"
 
     def test_medium_risk_tools(self):
-        from mcp_gateway.middleware import TOOL_RISK_LEVELS
-        assert TOOL_RISK_LEVELS["get_agent_trace"] == "medium"
-        assert TOOL_RISK_LEVELS["get_student_summary"] == "medium"
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        assert TOOL_CATALOG["coderunner.trace.get_agent_trace"].risk_level.value == "medium"
+        assert TOOL_CATALOG["coderunner.student.get_summary"].risk_level.value == "medium"
 
 
 # ── McpToolApproval model ──

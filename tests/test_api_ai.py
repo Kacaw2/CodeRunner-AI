@@ -74,6 +74,85 @@ class TestRateLimiting:
             assert headers_limited["Retry-After"] == "30"
 
 
+class TestAutoRoutingPerAgentLimit:
+    """Phase 3: the 'auto' lane must not bypass the resolved agent's real limit."""
+
+    def test_auto_routed_request_enforces_resolved_agent_limit(self, client, mock_auth_student):
+        # The 'auto' guard (limit 20) stays under budget, but the request
+        # resolves to generator (limit 5) which is already exhausted.
+        def incr_side(key):
+            return 6 if key.endswith(":generator") else 1
+
+        mock_redis = MagicMock()
+        mock_redis.incr.side_effect = incr_side
+        mock_redis.ttl.return_value = 30
+
+        with patch("app.api.v1.ai.redis_client", mock_redis), \
+             patch("app.api.v1.ai._classify_for_routing", return_value="generator"):
+            resp = client.post("/api/v1/ai/chat", json={"message": "Generate a hard problem"})
+
+        # Under the old behaviour (limit checked on 'auto'=20) count 6 would pass.
+        # Now the generator limit (5) binds → 429.
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
+        assert any(c.args[0].endswith(":generator") for c in mock_redis.incr.call_args_list)
+
+    def test_auto_routed_headers_reflect_resolved_agent_limit(self, client, mock_auth_student, db_session):
+        mock_redis = MagicMock()
+        mock_redis.incr.return_value = 3  # under both limits
+        mock_redis.ttl.return_value = 60
+
+        canned = {
+            "agent_type": "generator",
+            "final_response": "Here is a problem.",
+            "messages": [],
+            "context": {},
+        }
+
+        with patch("app.api.v1.ai.redis_client", mock_redis), \
+             patch("app.api.v1.ai._classify_for_routing", return_value="generator"), \
+             patch("graph.runner.AgentOrchestrator.run", return_value=canned):
+            resp = client.post("/api/v1/ai/chat", json={"message": "Generate a problem"})
+
+        assert resp.status_code == 200
+        assert resp.get_json()["agent_type"] == "generator"
+        # Header reflects the generator limit (5), not the auto guard (20).
+        assert resp.headers["X-RateLimit-Limit"] == "5"
+
+    @patch("workers.chat.submit_chat_task")
+    def test_chat_async_persists_resolved_agent(self, mock_submit, client, mock_auth_student, db_session):
+        mock_redis = MagicMock()
+        mock_redis.incr.return_value = 1
+        mock_redis.ttl.return_value = 60
+
+        with patch("app.api.v1.ai.redis_client", mock_redis), \
+             patch("app.api.v1.ai._classify_for_routing", return_value="generator"):
+            resp = client.post("/api/v1/ai/chat/async", json={"message": "Generate a problem"})
+
+        assert resp.status_code == 202
+        task_id = resp.get_json()["task_id"]
+
+        from app.models.chat_task import ChatTask
+        task = ChatTask.query.get(task_id)
+        assert task.agent_type == "auto"         # original lane preserved
+        assert task.routed_agent == "generator"  # resolved at submission so the worker reuses it
+
+    def test_chat_async_blocks_when_resolved_agent_over_limit(self, client, mock_auth_student):
+        def incr_side(key):
+            return 6 if key.endswith(":generator") else 1
+
+        mock_redis = MagicMock()
+        mock_redis.incr.side_effect = incr_side
+        mock_redis.ttl.return_value = 30
+
+        with patch("app.api.v1.ai.redis_client", mock_redis), \
+             patch("app.api.v1.ai._classify_for_routing", return_value="generator"):
+            resp = client.post("/api/v1/ai/chat/async", json={"message": "Generate a problem"})
+
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
+
+
 class TestChatEndpoint:
     @patch("agents.base.AIConfig")
     def test_chat_requires_message(self, mock_config, client, mock_auth_student, mock_redis):

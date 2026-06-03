@@ -42,6 +42,18 @@ class LocalTransport:
         logger.debug("tool=%s latency_ms=%d", tool_name, elapsed_ms)
         return result
 
+    def invoke(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Synchronously dispatch to a registered handler.
+
+        Mirrors `call()` minus the async/timeout wrapper, for callers
+        (e.g. the post-approval execution path) that run outside the
+        async pipeline.
+        """
+        handler = self._handlers.get(tool_name)
+        if handler is None:
+            raise KeyError(f"No handler registered for tool '{tool_name}'")
+        return handler(**args)
+
     def has_handler(self, tool_name: str) -> bool:
         return tool_name in self._handlers
 

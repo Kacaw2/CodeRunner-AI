@@ -164,9 +164,12 @@ def _run_chat_task(task_id: str, app):
                 "analytics": AnalyticsAgent,
             }
 
+            # Phase 3: prefer the agent resolved (and rate-limited) at submission.
+            resolved_agent_type = task.routed_agent or task.agent_type
+
             state = {
                 "messages": history + [HumanMessage(content=message)],
-                "agent_type": task.agent_type,
+                "agent_type": resolved_agent_type,
                 "user_id": task.user_id,
                 "user_role": user_role,
                 "context": context,
@@ -174,9 +177,8 @@ def _run_chat_task(task_id: str, app):
                 "final_response": "",
             }
 
-            # ── Intent classification / auto-routing ──
-            resolved_agent_type = task.agent_type
-            if not task.agent_type or task.agent_type == "auto":
+            # ── Intent classification / auto-routing (fallback only) ──
+            if not resolved_agent_type or resolved_agent_type == "auto":
                 state = _classify_intent(state)
                 resolved_agent_type = state.get("agent_type", "tutor")
 
@@ -219,15 +221,18 @@ def _run_chat_task(task_id: str, app):
 
                 target_type = state["handoff_to"]
                 handoff_reason = state.get("handoff_reason", "")
-                state["handoff_to"] = None
-                state["handoff_reason"] = None
-                state["agent_type"] = target_type
 
                 _push_event(task_id, {
                     "type": "handoff_start",
                     "target": target_type,
                     "reason": handoff_reason,
                 })
+
+                # Rebuild a compact context (original request + summary) and
+                # switch to the target; shared with the graph runner. Worker
+                # state is a plain list, so replace it directly.
+                from graph.handoff import apply_handoff
+                apply_handoff(state, use_reducer=False)
 
                 target_agent = _AGENT_MAP.get(target_type, TutorAgent)()
                 full_response = ""

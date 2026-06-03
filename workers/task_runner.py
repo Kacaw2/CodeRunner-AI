@@ -99,9 +99,18 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
 
             context = {"conversation_id": task.conversation_id}
 
-            # Bootstrap MCP ToolRuntime with session factory
-            from mcp_gateway.bootstrap import bootstrap_tool_runtime
-            bootstrap_tool_runtime(session_factory=lambda: session)
+            # Configure the agent MCP client (transport or in-process).
+            # The transport client runs tools in the mcp_gateway process and
+            # needs no local runtime; the in-process client still binds a
+            # session-scoped ToolRuntime for local/dev execution.
+            from mcp_gateway.client import (
+                configure_mcp_client_from_env,
+                InProcessMCPToolClient,
+            )
+            mcp_client = configure_mcp_client_from_env()
+            if isinstance(mcp_client, InProcessMCPToolClient):
+                from mcp_gateway.bootstrap import bootstrap_tool_runtime
+                bootstrap_tool_runtime(session_factory=lambda: session)
 
             try:
                 # ── Try Supervisor workflow first ──
@@ -124,34 +133,29 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
                     full_response = _format_workflow_result(wf_result)
                     resolved_agent_type = "supervisor"
                 else:
-                    # ── Single agent path ──
-                    from agents import (
-                        TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent,
-                    )
-                    from graph.runner import _classify_intent, MAX_HANDOFFS
+                    # ── Single agent path (Phase 4, Task 3) ──
+                    # AgentHarness owns one logical trace spanning the chat task
+                    # and the whole handoff chain. The worker keeps ChatTask
+                    # lifecycle, message persistence and the Redis event stream.
+                    from evals.harness import AgentHarness
+                    from graph.runner import _classify_intent
 
-                    _AGENT_MAP = {
-                        "tutor": TutorAgent,
-                        "reviewer": ReviewerAgent,
-                        "generator": GeneratorAgent,
-                        "analytics": AnalyticsAgent,
-                    }
+                    # Phase 3: prefer the agent resolved (and rate-limited) at submission.
+                    resolved_agent_type = task.routed_agent or task.agent_type
 
-                    state = {
-                        "messages": history + [HumanMessage(content=message)],
-                        "agent_type": task.agent_type,
-                        "user_id": task.user_id,
-                        "user_role": user_role,
-                        "context": context,
-                        "tool_results": [],
-                        "final_response": "",
-                    }
-
-                    # Intent classification
-                    resolved_agent_type = task.agent_type
-                    if not task.agent_type or task.agent_type == "auto":
-                        state = _classify_intent(state)
-                        resolved_agent_type = state.get("agent_type", "tutor")
+                    # Intent classification (fallback only)
+                    if not resolved_agent_type or resolved_agent_type == "auto":
+                        classify_state = {
+                            "messages": history + [HumanMessage(content=message)],
+                            "agent_type": resolved_agent_type,
+                            "user_id": task.user_id,
+                            "user_role": user_role,
+                            "context": context,
+                            "tool_results": [],
+                            "final_response": "",
+                        }
+                        classify_state = _classify_intent(classify_state)
+                        resolved_agent_type = classify_state.get("agent_type", "tutor")
 
                     task.routed_agent = resolved_agent_type
                     if conv:
@@ -171,56 +175,33 @@ def _run_chat_task(task_id: str, jwt_token: str, message: str):
                             "agent_type": resolved_agent_type,
                         })
 
-                    # Stream from agent
-                    agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
-                    agent = agent_cls()
+                    context["chat_task_id"] = task_id
                     full_response = ""
-
-                    for event in agent.stream(state):
-                        if event["type"] == "token":
+                    for event in AgentHarness().stream(
+                        agent_type=resolved_agent_type,
+                        message=message,
+                        user_id=task.user_id,
+                        user_role=user_role,
+                        source="workers",
+                        context=context,
+                        history=history,
+                    ):
+                        if event.get("type") == "done":
+                            # Harness owns the trace; swallow its done event and
+                            # adopt the final resolved agent so the worker emits
+                            # the single user-facing done with the message id.
+                            resolved_agent_type = event.get("agent_type", resolved_agent_type)
+                            full_response = event.get("response", full_response)
+                            continue
+                        if event.get("type") == "token":
                             full_response += event["content"]
                         redis_buffer.ct_push_event(task_id, event)
 
-                    # Handle handoffs
-                    handoff_count = 0
-                    previous_agents = [resolved_agent_type]
-
-                    while (state.get("handoff_to")
-                           and handoff_count < MAX_HANDOFFS
-                           and state["handoff_to"] in _AGENT_MAP
-                           and state["handoff_to"] not in previous_agents):
-
-                        target_type = state["handoff_to"]
-                        handoff_reason = state.get("handoff_reason", "")
-                        state["handoff_to"] = None
-                        state["handoff_reason"] = None
-                        state["agent_type"] = target_type
-
-                        redis_buffer.ct_push_event(task_id, {
-                            "type": "handoff_start",
-                            "target": target_type,
-                            "reason": handoff_reason,
-                        })
-
-                        target_agent = _AGENT_MAP.get(target_type, TutorAgent)()
-                        full_response = ""
-                        for event in target_agent.stream(state):
-                            if event["type"] == "token":
-                                full_response += event["content"]
-                            redis_buffer.ct_push_event(task_id, event)
-
-                        previous_agents.append(target_type)
-                        resolved_agent_type = target_type
-                        handoff_count += 1
-
-                        task.routed_agent = resolved_agent_type
-                        if conv:
-                            conv.agent_type = resolved_agent_type
-                        session.flush()
-                        redis_buffer.ct_set_status(task_id, "processing", resolved_agent_type)
-
-                    if not full_response:
-                        full_response = state.get("final_response", "")
+                    task.routed_agent = resolved_agent_type
+                    if conv:
+                        conv.agent_type = resolved_agent_type
+                    session.flush()
+                    redis_buffer.ct_set_status(task_id, "processing", resolved_agent_type)
 
                 # ── Filter output ──
                 from core.security import filter_output
@@ -354,9 +335,18 @@ def _run_workflow(run_id: str, jwt_token: str, goal: str, context: dict | None =
             user = session.get(User, run.user_id)
             user_role = user.role if user else "teacher"
 
-            # Bootstrap MCP ToolRuntime with session factory
-            from mcp_gateway.bootstrap import bootstrap_tool_runtime
-            bootstrap_tool_runtime(session_factory=lambda: session)
+            # Configure the agent MCP client (transport or in-process).
+            # The transport client runs tools in the mcp_gateway process and
+            # needs no local runtime; the in-process client still binds a
+            # session-scoped ToolRuntime for local/dev execution.
+            from mcp_gateway.client import (
+                configure_mcp_client_from_env,
+                InProcessMCPToolClient,
+            )
+            mcp_client = configure_mcp_client_from_env()
+            if isinstance(mcp_client, InProcessMCPToolClient):
+                from mcp_gateway.bootstrap import bootstrap_tool_runtime
+                bootstrap_tool_runtime(session_factory=lambda: session)
 
             try:
                 plan = run.plan_json if isinstance(run.plan_json, dict) else None

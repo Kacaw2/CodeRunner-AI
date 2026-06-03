@@ -5,21 +5,11 @@ from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
 from agents.tutor.prompt import TUTOR_SYSTEM_PROMPT
 
-TUTOR_MCP_TOOLS = [
-    "coderunner.code.execute",
-    "coderunner.problem.get_detail",
-    "coderunner.submission.list_for_student",
-    "coderunner.submission.get_detail",
-    "coderunner.knowledge.search",
-    "coderunner.knowledge.search_error_patterns",
-]
-
 
 class TutorAgent(BaseAgent):
     name = "tutor"
     description = "Socratic tutoring agent for students"
     default_model_tier = ModelTier.BALANCED
-    mcp_tool_names = TUTOR_MCP_TOOLS
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService
@@ -27,7 +17,11 @@ class TutorAgent(BaseAgent):
         context = state.get("context", {})
         parts = [TUTOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
-        memory_ctx = MemoryService.get_memory_context(state["user_id"], state.get("user_role", "student"))
+        memory_ctx = MemoryService.get_memory_context(
+            state["user_id"],
+            state.get("user_role", "student"),
+            conversation_id=context.get("conversation_id"),
+        )
         if memory_ctx:
             parts.append(f"\n## Student Profile (from previous sessions)\n{memory_ctx}")
 
@@ -86,7 +80,7 @@ class TutorAgent(BaseAgent):
         return "\n".join(parts)
 
     def invoke(self, state: AgentState) -> AgentState:
-        return self._invoke_with_mcp_tools(state, TUTOR_MCP_TOOLS, self._build_system_context(state))
+        return self._invoke_with_mcp_tools(state, self.mcp_tool_names, self._build_system_context(state))
 
     def stream(self, state: AgentState):
-        yield from self._stream_with_mcp_tools(state, TUTOR_MCP_TOOLS, self._build_system_context(state))
+        yield from self._stream_with_mcp_tools(state, self.mcp_tool_names, self._build_system_context(state))

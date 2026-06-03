@@ -44,6 +44,7 @@
   let conversationId = CTX.conversationId || null;
   let currentAgent = "auto";
   let isSending = false;
+  const chatParsing = window.CodeRunnerAIChatParsing || {};
 
   function updateAgentBadge(agentType) {
     if (!agentBadge) return;
@@ -191,7 +192,7 @@
       msgs.forEach((m) => m.remove());
 
       data.messages.forEach((m) => {
-        appendMessage(m.role, m.content);
+        appendMessage(m.role, m.content, data.agent_type || agentType || currentAgent);
       });
       scrollToBottom(true);
 
@@ -413,14 +414,12 @@
           } else if (event.type === "tool_result") {
             addSseEvent("tool-result", "Done: " + (event.summary || event.tool || ""));
           } else if (event.type === "done") {
-            if (currentAgent === "generator" && fullText) {
-              const genData = tryParseGeneratorJson(fullText);
-              if (genData) {
-                bodyEl.innerHTML = "";
-                bodyEl.appendChild(renderGeneratorCard(genData, event.draft_id || null));
-                if (sseEventCount > 0) bodyEl.appendChild(sseContainer);
-                scrollToBottom();
-              }
+            const structuredCard = renderStructuredCard(fullText, currentAgent, event.draft_id || null);
+            if (structuredCard) {
+              bodyEl.innerHTML = "";
+              bodyEl.appendChild(structuredCard);
+              if (sseEventCount > 0) bodyEl.appendChild(sseContainer);
+              scrollToBottom();
             }
             if (event.draft_id && currentAgent !== "generator") {
               const banner = document.createElement("div");
@@ -482,14 +481,10 @@
     }
 
     if (fullText) {
-      if (currentAgent === "generator") {
-        const genData = tryParseGeneratorJson(fullText);
-        if (genData) {
-          bodyEl.innerHTML = "";
-          bodyEl.appendChild(renderGeneratorCard(genData, null));
-        } else {
-          bodyEl.innerHTML = renderMarkdown(fullText);
-        }
+      const structuredCard = renderStructuredCard(fullText, currentAgent, null);
+      if (structuredCard) {
+        bodyEl.innerHTML = "";
+        bodyEl.appendChild(structuredCard);
       } else {
         bodyEl.innerHTML = renderMarkdown(fullText);
       }
@@ -509,19 +504,29 @@
 
   // ── Generator problem card ──
   function tryParseGeneratorJson(text) {
-    // Try to extract JSON from ```json fences or raw { ... }
-    let jsonStr = text;
-    const fenceMatch = text.match(/```json\s*\n?([\s\S]*?)```/);
-    if (fenceMatch) jsonStr = fenceMatch[1];
-    const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (!braceMatch) return null;
-    try {
-      const obj = JSON.parse(braceMatch[0]);
-      // Check if it's a generator output (has question wrapper or direct problem fields)
-      const data = obj.question || obj;
-      if (data.title && data.test_cases) return data;
-      return null;
-    } catch (_) { return null; }
+    if (typeof chatParsing.parseGeneratorOutput === "function") {
+      return chatParsing.parseGeneratorOutput(text);
+    }
+    return null;
+  }
+
+  function tryParseReviewerJson(text) {
+    if (typeof chatParsing.parseReviewerOutput === "function") {
+      return chatParsing.parseReviewerOutput(text);
+    }
+    return null;
+  }
+
+  function renderStructuredCard(text, agentType, draftId) {
+    if (agentType === "generator") {
+      const genData = tryParseGeneratorJson(text);
+      if (genData) return renderGeneratorCard(genData, draftId);
+    }
+    if (agentType === "reviewer") {
+      const reviewData = tryParseReviewerJson(text);
+      if (reviewData) return renderReviewerCard(reviewData);
+    }
+    return null;
   }
 
   function renderGeneratorCard(data, draftId) {
@@ -602,15 +607,89 @@
     return card;
   }
 
+  function renderReviewerCard(data) {
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    const strengths = Array.isArray(data.strengths) ? data.strengths : [];
+    const score = String(data.overall_score || "-").toUpperCase();
+    const scoreClass = {
+      A: "excellent",
+      B: "good",
+      C: "warn",
+      D: "poor",
+    }[score] || "neutral";
+
+    const card = document.createElement("div");
+    card.className = "review-card";
+
+    const issueHtml = issues.length ? issues.map((issue) => {
+      const severity = (issue.severity || "info").toLowerCase();
+      const line = issue.line ? "Line " + escapeHtml(String(issue.line)) + " · " : "";
+      const category = issue.category ? escapeHtml(issue.category) : "issue";
+      return (
+        '<div class="review-issue ' + escapeHtml(severity) + '">' +
+          '<div class="review-issue-meta">' +
+            '<span class="review-severity">' + escapeHtml(severity) + '</span>' +
+            '<span>' + line + category + '</span>' +
+          '</div>' +
+          '<div class="review-issue-message">' + escapeHtml(issue.message || "") + '</div>' +
+          (issue.suggestion ? '<div class="review-issue-suggestion">' + escapeHtml(issue.suggestion) + '</div>' : '') +
+        '</div>'
+      );
+    }).join("") : '<div class="review-empty">No issues found.</div>';
+
+    const strengthHtml = strengths.length ? strengths.map((item) => (
+      '<li>' + escapeHtml(item) + '</li>'
+    )).join("") : '<li>No specific strengths reported.</li>';
+
+    const complexity = data.complexity || {};
+    card.innerHTML =
+      '<div class="review-header">' +
+        '<div>' +
+          '<div class="review-title">Code Review</div>' +
+          '<div class="review-summary">' + escapeHtml(data.summary || "") + '</div>' +
+        '</div>' +
+        '<span class="review-score ' + scoreClass + '">' + escapeHtml(score) + '</span>' +
+      '</div>' +
+      '<div class="review-section">' +
+        '<h6>Issues</h6>' +
+        issueHtml +
+      '</div>' +
+      '<div class="review-grid">' +
+        '<div class="review-section">' +
+          '<h6>Strengths</h6>' +
+          '<ul class="review-strengths">' + strengthHtml + '</ul>' +
+        '</div>' +
+        '<div class="review-section">' +
+          '<h6>Complexity</h6>' +
+          '<div class="review-complexity">' +
+            '<span>Time</span><strong>' + escapeHtml(complexity.time || "-") + '</strong>' +
+            '<span>Space</span><strong>' + escapeHtml(complexity.space || "-") + '</strong>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    return card;
+  }
+
   // ── Helpers ──
-  function appendMessage(role, content) {
+  function appendMessage(role, content, agentType) {
     const div = document.createElement("div");
     div.className = "msg msg-" + role;
     const avatarIcon = role === "user" ? "bi-person-fill" : "bi-robot";
-    const rendered = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);
     div.innerHTML =
       '<div class="msg-avatar"><i class="bi ' + avatarIcon + '"></i></div>' +
-      '<div class="msg-body">' + rendered + "</div>";
+      '<div class="msg-body"></div>';
+    const body = div.querySelector(".msg-body");
+    if (role === "assistant") {
+      const structuredCard = renderStructuredCard(content, agentType || currentAgent, null);
+      if (structuredCard) {
+        body.appendChild(structuredCard);
+      } else {
+        body.innerHTML = renderMarkdown(content);
+      }
+    } else {
+      body.textContent = content;
+    }
     chatMessages.appendChild(div);
     return div;
   }
@@ -697,6 +776,14 @@
   }
 
   // ── Init ──
+  if (window.__AI_CHAT_ENABLE_TEST_HOOKS) {
+    window.__AI_CHAT_TEST_HOOKS = {
+      renderStructuredCard,
+      tryParseGeneratorJson,
+      tryParseReviewerJson,
+    };
+  }
+
   updateAgentUI();
   loadConversations();
   if (conversationId) {

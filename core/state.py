@@ -20,4 +20,6 @@ class AgentState(TypedDict):
     auto_routed: bool
     handoff_to: str
     handoff_reason: str
+    handoff_summary: str
+    handoff_source: str
     previous_agents: list

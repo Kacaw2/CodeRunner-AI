@@ -113,9 +113,9 @@ REVIEW_TEMPLATE: list[WorkflowStepDef] = [
     },
     {
         "step_index": 1,
-        "step_type": "tool_call",
+        "step_type": "agent_call",
         "agent_type": "reviewer",
-        "instruction": "Execute code to verify it runs correctly",
+        "instruction": "Execute the code to verify it runs and report failures",
         "risk_level": "medium",
         "requires_approval": False,
     },
@@ -124,6 +124,17 @@ REVIEW_TEMPLATE: list[WorkflowStepDef] = [
         "step_type": "validation",
         "agent_type": "reviewer",
         "instruction": "Validate review completeness and scoring",
+        "validates_step": 0,
+        "risk_level": "low",
+        "requires_approval": False,
+    },
+]
+
+GENERAL_TEMPLATE: list[WorkflowStepDef] = [
+    {
+        "step_index": 0,
+        "step_type": "llm_call",
+        "instruction": "Analyze the user goal and produce a direct, actionable response",
         "risk_level": "low",
         "requires_approval": False,
     },
@@ -165,6 +176,16 @@ def plan_from_template(workflow_type: str, goal: str, context: dict = None) -> W
         "context": context or {},
     }
     return plan
+
+
+def plan_general_fallback(goal: str, context: dict = None) -> WorkflowPlan:
+    """Minimal single-step plan used when LLM planning is unavailable."""
+    return {
+        "goal": goal,
+        "workflow_type": "general",
+        "steps": [dict(s) for s in GENERAL_TEMPLATE],
+        "context": context or {},
+    }
 
 
 def plan_with_llm(goal: str, user_role: str, context: dict = None) -> WorkflowPlan:
@@ -227,4 +248,9 @@ def create_plan(goal: str, user_role: str, context: dict = None) -> WorkflowPlan
             return plan
 
     logger.info("Using LLM planner for goal: %.80s", goal)
-    return plan_with_llm(goal, user_role, context)
+    plan = plan_with_llm(goal, user_role, context)
+    if plan:
+        return plan
+
+    logger.warning("LLM planner returned no plan; falling back to general template")
+    return plan_general_fallback(goal, context)

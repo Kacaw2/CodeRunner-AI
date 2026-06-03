@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAMES = ["questions", "knowledge_points", "error_patterns"]
 
 
+def _collection_space(collection) -> str:
+    config = getattr(collection, "configuration", None) or collection.get_configuration()
+    if isinstance(config, dict):
+        return config.get("hnsw", {}).get("space", "unknown")
+    config_json = config.to_json()
+    if "hnsw_configuration" in config_json:
+        return config_json["hnsw_configuration"].get("space", "unknown")
+    metadata = getattr(collection, "metadata", None) or {}
+    return metadata.get("hnsw:space", "unknown")
+
+
 def migrate(app=None):
     if app is None:
         from app import create_app
@@ -48,7 +59,7 @@ def migrate(app=None):
 
         for name in COLLECTION_NAMES:
             col = client.get_collection(name)
-            space = col.metadata.get("hnsw:space", "unknown")
+            space = _collection_space(col)
             logger.info("Recreated collection '%s' with distance=%s", name, space)
 
         logger.info("Re-indexing all problems...")

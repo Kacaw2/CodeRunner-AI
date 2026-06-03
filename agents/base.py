@@ -1,15 +1,112 @@
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agents.config import AIConfig, MAX_TOOL_ITERATIONS
-from core.exceptions import LLMError, ToolError, retry_on_llm_error
+from agents.config import AIConfig, MAX_LLM_CALLS_PER_TRACE, MAX_TOOL_ITERATIONS
+from agents.executor import ToolCallExecutor
+from agents.json_utils import extract_first_json_object
+from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
 from models.tiers import ModelTier
 from core.state import AgentState
 
 logger = logging.getLogger(__name__)
+
+_TRACE_LINK_KEYS = (
+    "chat_task_id",
+    "workflow_run_id",
+    "conversation_id",
+    "message_id",
+    "eval_run_id",
+    "eval_case_id",
+)
+
+
+def _trace_links_from_state(state: dict) -> dict:
+    """Pull trace link keys from the agent state's context (when present)."""
+    ctx = state.get("context") or {}
+    return {k: ctx[k] for k in _TRACE_LINK_KEYS if ctx.get(k) is not None}
+
+
+_LEGACY_FUNCTION_RE = re.compile(
+    r"<function(?:\s+name=['\"]?([A-Za-z0-9_.-]+)['\"]?)?\s*>(.*?)</function>",
+    re.DOTALL | re.IGNORECASE,
+)
+_FUNCTION_MARKER = "<function"
+
+
+def _parse_legacy_function_text(content: str, allowed_tools: list[str]) -> dict | None:
+    """Convert old text-form function markup into a canonical tool call.
+
+    Some providers may emit literal text such as
+    ``<function>get_class_statistics({"teacher_id": 1})</function>`` instead
+    of LangChain ``tool_calls``. Treat it as a tool call only when it resolves
+    to a tool in the current agent's allowlist.
+    """
+    if not content:
+        return None
+
+    match = _LEGACY_FUNCTION_RE.search(content)
+    if not match:
+        return None
+
+    name = (match.group(1) or "").strip()
+    body = (match.group(2) or "").strip()
+    args_text = body
+
+    if not name:
+        call_match = re.match(r"^([A-Za-z0-9_.-]+)\s*(?:\((.*)\))?\s*$", body, re.DOTALL)
+        if call_match:
+            name = call_match.group(1)
+            args_text = call_match.group(2) or ""
+        else:
+            lines = body.splitlines()
+            if lines:
+                name = lines[0].strip()
+                args_text = "\n".join(lines[1:])
+
+    if not name:
+        return None
+
+    try:
+        from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+        canonical_name = EXTERNAL_TOOL_MAP.get(name, name)
+    except Exception:
+        canonical_name = name
+
+    if canonical_name not in set(allowed_tools):
+        return None
+
+    args = extract_first_json_object(args_text) or {}
+    return {
+        "name": canonical_name,
+        "args": args,
+        "id": f"legacy_{canonical_name.replace('.', '_')}",
+    }
+
+
+def _usage_number(metadata, key: str) -> int:
+    if not isinstance(metadata, dict):
+        return 0
+    value = metadata.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
+def _split_safe_stream_content(buffer: str) -> tuple[str, str]:
+    """Return text safe to stream now and text that might be function markup."""
+    lower = buffer.lower()
+    marker_pos = lower.find(_FUNCTION_MARKER)
+    if marker_pos >= 0:
+        return buffer[:marker_pos], buffer[marker_pos:]
+
+    max_suffix = min(len(_FUNCTION_MARKER) - 1, len(buffer))
+    for length in range(max_suffix, 0, -1):
+        if _FUNCTION_MARKER.startswith(lower[-length:]):
+            return buffer[:-length], buffer[-length:]
+
+    return buffer, ""
 
 
 class BaseAgent(ABC):
@@ -17,8 +114,11 @@ class BaseAgent(ABC):
     description: str = ""
     default_model_tier: ModelTier = ModelTier.BALANCED
 
-    # Subclasses declare MCP tool names — never LangChain tool objects.
-    mcp_tool_names: list[str] = []
+    @property
+    def mcp_tool_names(self) -> list[str]:
+        """Tool allowlist derived from the agent definition registry."""
+        from core.definitions import allowed_tools_for
+        return list(allowed_tools_for(self.name))
 
     @abstractmethod
     def invoke(self, state: AgentState) -> AgentState:
@@ -41,43 +141,37 @@ class BaseAgent(ABC):
     def _llm_stream(llm, messages):
         return llm.stream(messages)
 
+    _tool_executor = ToolCallExecutor()
+
     def _run_mcp_tool(self, tool_call: dict, state: dict) -> ToolMessage:
-        """Execute a single tool call through the MCP ToolRuntime."""
-        from tools.protocol import get_tool_runtime, ToolCallContext
-        from core.auth.context import build_caller_context
+        """Execute a single tool call through the MCP client adapter.
 
-        runtime = get_tool_runtime()
-        name = tool_call["name"]
-        args = tool_call.get("args", {})
-        tc_id = tool_call.get("id", "")
+        Agents are MCP clients: they cross the client boundary instead of
+        importing the server-side runtime directly. The returned envelope has
+        the canonical ToolRuntime shape regardless of transport. The mechanics
+        live in :class:`ToolCallExecutor`; this method keeps the original
+        signature so agents and tests are unaffected.
+        """
+        return self._tool_executor.run(tool_call, state, self.name)
 
-        caller = build_caller_context(
-            user_id=state.get("user_id", 0),
-            role=state.get("user_role", "student"),
-            agent_type=state.get("agent_type", self.name),
-            task_id=state.get("context", {}).get("task_id"),
-            conversation_id=state.get("context", {}).get("conversation_id"),
-        )
-        ctx = ToolCallContext(caller=caller, tool_call_id=tc_id)
+    def _fire_before_agent_run(self, state: dict) -> None:
+        """Fire the BeforeAgentRun hook (contract validation, warn-only)."""
+        from agents.hooks import HookContext, HookEvent, get_hook_manager
+        get_hook_manager().fire(HookContext(
+            event=HookEvent.BEFORE_AGENT_RUN,
+            agent_name=self.name,
+            state=state,
+        ))
 
-        result = runtime.call_sync(name, args, ctx)
-
-        if result.ok:
-            content = json.dumps(result.data, ensure_ascii=False)
-        elif result.status == "approval_required":
-            content = json.dumps({
-                "status": "approval_required",
-                "approval_id": result.approval_id,
-                "message": result.error.get("message", "") if result.error else "",
-            }, ensure_ascii=False)
-        else:
-            err = result.error or {}
-            content = json.dumps({
-                "error": err.get("code", "MCP_INTERNAL_ERROR"),
-                "message": err.get("message", "Tool call failed"),
-            }, ensure_ascii=False)
-
-        return ToolMessage(content=content, tool_call_id=tc_id)
+    def _fire_after_agent_run(self, state: dict) -> None:
+        """Fire the AfterAgentRun hook (output validation, warn-only)."""
+        from agents.hooks import HookContext, HookEvent, get_hook_manager
+        get_hook_manager().fire(HookContext(
+            event=HookEvent.AFTER_AGENT_RUN,
+            agent_name=state.get("agent_type", self.name),
+            state=state,
+            final_response=state.get("final_response", ""),
+        ))
 
     @staticmethod
     def _maybe_inject_security_alert(system_ctx: str, state: dict) -> str:
@@ -112,19 +206,22 @@ class BaseAgent(ABC):
     def _invoke_with_mcp_tools(self, state: AgentState, tool_names: list[str], system_ctx: str) -> AgentState:
         """Shared invoke loop: LLM + MCP tool calls with retries and tracing."""
         from langchain_core.messages import SystemMessage
-        from core.observability.tracing import TraceCollector
+        from core.observability.tracing import acquire_trace, finalize_trace
 
+        self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
-        trace = TraceCollector(
+        trace, owns_trace = acquire_trace(
             agent_type=state.get("agent_type", self.name),
             user_id=state["user_id"],
             conversation_id=state.get("context", {}).get("conversation_id"),
+            links=_trace_links_from_state(state),
+            input_message=(
+                getattr(state["messages"][-1], "content", "")
+                if state.get("messages") else ""
+            ),
+            input_context=state.get("context"),
         )
-        if state.get("messages"):
-            last_msg = state["messages"][-1]
-            trace.input_message = getattr(last_msg, "content", "")
-        trace.input_context = state.get("context")
 
         from tools.protocol import get_tool_runtime
         from tools.protocol.adapters import descriptors_to_llm_tools
@@ -144,9 +241,16 @@ class BaseAgent(ABC):
             logger.warning("Message compaction failed: %s", e)
 
         response = None
+        limit_exceeded = False
 
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
+                if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
+                    logger.warning(
+                        "Trace %s hit cross-agent LLM call budget (%d); aborting %s loop",
+                        trace.run_id, MAX_LLM_CALLS_PER_TRACE, self.name)
+                    limit_exceeded = True
+                    break
                 with trace.trace_llm_call() as llm_step:
                     try:
                         response = self._llm_invoke(llm_with_tools, messages)
@@ -157,13 +261,18 @@ class BaseAgent(ABC):
 
                     input_tokens = 0
                     output_tokens = 0
-                    if hasattr(response, "usage_metadata") and response.usage_metadata:
-                        input_tokens = response.usage_metadata.get("input_tokens", 0)
-                        output_tokens = response.usage_metadata.get("output_tokens", 0)
-                    elif hasattr(response, "response_metadata"):
-                        usage = response.response_metadata.get("token_usage", {})
-                        input_tokens = usage.get("prompt_tokens", 0)
-                        output_tokens = usage.get("completion_tokens", 0)
+                    usage_metadata = getattr(response, "usage_metadata", None)
+                    if isinstance(usage_metadata, dict) and usage_metadata:
+                        input_tokens = _usage_number(usage_metadata, "input_tokens")
+                        output_tokens = _usage_number(usage_metadata, "output_tokens")
+                    else:
+                        response_metadata = getattr(response, "response_metadata", None)
+                        usage = (
+                            response_metadata.get("token_usage", {})
+                            if isinstance(response_metadata, dict) else {}
+                        )
+                        input_tokens = _usage_number(usage, "prompt_tokens")
+                        output_tokens = _usage_number(usage, "completion_tokens")
                     if input_tokens or output_tokens:
                         trace.total_input_tokens += input_tokens
                         trace.total_output_tokens += output_tokens
@@ -171,6 +280,11 @@ class BaseAgent(ABC):
                         llm_step["completion_tokens"] = output_tokens
 
                 messages.append(response)
+                legacy_tool_call = _parse_legacy_function_text(
+                    getattr(response, "content", ""), tool_names)
+                if legacy_tool_call and not response.tool_calls:
+                    response = AIMessage(content="", tool_calls=[legacy_tool_call])
+                    messages[-1] = response
 
                 if not response.tool_calls:
                     break
@@ -179,17 +293,37 @@ class BaseAgent(ABC):
                     with trace.trace_tool_call(tc["name"], tc["args"]):
                         tool_msg = self._run_mcp_tool(tc, state)
                         messages.append(tool_msg)
+            else:
+                # Loop exhausted MAX_TOOL_ITERATIONS without the model ever
+                # returning a tool-call-free response: the last response still
+                # has pending tool calls and no final answer was produced.
+                limit_exceeded = bool(response and response.tool_calls)
 
-            state["messages"] = messages
-            state["final_response"] = (response.content if response and response.content else "")
+            # Phase 2: never persist the injected system prompt back into
+            # conversation history; only user/assistant/tool turns survive.
+            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
             state["trace_id"] = trace.run_id
+
+            if limit_exceeded:
+                # Phase 1: make the exhausted tool loop explicit instead of
+                # silently saving an empty "completed" trace.
+                error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
+                state["final_response"] = error.user_message
+                finalize_trace(trace, owns_trace, status="limit_exceeded",
+                               response=error.user_message, error=error)
+                return state
+
+            state["final_response"] = (response.content if response and response.content else "")
+
+            self._fire_after_agent_run(state)
 
             from graph.handoff import detect_handoff
             state = detect_handoff(state)
 
-            trace.save(status="completed", response=state["final_response"])
+            finalize_trace(trace, owns_trace, status="completed",
+                           response=state["final_response"])
         except Exception as e:
-            trace.save(status="failed", error=e)
+            finalize_trace(trace, owns_trace, status="failed", error=e)
             raise
 
         return state
@@ -197,20 +331,23 @@ class BaseAgent(ABC):
     def _stream_with_mcp_tools(self, state: AgentState, tool_names: list[str], system_ctx: str):
         """Shared streaming loop: LLM + MCP tool calls with retries and tracing."""
         from langchain_core.messages import SystemMessage
-        from core.observability.tracing import TraceCollector
+        from core.observability.tracing import acquire_trace, finalize_trace
         from graph.handoff import detect_handoff
 
+        self._fire_before_agent_run(state)
         system_ctx = self._maybe_inject_security_alert(system_ctx, state)
 
-        trace = TraceCollector(
+        trace, owns_trace = acquire_trace(
             agent_type=state.get("agent_type", self.name),
             user_id=state["user_id"],
             conversation_id=state.get("context", {}).get("conversation_id"),
+            links=_trace_links_from_state(state),
+            input_message=(
+                getattr(state["messages"][-1], "content", "")
+                if state.get("messages") else ""
+            ),
+            input_context=state.get("context"),
         )
-        if state.get("messages"):
-            last_msg = state["messages"][-1]
-            trace.input_message = getattr(last_msg, "content", "")
-        trace.input_context = state.get("context")
 
         from tools.protocol import get_tool_runtime
         from tools.protocol.adapters import descriptors_to_llm_tools
@@ -230,9 +367,18 @@ class BaseAgent(ABC):
             logger.warning("Message compaction failed (stream): %s", e)
 
         trace_saved = False
+        limit_exceeded = False
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
+                if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
+                    logger.warning(
+                        "Trace %s hit cross-agent LLM call budget (%d); aborting %s stream",
+                        trace.run_id, MAX_LLM_CALLS_PER_TRACE, self.name)
+                    limit_exceeded = True
+                    break
+
                 collected_content = ""
+                pending_content = ""
                 tool_calls = []
 
                 try:
@@ -241,7 +387,10 @@ class BaseAgent(ABC):
                         for chunk in stream:
                             if chunk.content:
                                 collected_content += chunk.content
-                                yield {"type": "token", "content": chunk.content}
+                                pending_content += chunk.content
+                                safe_content, pending_content = _split_safe_stream_content(pending_content)
+                                if safe_content:
+                                    yield {"type": "token", "content": safe_content}
                             if chunk.tool_call_chunks:
                                 for tc_chunk in chunk.tool_call_chunks:
                                     if tc_chunk.get("index") is not None:
@@ -254,9 +403,10 @@ class BaseAgent(ABC):
                                             tool_calls[idx]["args"] += tc_chunk["args"]
                                         if tc_chunk.get("id"):
                                             tool_calls[idx]["id"] = tc_chunk["id"]
-                            if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                                input_t = chunk.usage_metadata.get("input_tokens", 0)
-                                output_t = chunk.usage_metadata.get("output_tokens", 0)
+                            usage_metadata = getattr(chunk, "usage_metadata", None)
+                            if isinstance(usage_metadata, dict) and usage_metadata:
+                                input_t = _usage_number(usage_metadata, "input_tokens")
+                                output_t = _usage_number(usage_metadata, "output_tokens")
                                 trace.total_input_tokens += input_t
                                 trace.total_output_tokens += output_t
                                 llm_step["prompt_tokens"] = llm_step.get("prompt_tokens", 0) + input_t
@@ -264,12 +414,19 @@ class BaseAgent(ABC):
                 except LLMError as e:
                     if iteration == 0:
                         yield {"type": "error", "message": e.user_message}
-                        trace.save(status="failed", error=e)
+                        finalize_trace(trace, owns_trace, status="failed", error=e)
                         trace_saved = True
                         return
                     break
 
+                legacy_tool_call = _parse_legacy_function_text(collected_content, tool_names)
+                if legacy_tool_call and not tool_calls:
+                    tool_calls = [legacy_tool_call]
+                    collected_content = ""
+
                 if not tool_calls:
+                    if pending_content:
+                        yield {"type": "token", "content": pending_content}
                     state["final_response"] = collected_content
                     messages.append(AIMessage(content=collected_content))
                     break
@@ -296,23 +453,42 @@ class BaseAgent(ABC):
                         messages.append(tool_msg)
                     yield {"type": "tool_result", "tool": tc["name"],
                            "summary": f"Fetched {tc['name']} result"}
+            else:
+                # Exhausted MAX_TOOL_ITERATIONS while tool calls were still
+                # pending: no final answer was streamed.
+                limit_exceeded = True
 
-            state["messages"] = messages
+            # Phase 2: keep the injected system prompt out of persisted history.
+            state["messages"] = [m for m in messages if not isinstance(m, SystemMessage)]
             state["trace_id"] = trace.run_id
+
+            if limit_exceeded:
+                # Phase 1: surface the exhausted tool loop as an explicit error
+                # event and a failed trace instead of a blank completed run.
+                error = AgentExecutionLimitError(self.name, MAX_TOOL_ITERATIONS)
+                state["final_response"] = error.user_message
+                yield {"type": "error", "message": error.user_message}
+                finalize_trace(trace, owns_trace, status="limit_exceeded",
+                               response=error.user_message, error=error)
+                trace_saved = True
+                return
+
+            self._fire_after_agent_run(state)
 
             state = detect_handoff(state)
             if state.get("handoff_to"):
                 yield {"type": "handoff", "target": state["handoff_to"],
                        "reason": state.get("handoff_reason", "")}
 
-            trace.save(status="completed", response=state.get("final_response", ""))
+            finalize_trace(trace, owns_trace, status="completed",
+                           response=state.get("final_response", ""))
             trace_saved = True
         except GeneratorExit:
             if not trace_saved:
-                trace.save(status="interrupted")
+                finalize_trace(trace, owns_trace, status="interrupted")
                 trace_saved = True
         except Exception as e:
             if not trace_saved:
-                trace.save(status="failed", error=e)
+                finalize_trace(trace, owns_trace, status="failed", error=e)
                 trace_saved = True
             raise

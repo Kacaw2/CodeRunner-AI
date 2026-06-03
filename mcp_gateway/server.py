@@ -9,16 +9,13 @@ import logging
 
 from mcp.server import FastMCP
 
-from mcp_gateway.handlers.knowledge import register_knowledge_tools
-from mcp_gateway.handlers.problems import register_problem_tools
-from mcp_gateway.handlers.analytics import register_analytics_tools
-from mcp_gateway.handlers.traces import register_trace_tools
-from mcp_gateway.handlers.students import register_student_tools
-from mcp_gateway.handlers.write import register_write_tools
+from mcp_gateway.generated_tools import register_generated_catalog_tools
+from mcp_gateway.resources import register_resources
+from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
 logger = logging.getLogger(__name__)
 
-EXPECTED_TOOL_COUNT = 11
+EXPECTED_TOOL_COUNT = len(EXTERNAL_TOOL_MAP)
 
 
 def create_mcp_server() -> FastMCP:
@@ -31,11 +28,22 @@ def create_mcp_server() -> FastMCP:
             "teacher approval via the Human Gate workflow."
         ),
     )
-    register_knowledge_tools(mcp)
-    register_problem_tools(mcp)
-    register_analytics_tools(mcp)
-    register_trace_tools(mcp)
-    register_student_tools(mcp)
-    register_write_tools(mcp)
-    logger.info("MCP Server created with %d tools registered", EXPECTED_TOOL_COUNT)
+    register_generated_catalog_tools(mcp)
+
+    registered = set(mcp._tool_manager._tools)
+    expected = set(EXTERNAL_TOOL_MAP)
+    if registered != expected:
+        raise RuntimeError(
+            "MCP tool surface drifted from EXTERNAL_TOOL_MAP. "
+            f"missing={sorted(expected - registered)} "
+            f"unexpected={sorted(registered - expected)}"
+        )
+
+    resource_count = register_resources(mcp)
+
+    logger.info(
+        "MCP Server created with %d tools and %d resources registered",
+        len(registered),
+        resource_count,
+    )
     return mcp

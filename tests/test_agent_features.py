@@ -285,17 +285,19 @@ class TestAnalyticsTools:
         assert result["status_distribution"]["AC"] == 2
 
     def test_analytics_tools_in_rbac(self):
-        from tools.protocol.policies.rbac import _AGENT_TOOL_ALLOW, _ROLE_OVERRIDES
-        assert "coderunner.analytics.student_activity" in _AGENT_TOOL_ALLOW["analytics"]
-        assert "coderunner.analytics.class_statistics" in _AGENT_TOOL_ALLOW["analytics"]
-        assert "coderunner.analytics.problem_difficulty" in _AGENT_TOOL_ALLOW["analytics"]
+        from tools.protocol.policies.rbac import _agent_tool_allow, _ROLE_OVERRIDES
+        allow = _agent_tool_allow()["analytics"]
+        assert "coderunner.analytics.student_activity" in allow
+        assert "coderunner.analytics.class_statistics" in allow
+        assert "coderunner.analytics.problem_difficulty" in allow
         assert "student" not in _ROLE_OVERRIDES["coderunner.analytics.class_statistics"]
 
     def test_analytics_agent_has_mcp_tools(self):
-        from agents.analytics.agent import ANALYTICS_MCP_TOOLS
-        assert "coderunner.analytics.student_activity" in ANALYTICS_MCP_TOOLS
-        assert "coderunner.analytics.class_statistics" in ANALYTICS_MCP_TOOLS
-        assert "coderunner.analytics.problem_difficulty" in ANALYTICS_MCP_TOOLS
+        from agents.analytics.agent import AnalyticsAgent
+        tools = AnalyticsAgent().mcp_tool_names
+        assert "coderunner.analytics.student_activity" in tools
+        assert "coderunner.analytics.class_statistics" in tools
+        assert "coderunner.analytics.problem_difficulty" in tools
 
 
 # ── Task 20: Agent handoff ───────────────────────────────────

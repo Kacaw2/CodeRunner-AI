@@ -108,6 +108,7 @@ class TestToolCatalog:
             "coderunner.student.get_summary",
             "coderunner.problem.save_generated",
             "coderunner.code.execute",
+            "coderunner.code.execute_internal",
             "coderunner.knowledge.search",
             "coderunner.knowledge.search_similar_problems",
             "coderunner.knowledge.search_error_patterns",
@@ -116,6 +117,7 @@ class TestToolCatalog:
             "coderunner.analytics.class_statistics",
             "coderunner.analytics.problem_difficulty",
             "coderunner.trace.get_agent_trace",
+            "coderunner.approval.check",
         }
         assert expected == set(TOOL_CATALOG.keys())
 
@@ -382,30 +384,34 @@ class TestToolRuntime:
 
 class TestAgentMCPToolNames:
     def test_tutor_declares_mcp_names(self):
-        from agents.tutor.agent import TUTOR_MCP_TOOLS
+        from agents.tutor.agent import TutorAgent
 
-        assert "coderunner.code.execute" in TUTOR_MCP_TOOLS
-        assert "coderunner.problem.get_detail" in TUTOR_MCP_TOOLS
-        assert all(t.startswith("coderunner.") for t in TUTOR_MCP_TOOLS)
+        tools = TutorAgent().mcp_tool_names
+        assert "coderunner.code.execute" in tools
+        assert "coderunner.problem.get_detail" in tools
+        assert all(t.startswith("coderunner.") for t in tools)
 
     def test_reviewer_declares_mcp_names(self):
-        from agents.reviewer.agent import REVIEWER_MCP_TOOLS
+        from agents.reviewer.agent import ReviewerAgent
 
-        assert "coderunner.code.execute" in REVIEWER_MCP_TOOLS
-        assert len(REVIEWER_MCP_TOOLS) == 2
+        tools = ReviewerAgent().mcp_tool_names
+        assert "coderunner.code.execute" in tools
+        assert len(tools) == 2
 
     def test_generator_declares_mcp_names(self):
-        from agents.generator.agent import GENERATOR_MCP_TOOLS
+        from agents.generator.agent import GeneratorAgent
 
-        assert "coderunner.code.execute" in GENERATOR_MCP_TOOLS
-        assert "coderunner.knowledge.search_similar_problems" in GENERATOR_MCP_TOOLS
-        assert "coderunner.problem.save_generated" in GENERATOR_MCP_TOOLS
+        tools = GeneratorAgent().mcp_tool_names
+        assert "coderunner.code.execute_internal" in tools
+        assert "coderunner.knowledge.search_similar_problems" in tools
+        assert "coderunner.problem.save_generated" in tools
 
     def test_analytics_declares_mcp_names(self):
-        from agents.analytics.agent import ANALYTICS_MCP_TOOLS
+        from agents.analytics.agent import AnalyticsAgent
 
-        assert "coderunner.analytics.student_activity" in ANALYTICS_MCP_TOOLS
-        assert "coderunner.analytics.class_statistics" in ANALYTICS_MCP_TOOLS
+        tools = AnalyticsAgent().mcp_tool_names
+        assert "coderunner.analytics.student_activity" in tools
+        assert "coderunner.analytics.class_statistics" in tools
 
     def test_definitions_use_mcp_names(self):
         from core.definitions import AGENT_DEFINITIONS

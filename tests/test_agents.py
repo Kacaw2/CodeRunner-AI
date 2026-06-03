@@ -62,6 +62,184 @@ class TestBaseAgent:
             reset_tool_runtime()
 
 
+class TestToolLoopExhaustion:
+    """Phase 1: an exhausted tool loop must be explicit, never a blank success."""
+
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_sync_exhaustion_is_explicit(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.tutor.agent import TutorAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            # The model keeps requesting tools and never returns a final answer.
+            mock_llm.invoke.return_value = _make_llm_response("", tool_calls=[{
+                "name": "coderunner.problem.get_detail",
+                "args": {"problem_id": 1},
+                "id": "tc1",
+            }])
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True, tool="coderunner.problem.get_detail", data={"ok": 1},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = TutorAgent()
+                state = {
+                    "messages": [HumanMessage(content="Help me")],
+                    "agent_type": "tutor",
+                    "user_id": 1,
+                    "user_role": "student",
+                    "context": {"question_id": 1},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                result = agent.invoke(state)
+            finally:
+                reset_tool_runtime()
+
+            assert result["final_response"]  # explicit, never blank
+            statuses = [c.kwargs.get("status") for c in mock_save.call_args_list]
+            assert "limit_exceeded" in statuses
+            assert "completed" not in statuses
+
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_stream_exhaustion_yields_error(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.tutor.agent import TutorAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            class ToolChunk:
+                content = ""
+                usage_metadata = {}
+                tool_call_chunks = [{
+                    "index": 0,
+                    "name": "coderunner.problem.get_detail",
+                    "args": "{}",
+                    "id": "tc1",
+                }]
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.stream.return_value = [ToolChunk()]
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True, tool="coderunner.problem.get_detail", data={"ok": 1},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = TutorAgent()
+                state = {
+                    "messages": [HumanMessage(content="Help me")],
+                    "agent_type": "tutor",
+                    "user_id": 1,
+                    "user_role": "student",
+                    "context": {"question_id": 1},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                events = list(agent.stream(state))
+            finally:
+                reset_tool_runtime()
+
+            assert any(e["type"] == "error" for e in events)
+            statuses = [c.kwargs.get("status") for c in mock_save.call_args_list]
+            assert "limit_exceeded" in statuses
+            assert "completed" not in statuses
+
+
+class TestSystemContextIsolation:
+    """Phase 2: the injected system prompt must never be persisted into history."""
+
+    @patch("agents.base.AIConfig")
+    def test_invoke_strips_system_message(self, mock_config, app):
+        with app.app_context():
+            from agents.tutor.agent import TutorAgent
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.invoke.return_value = _make_llm_response("Here is a hint.")
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            agent = TutorAgent()
+            state = {
+                "messages": [HumanMessage(content="Why is my code wrong?")],
+                "agent_type": "tutor",
+                "user_id": 1,
+                "user_role": "student",
+                "context": {"question_id": 1},
+                "tool_results": [],
+                "final_response": "",
+            }
+            result = agent.invoke(state)
+
+            assert all(not isinstance(m, SystemMessage) for m in result["messages"])
+
+    @patch("agents.config.AIConfig.validate")
+    @patch("agents.config.AIConfig.get_llm")
+    def test_generator_retry_does_not_accumulate_system_messages(
+        self, mock_get_llm, mock_validate, app,
+    ):
+        with app.app_context():
+            from agents.generator.agent import GeneratorAgent
+
+            question_json = '''```json
+{
+  "title": "Test",
+  "description": "Test",
+  "programming_language": "python",
+  "solution": "print(1)",
+  "test_cases": [{"input": "", "expected_output": "1", "is_hidden": false, "weight": 1.0}]
+}
+```'''
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.invoke.return_value = _make_llm_response(question_json)
+            mock_get_llm.return_value = mock_llm
+
+            call_count = 0
+
+            def validation_side_effect(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                passed = call_count > 1
+                return [{"index": 0, "passed": passed, "input": "", "expected": "1",
+                         "actual": "1" if passed else "2", "error": "", "status": "AC" if passed else "WA"}]
+
+            with patch("agents.generator.agent._validate_solution", side_effect=validation_side_effect):
+                agent = GeneratorAgent()
+                state = {
+                    "messages": [HumanMessage(content="Create a problem")],
+                    "agent_type": "generator",
+                    "user_id": 1,
+                    "user_role": "teacher",
+                    "context": {"language": "python"},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                result = agent.invoke(state)
+
+            assert call_count == 2  # retried once
+            system_count = sum(1 for m in result["messages"] if isinstance(m, SystemMessage))
+            assert system_count == 0
+
+
 class TestTutorAgent:
     @patch("agents.base.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
@@ -261,7 +439,9 @@ class TestGeneratorAgent:
         with app.app_context():
             from langchain_core.messages import HumanMessage
             from agents.generator.agent import GeneratorAgent
-            from app.models.agent_trace import AgentRun, AgentRunStep
+            from core.observability.tracing import TraceCollector
+            from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+            from core.db.session import db_session as core_db_session
 
             class Chunk:
                 def __init__(self, content, usage_metadata=None):
@@ -293,6 +473,13 @@ class TestGeneratorAgent:
                     {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
                 ]
 
+                unrelated_trace = TraceCollector(
+                    agent_type="generator",
+                    user_id=teacher_user.id,
+                    conversation_id=999,
+                )
+                unrelated_trace.save(status="completed", response="older trace")
+
                 state = {
                     "messages": [HumanMessage(content="Create a simple addition problem")],
                     "agent_type": "generator",
@@ -305,12 +492,26 @@ class TestGeneratorAgent:
                 events = list(GeneratorAgent().stream(state))
 
             assert any(event["type"] == "token" for event in events)
-            run = AgentRun.query.filter_by(agent_type="generator").one()
-            assert run.conversation_id == 123
-            assert run.status == "completed"
-            assert run.tokens_input == 10
-            assert run.tokens_output == 20
-            assert AgentRunStep.query.filter_by(run_id=run.id).count() >= 2
+            with core_db_session() as session:
+                run = (
+                    session.query(AgentTraceRun)
+                    .filter_by(
+                        agent_type="generator",
+                        user_id=teacher_user.id,
+                        conversation_id=123,
+                    )
+                    .one()
+                )
+                assert run.conversation_id == 123
+                assert run.status == "completed"
+                assert run.tokens_input == 10
+                assert run.tokens_output == 20
+                span_count = (
+                    session.query(AgentTraceSpan)
+                    .filter_by(trace_id=run.trace_id)
+                    .count()
+                )
+                assert span_count >= 2
 
 
 class TestAnalyticsAgent:
@@ -339,6 +540,61 @@ class TestAnalyticsAgent:
             result = agent.invoke(state)
 
             assert "progress" in result["final_response"]
+
+    @patch("core.observability.tracing.TraceCollector.save")
+    @patch("agents.base.AIConfig")
+    def test_stream_executes_legacy_function_text_without_leaking_it(self, mock_config, mock_save, app):
+        with app.app_context():
+            from agents.analytics.agent import AnalyticsAgent
+            from tools.protocol.runtime import (
+                ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
+            )
+
+            class FunctionTextChunk:
+                content = '<function>\nget_class_statistics({"teacher_id": 10})\n</function>'
+                usage_metadata = {}
+                tool_call_chunks = []
+
+            class FinalChunk:
+                content = '{"summary": "Class activity is steady", "progress": {"trend": "stable"}}'
+                usage_metadata = {}
+                tool_call_chunks = []
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_llm.stream.side_effect = [[FunctionTextChunk()], [FinalChunk()]]
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            mock_runtime.call_sync.return_value = ToolResult(
+                ok=True,
+                tool="coderunner.analytics.class_statistics",
+                data={"classrooms": [], "total_students": 0},
+            )
+            set_tool_runtime(mock_runtime)
+            try:
+                agent = AnalyticsAgent()
+                state = {
+                    "messages": [HumanMessage(content="Analyze my class")],
+                    "agent_type": "analytics",
+                    "user_id": 10,
+                    "user_role": "teacher",
+                    "context": {"period": "30d"},
+                    "tool_results": [],
+                    "final_response": "",
+                }
+                events = list(agent.stream(state))
+            finally:
+                reset_tool_runtime()
+
+            token_text = "".join(e.get("content", "") for e in events if e["type"] == "token")
+            assert "<function>" not in token_text
+            assert any(e["type"] == "tool_call" and e["tool"] == "coderunner.analytics.class_statistics"
+                       for e in events)
+            mock_runtime.call_sync.assert_called()
+            assert state["final_response"].startswith('{"summary"')
 
 
 class TestOrchestrator:
@@ -621,3 +877,89 @@ class TestCrashRecovery:
 
             recovered = AgentTask.query.get(task_id)
             assert recovered.status == "failed"
+
+
+class TestMemorySummaryReplay:
+    def test_get_memory_context_replays_recent_summaries(self, db_session, app):
+        with app.app_context():
+            from app.models.ai_conversation import AIConversation
+            from app.models.user import User, UserRole
+            from memory.service import MemoryService
+
+            user = User(username="mem_replay_user", password="x",
+                        email="memreplay@test.com", role=UserRole.STUDENT)
+            db_session.add(user)
+            db_session.flush()
+
+            past = AIConversation(
+                user_id=user.id, agent_type="tutor",
+                summary="Student struggled with recursion base cases.")
+            current = AIConversation(
+                user_id=user.id, agent_type="tutor",
+                summary="Currently working on linked lists.")
+            db_session.add_all([past, current])
+            db_session.commit()
+
+            ctx = MemoryService.get_memory_context(
+                user.id, "student", conversation_id=current.id)
+
+            assert "recursion base cases" in ctx
+            # The in-progress conversation must be excluded from its own context.
+            assert "linked lists" not in ctx
+
+
+class TestCrossAgentCallGuardrail:
+    def test_trace_llm_call_increments_counter(self):
+        from core.observability.tracing import TraceCollector
+
+        trace = TraceCollector(agent_type="tutor", user_id=1)
+        assert trace.llm_call_count == 0
+        with trace.trace_llm_call():
+            pass
+        with trace.trace_llm_call():
+            pass
+        assert trace.llm_call_count == 2
+
+    @patch("agents.base.AIConfig")
+    def test_guardrail_aborts_when_shared_budget_exhausted(self, mock_config, app):
+        with app.app_context():
+            from agents.config import MAX_LLM_CALLS_PER_TRACE
+            from agents.tutor.agent import TutorAgent
+            from core.observability.tracing import TraceCollector, use_current_trace
+            from tools.protocol.runtime import (
+                ToolRuntime, set_tool_runtime, reset_tool_runtime,
+            )
+
+            mock_llm = MagicMock()
+            mock_llm.bind_tools.return_value = mock_llm
+            mock_config.get_llm.return_value = mock_llm
+            mock_config.validate.return_value = None
+
+            mock_runtime = MagicMock(spec=ToolRuntime)
+            mock_runtime.list_tools.return_value = []
+            set_tool_runtime(mock_runtime)
+
+            # Simulate a handoff chain where earlier agents already spent the
+            # whole cross-agent LLM budget on this shared trace.
+            trace = TraceCollector(agent_type="supervisor", user_id=1)
+            trace.llm_call_count = MAX_LLM_CALLS_PER_TRACE
+            try:
+                with use_current_trace(trace):
+                    agent = TutorAgent()
+                    state = {
+                        "messages": [HumanMessage(content="Help me")],
+                        "agent_type": "tutor",
+                        "user_id": 1,
+                        "user_role": "student",
+                        "context": {"question_id": 1},
+                        "tool_results": [],
+                        "final_response": "",
+                    }
+                    result = agent.invoke(state)
+            finally:
+                reset_tool_runtime()
+
+            # Guardrail must trip before any further LLM call is made.
+            mock_llm.invoke.assert_not_called()
+            assert result["final_response"]
+            assert trace.pending_status == "limit_exceeded"

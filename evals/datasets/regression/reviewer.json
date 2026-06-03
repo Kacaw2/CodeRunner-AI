@@ -1,0 +1,20 @@
+[
+  {
+    "id": "reviewer_regression_structure_001",
+    "case_type": "regression",
+    "suite": "reviewer",
+    "category": "quality",
+    "agent_type": "reviewer",
+    "input": {
+      "message": "Review this solution: def add(a, b): return a - b",
+      "user_id": 2,
+      "user_role": "teacher",
+      "context": {"question_id": 7, "language": "python"}
+    },
+    "budget": {"max_tokens": 2048, "max_tool_calls": 5, "timeout_seconds": 90, "max_cost_cny": 0.25},
+    "graders": [
+      {"type": "deterministic.min_length", "min_length": 40}
+    ],
+    "expected_behavior": "Regression guard: reviewer must flag the wrong operator and return a substantive review."
+  }
+]

@@ -22,7 +22,7 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "problem_id": {"type": "integer"},
+            "problem_id": {"type": "integer", "minimum": 1},
         },
         "required": ["problem_id"],
         "additionalProperties": False,
@@ -50,9 +50,9 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "student_id": {"type": "integer"},
-            "question_id": {"type": "integer", "default": 0},
-            "limit": {"type": "integer", "default": 10},
+            "student_id": {"type": "integer", "minimum": 1},
+            "question_id": {"type": "integer", "minimum": 0, "default": 0},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
         },
         "required": ["student_id"],
         "additionalProperties": False,
@@ -70,9 +70,9 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "submission_id": {"type": "integer"},
-            "user_id": {"type": "integer"},
-            "user_role": {"type": "string", "default": "student"},
+            "submission_id": {"type": "integer", "minimum": 1},
+            "user_id": {"type": "integer", "minimum": 1},
+            "user_role": {"type": "string", "enum": ["student", "teacher", "admin"], "default": "student"},
         },
         "required": ["submission_id"],
         "additionalProperties": False,
@@ -90,7 +90,7 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "student_id": {"type": "integer"},
+            "student_id": {"type": "integer", "minimum": 1},
         },
         "required": ["student_id"],
         "additionalProperties": False,
@@ -110,8 +110,8 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "question_data": {"type": "object"},
-            "teacher_id": {"type": "integer"},
+            "question_data": {"type": "object", "minProperties": 1},
+            "teacher_id": {"type": "integer", "minimum": 1},
         },
         "required": ["question_data", "teacher_id"],
         "additionalProperties": False,
@@ -134,10 +134,44 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "code": {"type": "string", "maxLength": 10000},
+            "code": {"type": "string", "minLength": 1, "maxLength": 10000},
             "language": {"type": "string", "enum": ["python", "c"]},
-            "stdin_text": {"type": "string", "default": ""},
-            "expected_output": {"type": "string", "default": ""},
+            "stdin_text": {"type": "string", "maxLength": 10000, "default": ""},
+            "expected_output": {"type": "string", "maxLength": 100000, "default": ""},
+        },
+        "required": ["code", "language"],
+        "additionalProperties": False,
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "stdout": {"type": "string"},
+            "stderr": {"type": "string"},
+            "time_ms": {"type": "integer"},
+        },
+        "required": ["status"],
+    },
+))
+
+_reg(ToolDescriptor(
+    name="coderunner.code.execute_internal",
+    version="1.0.0",
+    description="Execute trusted agent-authored code for self-validation (internal only).",
+    server="code",
+    risk_level=RiskLevel.MEDIUM,
+    required_scopes=["code:execute_internal"],
+    approval_policy=ApprovalPolicy.NONE,
+    internal_only=True,
+    timeout_ms=10_000,
+    retry_policy=RetryPolicy(max_attempts=0),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "minLength": 1, "maxLength": 10000},
+            "language": {"type": "string", "enum": ["python", "c"]},
+            "stdin_text": {"type": "string", "maxLength": 10000, "default": ""},
+            "expected_output": {"type": "string", "maxLength": 100000, "default": ""},
         },
         "required": ["code", "language"],
         "additionalProperties": False,
@@ -166,8 +200,8 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "query": {"type": "string"},
-            "owner_id": {"type": ["integer", "null"], "default": None},
+            "query": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "owner_id": {"type": ["integer", "null"], "minimum": 1, "default": None},
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -185,9 +219,9 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "query": {"type": "string"},
+            "query": {"type": "string", "minLength": 1, "maxLength": 2000},
             "language": {"type": "string", "default": "python"},
-            "limit": {"type": "integer", "default": 5},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 5},
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -205,7 +239,7 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "query": {"type": "string"},
+            "query": {"type": "string", "minLength": 1, "maxLength": 2000},
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -225,8 +259,8 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "student_id": {"type": "integer"},
-            "days": {"type": "integer", "default": 30},
+            "student_id": {"type": "integer", "minimum": 1},
+            "days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 30},
         },
         "required": ["student_id"],
         "additionalProperties": False,
@@ -244,7 +278,7 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "teacher_id": {"type": "integer"},
+            "teacher_id": {"type": "integer", "minimum": 1},
         },
         "required": ["teacher_id"],
         "additionalProperties": False,
@@ -262,7 +296,7 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "teacher_id": {"type": "integer"},
+            "teacher_id": {"type": "integer", "minimum": 1},
         },
         "required": ["teacher_id"],
         "additionalProperties": False,
@@ -280,7 +314,7 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "problem_id": {"type": "integer"},
+            "problem_id": {"type": "integer", "minimum": 1},
         },
         "required": ["problem_id"],
         "additionalProperties": False,
@@ -298,9 +332,31 @@ _reg(ToolDescriptor(
     input_schema={
         "type": "object",
         "properties": {
-            "run_id": {"type": "string"},
+            "run_id": {"type": "string", "minLength": 1, "maxLength": 64},
         },
         "required": ["run_id"],
+        "additionalProperties": False,
+    },
+    output_schema={"type": "object"},
+))
+
+# ── Approval Server tools ────────────────────────────────────────
+
+# No required_scopes: this is the post-approval polling loop, callable by
+# whoever initiated the gated call. Gating it on a scope not in the canonical
+# vocabulary (§4.1) would break external clients until scope migration lands.
+_reg(ToolDescriptor(
+    name="coderunner.approval.check",
+    version="1.0.0",
+    description="Check the status of a pending tool approval and retrieve the result if approved.",
+    server="db",
+    risk_level=RiskLevel.LOW,
+    input_schema={
+        "type": "object",
+        "properties": {
+            "approval_id": {"type": "string", "minLength": 1, "maxLength": 64},
+        },
+        "required": ["approval_id"],
         "additionalProperties": False,
     },
     output_schema={"type": "object"},

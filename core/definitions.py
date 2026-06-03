@@ -39,7 +39,7 @@ TUTOR_DEFINITION = AgentDefinition(
         "coderunner.knowledge.search_error_patterns",
     ),
     risk_level="low",
-    input_fields=("question_id", "submission_id", "code", "error_status", "language"),
+    input_fields=("question_id", "submission_id", "code", "error_status", "topic"),
     output_format="free_text",
 )
 
@@ -66,12 +66,12 @@ GENERATOR_DEFINITION = AgentDefinition(
     default_model_tier=ModelTier.STRONG,
     allowed_roles=frozenset({"teacher", "admin"}),
     allowed_tools=(
-        "coderunner.code.execute",
+        "coderunner.code.execute_internal",
         "coderunner.knowledge.search_similar_problems",
         "coderunner.problem.save_generated",
     ),
     risk_level="high",
-    input_fields=("topic", "difficulty", "language", "test_case_count", "prompt"),
+    input_fields=("topic", "difficulty", "language", "test_case_count", "prompt", "quiz_id"),
     output_format="json_schema",
     output_schema_name="QUESTION_SCHEMA",
 )

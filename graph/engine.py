@@ -135,11 +135,27 @@ class WorkflowEngine:
 
         total_tokens = 0
         start_time = time.monotonic()
+        timeout_seconds = workflow_run.timeout_seconds or DEFAULT_TIMEOUT_SECONDS
 
         for i, step_def in enumerate(steps_def):
             db_step = db_steps[i]
             state["current_step_index"] = i
             workflow_run.current_step_index = i
+
+            elapsed = time.monotonic() - start_time
+            if elapsed > timeout_seconds:
+                workflow_run.status = "failed"
+                workflow_run.error_detail = (
+                    f"Workflow exceeded timeout of {timeout_seconds}s before step {i}"
+                )
+                workflow_run.completed_at = now_china()
+                workflow_run.total_tokens_used = total_tokens
+                workflow_run.total_latency_ms = int(elapsed * 1000)
+                session.commit()
+                state["status"] = "failed"
+                state["error"] = workflow_run.error_detail
+                self._emit("workflow_failed", {"run_id": run_id, "error": workflow_run.error_detail})
+                return state
 
             if db_step.requires_approval:
                 db_step.status = "waiting_approval"
@@ -356,8 +372,24 @@ class WorkflowEngine:
                     })
                     return False
 
+                from graph.critic import WorkflowCritic
+                criteria = step_def.get("validation_criteria", "")
+                verdict = WorkflowCritic().validate_step(
+                    step_type, db_step.agent_type, output, criteria)
+
+                if not verdict.get("passed", True) and attempt < max_attempts - 1:
+                    last_error = "; ".join(verdict.get("issues", [])) or "critic rejected output"
+                    context["critic_feedback"] = last_error  # next attempt's handler can read this
+                    logger.info("Step %d rejected by critic (attempt %d): %s",
+                                db_step.step_index, attempt + 1, last_error)
+                    self._emit("step_critic_rejected", {
+                        "step_index": db_step.step_index,
+                        "issues": verdict.get("issues", []),
+                    })
+                    continue
+
                 db_step.status = "completed"
-                db_step.output_data = output
+                db_step.output_data = {**output, "critic": verdict}
                 db_step.completed_at = now_china()
                 session.commit()
 
@@ -365,6 +397,7 @@ class WorkflowEngine:
                 self._emit("step_completed", {
                     "step_index": db_step.step_index,
                     "latency_ms": latency,
+                    "critic_score": verdict.get("score"),
                 })
                 return True
 

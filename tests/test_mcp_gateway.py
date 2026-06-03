@@ -12,7 +12,7 @@ from app.models.user import User, UserRole
 from mcp_gateway.middleware.auth import hash_api_key, verify_api_key
 from core.db.models.mcp_api_key import McpApiKey
 from core.db.models.mcp_audit_log import McpAuditLog
-from mcp_gateway.middleware import set_caller_info, get_caller_info, mcp_tool_middleware
+from mcp_gateway.middleware import set_caller_info, get_caller_info, _guarded
 from mcp_gateway.middleware.rate_limit import check_rate_limit
 
 
@@ -155,7 +155,7 @@ class TestApiKeyManagement:
         )
         assert resp.status_code == 201
         data = resp.get_json()
-        assert data["scopes"] == ["search_knowledge"]
+        assert data["scopes"] == ["knowledge:read"]
 
     def test_list_keys(self, client, mock_auth_teacher, teacher_user):
         client.post("/api/v1/mcp/keys", json={"name": "Key1"})
@@ -245,42 +245,34 @@ class TestMiddleware:
     def test_no_caller_returns_auth_error(self):
         set_caller_info(None)
 
-        @mcp_tool_middleware("search_knowledge")
-        def dummy(query: str) -> str:
-            return json.dumps({"ok": True})
-
-        with patch("mcp_gateway.middleware.core.log_tool_call"):
-            result = dummy(query="test")
-        assert "Authentication required" in result
+        result = _guarded(lambda: json.dumps({"ok": True}))
+        data = json.loads(result)
+        assert data["error"]["code"] == "MCP_AUTH_REQUIRED"
 
     def test_wrong_role_returns_permission_error(self):
-        set_caller_info({
-            "api_key_id": "k1", "user_id": 1,
-            "role": "student", "scopes": None, "rate_limit_rpm": 30,
-        })
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
 
-        @mcp_tool_middleware("get_agent_trace")
-        def dummy(run_id: str) -> str:
-            return json.dumps({"ok": True})
-
-        with patch("mcp_gateway.middleware.core.log_tool_call"):
-            result = dummy(run_id="test")
-        assert "Permission denied" in result
+        result = run_guard(
+            TOOL_CATALOG["coderunner.trace.get_agent_trace"],
+            CallerContext(user_id=1, role="student"),
+        )
+        assert result.rejected is True
+        assert result.error.code.value == "MCP_PERMISSION_DENIED"
 
     def test_scope_restriction(self):
-        set_caller_info({
-            "api_key_id": "k1", "user_id": 1,
-            "role": "teacher", "scopes": ["search_knowledge"],
-            "rate_limit_rpm": 30,
-        })
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
 
-        @mcp_tool_middleware("get_problem_detail")
-        def dummy(problem_id: int) -> str:
-            return json.dumps({"ok": True})
-
-        with patch("mcp_gateway.middleware.core.log_tool_call"):
-            result = dummy(problem_id=1)
-        assert "not in key scopes" in result
+        result = run_guard(
+            TOOL_CATALOG["coderunner.problem.get_detail"],
+            CallerContext(actor_type="external_client", user_id=1, role="teacher"),
+            granted_scopes=["search_knowledge"],
+        )
+        assert result.rejected is True
+        assert result.error.code.value == "MCP_SCOPE_DENIED"
 
     def test_valid_call_passes(self):
         set_caller_info({
@@ -288,13 +280,8 @@ class TestMiddleware:
             "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
         })
 
-        @mcp_tool_middleware("search_knowledge")
-        def dummy(query: str) -> str:
-            return json.dumps({"ok": True})
-
-        with patch("mcp_gateway.middleware.core.log_tool_call"), \
-             patch("mcp_gateway.middleware.core.check_rate_limit", return_value=True):
-            result = dummy(query="test")
+        with patch("mcp_gateway.middleware.core.check_rate_limit", return_value=True):
+            result = _guarded(lambda: json.dumps({"ok": True}))
         data = json.loads(result)
         assert data["ok"] is True
 
@@ -304,14 +291,10 @@ class TestMiddleware:
             "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
         })
 
-        @mcp_tool_middleware("search_knowledge")
-        def dummy(query: str) -> str:
-            return json.dumps({"ok": True})
-
-        with patch("mcp_gateway.middleware.core.log_tool_call"), \
-             patch("mcp_gateway.middleware.core.check_rate_limit", return_value=False):
-            result = dummy(query="test")
-        assert "Rate limit exceeded" in result
+        with patch("mcp_gateway.middleware.core.check_rate_limit", return_value=False):
+            result = _guarded(lambda: json.dumps({"ok": True}))
+        data = json.loads(result)
+        assert data["error"]["code"] == "MCP_RATE_LIMITED"
 
 
 # ── Rate limiter ──
@@ -339,29 +322,66 @@ class TestRateLimiter:
 
 class TestMcpPermissions:
     def test_teacher_allowed(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "search_knowledge", "teacher")
-        assert check_tool_permission("mcp", "search_similar_problems", "teacher")
-        assert check_tool_permission("mcp", "get_problem_detail", "teacher")
-        assert check_tool_permission("mcp", "get_problem_difficulty_stats", "teacher")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="teacher")
+        for tool in [
+            "coderunner.knowledge.search",
+            "coderunner.knowledge.search_similar_problems",
+            "coderunner.problem.get_detail",
+            "coderunner.analytics.problem_difficulty",
+        ]:
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
 
     def test_admin_allowed(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "search_knowledge", "admin")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        desc = TOOL_CATALOG["coderunner.knowledge.search"]
+        assert run_guard(
+            desc,
+            CallerContext(user_id=1, role="admin"),
+            granted_scopes=desc.required_scopes,
+        ).passed
 
     def test_student_denied_restricted_tools(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert not check_tool_permission("mcp", "get_agent_trace", "student")
-        assert not check_tool_permission("mcp", "get_student_summary", "student")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="student")
+        assert run_guard(TOOL_CATALOG["coderunner.trace.get_agent_trace"], ctx).rejected
+        assert run_guard(TOOL_CATALOG["coderunner.student.get_summary"], ctx).rejected
 
     def test_student_allowed_read_tools(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "search_knowledge", "student")
-        assert check_tool_permission("mcp", "get_problem_detail", "student")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.guard import run_guard
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        ctx = CallerContext(user_id=1, role="student")
+        for tool in ["coderunner.knowledge.search", "coderunner.problem.get_detail"]:
+            desc = TOOL_CATALOG[tool]
+            assert run_guard(desc, ctx, granted_scopes=desc.required_scopes).passed
 
     def test_unknown_tool_allowed_by_default(self):
-        from mcp_gateway.middleware import check_tool_permission
-        assert check_tool_permission("mcp", "nonexistent_tool", "teacher")
+        from core.auth.context import CallerContext
+        from tools.protocol.policies.rbac import check_rbac
+        from tools.protocol.schemas.descriptors import ToolDescriptor
+
+        check_rbac(
+            ToolDescriptor(
+                name="nonexistent.tool",
+                version="1.0.0",
+                description="",
+                input_schema={},
+                output_schema={},
+            ),
+            CallerContext(user_id=1, role="teacher"),
+        )
 
 
 # ── Audit logging ──

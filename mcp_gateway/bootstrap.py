@@ -7,6 +7,7 @@ to the MCP transport and registers descriptors in the registry.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from tools.protocol.runtime import ToolRuntime, set_tool_runtime
 from tools.protocol.registry import ToolRegistry
@@ -28,12 +29,64 @@ def bootstrap_tool_runtime(*, session_factory=None) -> ToolRuntime:
     _register_code_handlers(transport)
     _register_knowledge_handlers(transport)
     _register_analytics_handlers(transport, session_factory)
+    _register_approval_handlers(transport, registry)
 
-    runtime = ToolRuntime(registry=registry, transport=transport)
+    _assert_rbac_consistent(registry)
+    runtime = ToolRuntime(
+        registry=registry,
+        transport=transport,
+        approval_store=_DbApprovalStore(session_factory),
+    )
     set_tool_runtime(runtime)
 
     logger.info("MCP ToolRuntime bootstrapped with %d tools", len(registry))
     return runtime
+
+
+class _DbApprovalStore:
+    def __init__(self, session_factory) -> None:
+        self._session_factory = session_factory
+
+    def create(self, descriptor, caller, args: dict) -> str:
+        if self._session_factory is None:
+            return ""
+
+        from app.core.timezone import now_china
+        from core.db.models.mcp_approval import McpToolApproval
+
+        session = self._session_factory()
+        approval_id = str(uuid.uuid4())
+        try:
+            approval = McpToolApproval(
+                id=approval_id,
+                api_key_id=caller.api_key_id,
+                user_id=caller.user_id,
+                tool_name=descriptor.name,
+                tool_args=args,
+                risk_level=descriptor.risk_level.value,
+                status="pending",
+                expires_at=McpToolApproval.default_expiry(),
+                created_at=now_china(),
+            )
+            session.add(approval)
+            session.commit()
+            return approval_id
+        finally:
+            close = getattr(session, "close", None)
+            if close:
+                close()
+
+
+def _assert_rbac_consistent(registry: ToolRegistry) -> None:
+    from core.definitions import AGENT_DEFINITIONS
+
+    known = {descriptor.name for descriptor in registry.list_tools()}
+    for agent, definition in AGENT_DEFINITIONS.items():
+        missing = set(definition.allowed_tools) - known
+        if missing:
+            raise RuntimeError(
+                f"Agent '{agent}' references unknown tools: {sorted(missing)}"
+            )
 
 
 def _register_db_handlers(transport: LocalTransport, session_factory) -> None:
@@ -66,7 +119,12 @@ def _register_db_handlers(transport: LocalTransport, session_factory) -> None:
         )
 
     def student_summary(student_id: int, **_kw) -> dict:
-        return get_student_summary_impl(student_id, session=_get_session())
+        from mcp_gateway.middleware.sanitizer import sanitize_student_summary
+
+        raw = get_student_summary_impl(student_id, session=_get_session())
+        if "error" in raw:
+            return raw
+        return sanitize_student_summary(student_id, raw["profile"], raw["stats"])
 
     def save_generated(question_data: dict, teacher_id: int, **_kw) -> dict:
         return save_generated_problem_impl(question_data, teacher_id, session=_get_session())
@@ -85,6 +143,9 @@ def _register_code_handlers(transport: LocalTransport) -> None:
         return execute_code_impl(code, language, stdin_text, expected_output)
 
     transport.register_handler("coderunner.code.execute", execute_code)
+    # Same sandboxed executor; the descriptor (MEDIUM, internal_only) is what
+    # distinguishes the agent self-validation path from the HIGH external one.
+    transport.register_handler("coderunner.code.execute_internal", execute_code)
 
 
 def _register_knowledge_handlers(transport: LocalTransport) -> None:
@@ -135,10 +196,105 @@ def _register_analytics_handlers(transport: LocalTransport, session_factory) -> 
         return get_problem_difficulty_stats_impl(problem_id, session=_get_session())
 
     def agent_trace(run_id: str, **_kw) -> dict:
-        return get_agent_trace_impl(run_id, session=_get_session())
+        from mcp_gateway.middleware.sanitizer import sanitize_agent_trace
+
+        raw = get_agent_trace_impl(run_id, session=_get_session())
+        if "error" in raw:
+            return raw
+        return sanitize_agent_trace(raw["run"], raw["steps"])
 
     transport.register_handler("coderunner.analytics.student_activity", student_activity)
     transport.register_handler("coderunner.analytics.student_stats", student_stats)
     transport.register_handler("coderunner.analytics.class_statistics", class_statistics)
     transport.register_handler("coderunner.analytics.problem_difficulty", problem_difficulty)
     transport.register_handler("coderunner.trace.get_agent_trace", agent_trace)
+
+
+def _approved_caller_context(approval):
+    """Rebuild the trusted CallerContext from the stored approval.
+
+    Identity comes only from the approval row (user_id + the requester's
+    DB role), never from the LLM-supplied tool_args.
+    """
+    from core.auth.context import CallerContext
+
+    role = "student"
+    requester = getattr(approval, "requester", None)
+    if requester is not None and getattr(requester, "role", None) is not None:
+        role = getattr(requester.role, "value", requester.role)
+
+    return CallerContext(
+        user_id=approval.user_id or 0,
+        role=role,
+        api_key_id=approval.api_key_id,
+    )
+
+
+def _execute_approved_tool(approval, *, transport, registry) -> dict:
+    """Re-execute an approved high-risk tool via its registered handler.
+
+    Dispatch is descriptor-driven: any tool present in the catalog and
+    transport runs without a per-tool branch here. Identity fields in the
+    stored args are overwritten with the trusted approval identity.
+    """
+    from tools.protocol.runtime import ToolRuntime
+    from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+
+    raw_name = approval.tool_name
+    tool_name = EXTERNAL_TOOL_MAP.get(raw_name, raw_name)
+
+    descriptor = registry.get(tool_name)
+    if descriptor is None or not transport.has_handler(tool_name):
+        logger.error("approved tool has no registered handler: name=%s", raw_name)
+        return {"error": f"Unknown high-risk tool: {raw_name}"}
+
+    # Registered handlers manage their own DB session (via session_factory),
+    # exactly as on the live call path — no session is threaded in here.
+    args = ToolRuntime._sanitize_args(approval.tool_args or {}, _approved_caller_context(approval))
+
+    try:
+        return transport.invoke(tool_name, args)
+    except Exception as exc:  # noqa: BLE001 — surface as tool error, not crash
+        logger.exception("approved tool execution failed: tool=%s", tool_name)
+        return {"error": f"Tool execution failed: {exc}"}
+
+
+def _register_approval_handlers(transport: LocalTransport, registry: ToolRegistry) -> None:
+    from core.db.session import get_session
+    from core.db.models.mcp_approval import McpToolApproval
+
+    def approval_check(approval_id: str, **_kw) -> dict:
+        session = get_session()
+        try:
+            approval = session.get(McpToolApproval, approval_id)
+            if not approval:
+                return {"status": "not_found", "message": "Approval not found"}
+
+            approval.check_expiration()
+
+            if approval.status == "approved":
+                if approval.result is None:
+                    approval.result = _execute_approved_tool(
+                        approval, transport=transport, registry=registry
+                    )
+                    approval.status = "executed"
+                    session.commit()
+                return {"status": "executed", "result": approval.result}
+
+            if approval.status == "executed":
+                return {"status": "executed", "result": approval.result}
+
+            if approval.status == "rejected":
+                session.commit()
+                return {"status": "rejected", "reason": approval.review_notes or ""}
+
+            if approval.status == "expired":
+                session.commit()
+                return {"status": "expired", "message": "审批已超时。请重新发起工具调用。"}
+
+            session.commit()
+            return {"status": "pending", "message": "等待教师审批"}
+        finally:
+            session.close()
+
+    transport.register_handler("coderunner.approval.check", approval_check)

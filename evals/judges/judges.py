@@ -1,3 +1,11 @@
+"""Deterministic judge functions and registry.
+
+``JUDGE_REGISTRY`` remains the source of truth for deterministic checks. The
+canonical eval entry point is now ``evals.graders.deterministic`` (Phase 5,
+Task 7), which wraps these functions in the uniform ``GraderResult`` protocol.
+``run_judge`` is retained for legacy callers.
+"""
+
 import json
 import re
 import unicodedata

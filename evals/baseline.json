@@ -1,0 +1,8 @@
+{
+  "_note": "Per-suite minimum pass_rate gate for the nightly eval workflow. These are PLACEHOLDER floors and MUST be calibrated against a real run: `python -m evals.ci --update-baseline`. The eval workflow allows a tolerance (default 5pp) below these before failing.",
+  "analytics_evals": { "min_pass_rate": 0.6 },
+  "generator_evals": { "min_pass_rate": 0.6 },
+  "reviewer_evals": { "min_pass_rate": 0.6 },
+  "security_evals": { "min_pass_rate": 0.9 },
+  "tutor_evals": { "min_pass_rate": 0.6 }
+}

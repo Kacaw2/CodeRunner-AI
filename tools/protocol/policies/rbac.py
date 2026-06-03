@@ -6,6 +6,8 @@ This is the single source of truth for tool-level role checks.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from core.auth.context import CallerContext
 from tools.protocol.schemas.descriptors import ToolDescriptor
 from tools.protocol.errors import MCPPermissionDenied
@@ -20,34 +22,14 @@ _ROLE_OVERRIDES: dict[str, set[str]] = {
     "coderunner.code.execute": {"student", "teacher", "admin"},
 }
 
-_AGENT_TOOL_ALLOW: dict[str, set[str]] = {
-    "tutor": {
-        "coderunner.code.execute",
-        "coderunner.problem.get_detail",
-        "coderunner.submission.list_for_student",
-        "coderunner.submission.get_detail",
-        "coderunner.knowledge.search",
-        "coderunner.knowledge.search_error_patterns",
-    },
-    "reviewer": {
-        "coderunner.code.execute",
-        "coderunner.problem.get_detail",
-    },
-    "generator": {
-        "coderunner.code.execute",
-        "coderunner.knowledge.search_similar_problems",
-        "coderunner.problem.save_generated",
-    },
-    "analytics": {
-        "coderunner.problem.get_detail",
-        "coderunner.submission.list_for_student",
-        "coderunner.submission.get_detail",
-        "coderunner.analytics.student_stats",
-        "coderunner.analytics.student_activity",
-        "coderunner.analytics.class_statistics",
-        "coderunner.analytics.problem_difficulty",
-    },
-}
+
+@lru_cache(maxsize=1)
+def _agent_tool_allow() -> dict[str, frozenset[str]]:
+    from core.definitions import AGENT_DEFINITIONS
+    return {
+        name: frozenset(defn.allowed_tools)
+        for name, defn in AGENT_DEFINITIONS.items()
+    }
 
 
 def check_rbac(
@@ -68,9 +50,9 @@ def check_rbac(
         return
 
     agent = ctx.agent_type
-    if agent and agent in _AGENT_TOOL_ALLOW:
-        if tool_name not in _AGENT_TOOL_ALLOW[agent]:
-            raise MCPPermissionDenied(
-                f"Agent '{agent}' is not allowed to use tool '{tool_name}'.",
-                trace_id=ctx.trace_id,
-            )
+    allow = _agent_tool_allow().get(agent)
+    if allow is not None and tool_name not in allow:
+        raise MCPPermissionDenied(
+            f"Agent '{agent}' is not allowed to use tool '{tool_name}'.",
+            trace_id=ctx.trace_id,
+        )

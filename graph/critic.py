@@ -19,7 +19,7 @@ class WorkflowCritic:
     def validate_generation_output(self, output: dict) -> dict:
         """Validate that a problem generation step produced a valid problem."""
         issues = []
-        problem = output.get("response", "")
+        problem = output.get("problem_data") or output.get("response", "")
 
         if isinstance(problem, str):
             try:
@@ -71,9 +71,11 @@ class WorkflowCritic:
             except (json.JSONDecodeError, TypeError):
                 result = {}
 
+        from core.config import get_settings
+        threshold = get_settings().RAG_DEDUP_THRESHOLD
         similar = result.get("similar_problems", [])
         is_duplicate = any(
-            p.get("similarity", 0) > 0.8 for p in similar
+            p.get("similarity", 0) > threshold for p in similar
         ) if isinstance(similar, list) else False
 
         return {
@@ -112,13 +114,15 @@ class WorkflowCritic:
             return {"passed": True, "score": 3, "issues": [f"Validation skipped: {e}"]}
 
     def validate_step(self, step_type: str, agent_type: str, output: dict, criteria: str = "") -> dict:
-        """Route to the appropriate validator based on step context."""
-        if step_type == "agent_call" and agent_type == "generator":
+        """Route to the appropriate validator based on step context.
+
+        Narrow scoping (Option A): only steps whose output shape matches a
+        validator are graded. Generation-pipeline steps with bespoke output
+        shapes (dedup_check, quality_review, validate_solution) and plain
+        tool_call steps fall through to a no-op pass to avoid false rejections.
+        """
+        if step_type == "generate_problem" or (step_type == "agent_call" and agent_type == "generator"):
             return self.validate_generation_output(output)
         if step_type == "agent_call" and agent_type == "reviewer":
             return self.validate_review_output(output)
-        if step_type == "tool_call" and "dedup" in (criteria or "").lower():
-            return self.validate_dedup_output(output)
-        if criteria:
-            return self.validate_with_llm(output, criteria)
         return {"passed": True, "score": 5, "issues": []}

@@ -5,17 +5,11 @@ from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
 from agents.reviewer.prompt import REVIEWER_SYSTEM_PROMPT
 
-REVIEWER_MCP_TOOLS = [
-    "coderunner.code.execute",
-    "coderunner.problem.get_detail",
-]
-
 
 class ReviewerAgent(BaseAgent):
     name = "reviewer"
     description = "Code review agent"
     default_model_tier = ModelTier.BALANCED
-    mcp_tool_names = REVIEWER_MCP_TOOLS
 
     def _build_system_context(self, state: dict) -> str:
         context = state.get("context", {})
@@ -29,7 +23,7 @@ class ReviewerAgent(BaseAgent):
         return "\n".join(parts)
 
     def invoke(self, state: AgentState) -> AgentState:
-        return self._invoke_with_mcp_tools(state, REVIEWER_MCP_TOOLS, self._build_system_context(state))
+        return self._invoke_with_mcp_tools(state, self.mcp_tool_names, self._build_system_context(state))
 
     def stream(self, state: AgentState):
-        yield from self._stream_with_mcp_tools(state, REVIEWER_MCP_TOOLS, self._build_system_context(state))
+        yield from self._stream_with_mcp_tools(state, self.mcp_tool_names, self._build_system_context(state))

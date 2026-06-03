@@ -18,6 +18,7 @@ from tools.protocol.errors import (
     MCPToolNotFound,
     MCPApprovalRequired,
     MCPInternalError,
+    MCPArgumentInvalid,
 )
 from core.observability.audit import AuditEntry, emit_audit
 from tools.protocol.policies.guard import run_guard
@@ -34,6 +35,7 @@ _GLOBAL_RUNTIME: ToolRuntime | None = None
 class ToolCallContext:
     caller: CallerContext
     tool_call_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    granted_scopes: list[str] | None = None
 
 
 @dataclass
@@ -75,9 +77,11 @@ class ToolRuntime:
         self,
         registry: ToolRegistry | None = None,
         transport: LocalTransport | None = None,
+        approval_store: Any | None = None,
     ) -> None:
         self._registry = registry or get_registry()
         self._transport = transport or LocalTransport()
+        self._approval_store = approval_store
 
     @property
     def registry(self) -> ToolRegistry:
@@ -113,16 +117,26 @@ class ToolRuntime:
                 tool_call_id=tool_call_id,
             )
 
-        guard = run_guard(descriptor, caller)
+        try:
+            self._validate_input(descriptor, args, trace_id)
+        except MCPError as exc:
+            self._emit(descriptor, caller, tool_call_id, start,
+                       status="error", error_code=exc.code.value)
+            return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
+
+        guard = run_guard(descriptor, caller, granted_scopes=context.granted_scopes)
         if guard.rejected:
             self._emit(descriptor, caller, tool_call_id, start,
                        status="rejected", error_code=guard.error.code.value if guard.error else "")
             if isinstance(guard.error, MCPApprovalRequired):
+                approval_id = guard.error.approval_id
+                if self._approval_store is not None:
+                    approval_id = self._approval_store.create(descriptor, caller, args)
                 return ToolResult(
                     ok=False, tool=tool_name, trace_id=trace_id,
                     tool_call_id=tool_call_id,
                     status="approval_required",
-                    approval_id=guard.error.approval_id,
+                    approval_id=approval_id,
                     resume_token=guard.error.resume_token,
                     error={"code": guard.error.code.value, "message": str(guard.error), "retryable": False},
                     latency_ms=self._elapsed(start),
@@ -134,6 +148,7 @@ class ToolRuntime:
             raw = await self._transport.call(tool_name, sanitized, timeout_ms=descriptor.timeout_ms)
             elapsed = self._elapsed(start)
 
+            self._validate_output(descriptor, raw, trace_id)
             self._emit(descriptor, caller, tool_call_id, start, status="success")
 
             return ToolResult(
@@ -190,6 +205,45 @@ class ToolRuntime:
         sanitized["_caller_user_id"] = caller.user_id
         sanitized["_caller_role"] = caller.role
         return sanitized
+
+    @staticmethod
+    def _validate_input(
+        descriptor: ToolDescriptor,
+        args: dict[str, Any],
+        trace_id: str,
+    ) -> None:
+        if not descriptor.input_schema:
+            return
+        try:
+            import jsonschema
+            jsonschema.validate(args, descriptor.input_schema)
+        except jsonschema.ValidationError as exc:
+            raise MCPArgumentInvalid(exc.message, trace_id=trace_id) from exc
+
+    @staticmethod
+    def _validate_output(
+        descriptor: ToolDescriptor,
+        result: Any,
+        trace_id: str,
+    ) -> None:
+        """Warn-only output_schema check (schema 先松后紧).
+
+        Logs a warning on mismatch but never fails the call, so completing the
+        catalog's output_schemas can't turn previously-working tools into
+        ``MCPSchemaInvalid`` errors. Flip to enforce once schemas are complete.
+        """
+        if not descriptor.output_schema:
+            return
+        try:
+            import jsonschema
+            jsonschema.validate(result, descriptor.output_schema)
+        except jsonschema.ValidationError as exc:
+            logger.warning(
+                "output_schema mismatch tool=%s trace_id=%s: %s",
+                descriptor.name, trace_id, exc.message,
+            )
+        except Exception:  # noqa: BLE001 — observability must never block a tool result
+            logger.exception("output_schema validation crashed tool=%s", descriptor.name)
 
     def _emit(
         self,
