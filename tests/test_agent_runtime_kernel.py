@@ -131,6 +131,50 @@ def test_runtime_limit_exceeded_stops_after_max_iterations(monkeypatch):
         client_mod.set_mcp_tool_client(None)
 
 
+def test_runtime_uses_per_agent_iteration_budget(monkeypatch):
+    """The loop ceiling comes from the agent definition, not the global const."""
+    from agents.runtime import AgentRuntime
+    from agents.session import AgentSession
+    import agents.runtime as runtime_mod
+
+    class _ToolResp:
+        content = ""
+        tool_calls = [{"name": "coderunner.problem.get_detail", "args": {}, "id": "tc"}]
+        usage_metadata = {}
+        response_metadata = {}
+
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.invoke.return_value = _ToolResp()
+    monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
+                        staticmethod(lambda tier=None: llm))
+
+    from mcp_gateway import client as client_mod
+    client_mod.set_mcp_tool_client(
+        type("C", (), {"call_tool": lambda self, *a, **k: {"ok": True, "data": {}}})()
+    )
+    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    try:
+        state = {
+            "messages": [HumanMessage(content="loop")],
+            "agent_type": "tutor", "user_id": 7, "user_role": "student",
+            "context": {}, "tool_results": [], "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        # Override the definition's budget to a small number for the test.
+        import dataclasses
+        session.definition = dataclasses.replace(session.definition, max_tool_iterations=2)
+        AgentRuntime().run(
+            session, tool_names=["coderunner.problem.get_detail"], system_ctx="SYS")
+        assert llm.invoke.call_count == 2
+    finally:
+        reset_tool_runtime()
+        client_mod.set_mcp_tool_client(None)
+
+
 def test_runtime_blocks_undeclared_tool():
     """A tool outside the agent allowlist is denied before crossing the client."""
     from agents.executor import ToolCallExecutor

@@ -13,6 +13,9 @@ AGENT_RATE_LIMITS: dict[str, int] = {
     "analytics": 10,
 }
 
+# Fallback default tool-loop ceiling. The live ceiling is per-agent and comes
+# from AgentDefinition.max_tool_iterations (see agents/runtime.py); this only
+# applies to agents with no registered definition.
 MAX_TOOL_ITERATIONS = 5
 
 # Production-side guardrail on the total number of LLM calls charged to a single

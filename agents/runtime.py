@@ -34,6 +34,13 @@ class AgentRuntime:
 
     _executor = ToolCallExecutor()
 
+    @staticmethod
+    def _max_iterations(session) -> int:
+        defn = session.definition
+        if defn is not None and getattr(defn, "max_tool_iterations", None):
+            return defn.max_tool_iterations
+        return MAX_TOOL_ITERATIONS  # fallback for unregistered agents
+
     def _acquire(self, session, system_ctx, tool_names):
         from core.observability.tracing import acquire_trace
         from tools.protocol import get_tool_runtime
@@ -93,7 +100,7 @@ class AgentRuntime:
         response = None
         limit_exceeded = False
         try:
-            for iteration in range(MAX_TOOL_ITERATIONS):
+            for iteration in range(self._max_iterations(session)):
                 if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
                     logger.warning("Trace %s hit LLM budget; aborting %s loop",
                                    trace.run_id, session.agent_name)
@@ -132,7 +139,7 @@ class AgentRuntime:
             session.messages = [m for m in messages if not isinstance(m, SystemMessage)]
 
             if limit_exceeded:
-                error = AgentExecutionLimitError(session.agent_name, MAX_TOOL_ITERATIONS)
+                error = AgentExecutionLimitError(session.agent_name, self._max_iterations(session))
                 session.final_response = error.user_message
                 finalize_trace(trace, owns_trace, status="limit_exceeded",
                                response=error.user_message, error=error)
@@ -157,7 +164,7 @@ class AgentRuntime:
         trace_saved = False
         limit_exceeded = False
         try:
-            for iteration in range(MAX_TOOL_ITERATIONS):
+            for iteration in range(self._max_iterations(session)):
                 if trace.llm_call_count >= MAX_LLM_CALLS_PER_TRACE:
                     limit_exceeded = True
                     break
@@ -238,7 +245,7 @@ class AgentRuntime:
             session.messages = [m for m in messages if not isinstance(m, SystemMessage)]
 
             if limit_exceeded:
-                error = AgentExecutionLimitError(session.agent_name, MAX_TOOL_ITERATIONS)
+                error = AgentExecutionLimitError(session.agent_name, self._max_iterations(session))
                 session.final_response = error.user_message
                 yield {"type": "error", "message": error.user_message}
                 finalize_trace(trace, owns_trace, status="limit_exceeded",
