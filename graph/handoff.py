@@ -8,11 +8,14 @@ when and how to request a handoff to another agent.
 import re
 import logging
 
+from core.definitions import AGENT_DEFINITIONS
 from core.state import AgentState
 
 logger = logging.getLogger(__name__)
 
-VALID_HANDOFF_TARGETS = {"tutor", "reviewer", "generator", "analytics"}
+VALID_HANDOFF_TARGETS = frozenset().union(
+    *(d.handoff_targets for d in AGENT_DEFINITIONS.values())
+)
 
 HANDOFF_PROMPT_ADDENDUM = """
 ## Agent Handoff
@@ -58,6 +61,11 @@ def detect_handoff(state: AgentState) -> AgentState:
 
     current = state.get("agent_type", "")
     if target == current:
+        return state
+
+    source_defn = AGENT_DEFINITIONS.get(current)
+    if source_defn is not None and target not in source_defn.handoff_targets:
+        logger.info("Blocked handoff %s -> %s: not a declared target", current, target)
         return state
 
     from core.definitions import can_route_to

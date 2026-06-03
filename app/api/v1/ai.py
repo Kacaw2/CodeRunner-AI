@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context, cu
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
 from app.models.ai_conversation import AIConversation, AIMessage
-from agents.config import AGENT_RATE_LIMITS
+from core.definitions import get_definition
 from core.exceptions import AIError, RateLimitError, ConfigError
 from core.security import detect_injection, sanitize_user_input, filter_output
 
@@ -24,7 +24,8 @@ def _normalize_chat_agent_type(_data=None) -> str:
 
 def _check_rate_limit(user_id: int, agent_type: str = "tutor") -> dict:
     """Check per-user, per-agent rate limit. Returns {allowed, limit, remaining, retry_after}."""
-    limit = AGENT_RATE_LIMITS.get(agent_type, 20)
+    defn = get_definition(agent_type)
+    limit = defn.rate_limit if defn is not None else 20
     window = 60
 
     if not redis_client:

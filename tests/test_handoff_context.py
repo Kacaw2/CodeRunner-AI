@@ -78,6 +78,33 @@ def test_detect_handoff_sets_source():
     assert state["handoff_source"] == "tutor"
 
 
+def test_detect_handoff_respects_per_agent_targets():
+    """A handoff to an agent not in the source's declared targets is dropped."""
+    from graph.handoff import detect_handoff
+
+    # generator's handoff_targets is {"analytics"} only — a generator->tutor
+    # marker must NOT produce a handoff.
+    state = {
+        "agent_type": "generator",
+        "user_role": "teacher",
+        "final_response": "Done. [HANDOFF: tutor | help the student]",
+    }
+    out = detect_handoff(state)
+    assert out.get("handoff_to") is None
+
+
+def test_detect_handoff_allows_declared_target():
+    from graph.handoff import detect_handoff
+
+    state = {
+        "agent_type": "generator",
+        "user_role": "teacher",
+        "final_response": "Done. [HANDOFF: analytics | show difficulty stats]",
+    }
+    out = detect_handoff(state)
+    assert out.get("handoff_to") == "analytics"
+
+
 def test_apply_handoff_worker_mode_replaces_list_without_remove_markers():
     """Worker state is a plain list: no RemoveMessage markers, direct replace."""
     from graph.handoff import apply_handoff
