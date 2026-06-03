@@ -86,3 +86,64 @@ def test_runtime_run_sets_trace_id_and_strips_system_prompt(monkeypatch):
         assert all(not isinstance(m, SystemMessage) for m in result["messages"])
     finally:
         reset_tool_runtime()
+
+
+def test_runtime_limit_exceeded_stops_after_max_iterations(monkeypatch):
+    """A model that always wants another tool call ends in limit_exceeded."""
+    from agents.runtime import AgentRuntime
+    from agents.session import AgentSession
+    import agents.runtime as runtime_mod
+    from agents.config import MAX_TOOL_ITERATIONS
+
+    class _ToolResp:
+        content = ""
+        tool_calls = [{"name": "coderunner.problem.get_detail", "args": {}, "id": "tc"}]
+        usage_metadata = {}
+        response_metadata = {}
+
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.invoke.return_value = _ToolResp()
+    monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
+                        staticmethod(lambda tier=None: llm))
+
+    from mcp_gateway import client as client_mod
+    client_mod.set_mcp_tool_client(
+        type("C", (), {"call_tool": lambda self, *a, **k: {"ok": True, "data": {}}})()
+    )
+    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    try:
+        state = {
+            "messages": [HumanMessage(content="loop")],
+            "agent_type": "tutor", "user_id": 7, "user_role": "student",
+            "context": {}, "tool_results": [], "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        result = AgentRuntime().run(
+            session, tool_names=["coderunner.problem.get_detail"], system_ctx="SYS")
+        assert result["final_response"]  # the limit-exceeded user message
+        assert llm.invoke.call_count == MAX_TOOL_ITERATIONS
+    finally:
+        reset_tool_runtime()
+        client_mod.set_mcp_tool_client(None)
+
+
+def test_runtime_blocks_undeclared_tool():
+    """A tool outside the agent allowlist is denied before crossing the client."""
+    from agents.executor import ToolCallExecutor
+    from agents.session import AgentSession
+
+    state = {
+        "messages": [HumanMessage(content="x")],
+        "agent_type": "tutor", "user_id": 7, "user_role": "student",
+        "context": {}, "tool_results": [], "final_response": "",
+    }
+    session = AgentSession.from_state(state, agent_name="tutor")
+    session.trace_id = "t1"
+    # tutor's allowlist does NOT include the generator-only save tool
+    tc = {"name": "coderunner.problem.save_generated", "args": {}, "id": "tc"}
+    msg = ToolCallExecutor().run(tc, state, "tutor", session=session)
+    assert "TOOL_NOT_ALLOWED" in msg.content
