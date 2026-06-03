@@ -6,3 +6,6 @@ data/
 .env
 .env.local
 .env.*.local
+
+# Local Claude Code settings (per-developer, do not share)
+.claude/settings.local.json
