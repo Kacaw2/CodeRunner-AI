@@ -109,10 +109,31 @@ def _split_safe_stream_content(buffer: str) -> tuple[str, str]:
     return buffer, ""
 
 
+class _DefinitionAttr:
+    """Read-only descriptor that resolves an agent attribute from its
+    :class:`~core.definitions.AgentDefinition`, so the definition is the single
+    source of truth. Works at both class and instance level (``TutorAgent.tier``
+    and ``TutorAgent().tier``) by keying off the owner's ``name``."""
+
+    def __init__(self, attr: str, fallback):
+        self._attr = attr
+        self._fallback = fallback
+
+    def __set_name__(self, owner, name):
+        self._public_name = name
+
+    def __get__(self, instance, owner):
+        from core.definitions import get_definition
+
+        name = getattr(instance if instance is not None else owner, "name", "")
+        defn = get_definition(name)
+        return getattr(defn, self._attr) if defn is not None else self._fallback
+
+
 class BaseAgent(ABC):
     name: str = ""
-    description: str = ""
-    default_model_tier: ModelTier = ModelTier.BALANCED
+    description = _DefinitionAttr("description", "")
+    default_model_tier = _DefinitionAttr("default_model_tier", ModelTier.BALANCED)
 
     @property
     def mcp_tool_names(self) -> list[str]:

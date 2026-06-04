@@ -1,5 +1,4 @@
 from agents.base import BaseAgent
-from models.tiers import ModelTier
 from core.security import SECURITY_PROMPT_ADDENDUM
 from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
@@ -8,8 +7,6 @@ from agents.analytics.prompt import ANALYTICS_SYSTEM_PROMPT
 
 class AnalyticsAgent(BaseAgent):
     name = "analytics"
-    description = "Learning analytics agent"
-    default_model_tier = ModelTier.STRONG
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService

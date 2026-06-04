@@ -62,3 +62,18 @@ def test_no_runtime_module_redeclares_an_agent_class_map():
     for path in suspects:
         text = path.read_text(encoding="utf-8")
         assert not pattern.search(text), f"{path} still hand-rolls an agent map"
+
+
+def test_class_attrs_match_definition_and_are_not_redeclared():
+    """description/tier come from the definition; classes only fix `name`."""
+    from agents.registry import AGENT_CLASSES
+    from core.definitions import get_definition
+
+    for name, cls in AGENT_CLASSES.items():
+        defn = get_definition(name)
+        inst = cls()
+        assert inst.description == defn.description, name
+        assert inst.default_model_tier == defn.default_model_tier, name
+        # description/default_model_tier must not be in the class __dict__
+        assert "description" not in cls.__dict__, f"{name} redeclares description"
+        assert "default_model_tier" not in cls.__dict__, f"{name} redeclares tier"

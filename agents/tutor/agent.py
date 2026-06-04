@@ -1,5 +1,4 @@
 from agents.base import BaseAgent
-from models.tiers import ModelTier
 from core.security import SECURITY_PROMPT_ADDENDUM
 from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
@@ -8,8 +7,6 @@ from agents.tutor.prompt import TUTOR_SYSTEM_PROMPT
 
 class TutorAgent(BaseAgent):
     name = "tutor"
-    description = "Socratic tutoring agent for students"
-    default_model_tier = ModelTier.BALANCED
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService
