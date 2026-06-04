@@ -95,8 +95,11 @@
 - [x] high-risk / write 工具继续经过 human gate — `tests/test_mcp_gateway_human_gate.py`。
 
 > 收口范围与剩余加固见 `docs/plans/active/2026-06-04-phase3-unified-tool-mcp-boundary-closeout-plan.md`。
-> 延后到 Phase 3.5 / Phase 6 的企业级加固：output_schema 由 warn-only 转 enforce、
-> per-tool/per-user 配额、写工具幂等、多租户隔离、per-tool 熔断、live-HTTP 集成测试。
+> Phase 3.5（已完成，见 `2026-06-04-phase3.5-toolruntime-hardening-plan.md`）落地了 boundary 内部加固：
+> `retry_policy` 真正生效（仅 retryable 错误、`max_attempts=0` 行为不变）、output_schema 补全为真实
+> schema 并加 `MCP_OUTPUT_SCHEMA_ENFORCE` 开关（默认 warn-only，可一键转 enforce）。
+> 仍延后到 Phase 6 的企业级加固：per-tool/per-user 配额、写工具幂等、多租户隔离、per-tool 熔断、
+> live-HTTP 集成测试（均为 YAGNI / 运维质量门禁范畴，待真实需求落地再做）。
 
 ### Phase 4: Planning and Task Execution System
 
