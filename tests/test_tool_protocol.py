@@ -380,6 +380,89 @@ class TestToolRuntime:
         assert sanitized["student_id"] == 42
 
 
+# ── Retry policy ─────────────────────────────────────────────
+
+class _FlakyTransport:
+    """Async transport that fails the first ``fail_times`` calls, then succeeds.
+
+    Mirrors LocalTransport.call's signature so ToolRuntime drives it unchanged.
+    """
+
+    def __init__(self, fail_times: int, exc: Exception):
+        self.fail_times = fail_times
+        self.exc = exc
+        self.calls = 0
+
+    async def call(self, tool_name, args, *, timeout_ms=30_000):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.exc
+        return {"attempt": self.calls}
+
+
+def _retry_runtime(transport, *, max_attempts: int):
+    from tools.protocol.runtime import ToolRuntime, ToolCallContext
+    from tools.protocol.registry import ToolRegistry
+    from tools.protocol.schemas.descriptors import (
+        ToolDescriptor, RiskLevel, RetryPolicy,
+    )
+    from core.auth.context import CallerContext
+
+    reg = ToolRegistry()
+    reg.register(ToolDescriptor(
+        name="test.retry", version="1.0.0", description="",
+        input_schema={}, output_schema={}, risk_level=RiskLevel.LOW,
+        retry_policy=RetryPolicy(max_attempts=max_attempts, backoff_ms=0),
+    ))
+    runtime = ToolRuntime(registry=reg, transport=transport)
+    # Empty agent_type → no per-agent allowlist applies; the synthetic tool has
+    # no role override and no required scopes, so the guard passes and the test
+    # exercises the transport/retry path only.
+    ctx = ToolCallContext(caller=CallerContext(user_id=1, role="student", agent_type=""))
+    return runtime, ctx
+
+
+class TestRetryPolicy:
+    def test_retryable_error_retries_then_succeeds(self):
+        from tools.protocol.errors import MCPTransportUnavailable
+
+        transport = _FlakyTransport(fail_times=1, exc=MCPTransportUnavailable("down"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=2)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is True
+        assert transport.calls == 2
+
+    def test_zero_max_attempts_makes_single_attempt(self):
+        from tools.protocol.errors import MCPTransportUnavailable
+
+        transport = _FlakyTransport(fail_times=1, exc=MCPTransportUnavailable("down"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=0)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is False
+        assert result.error["code"] == "MCP_TRANSPORT_UNAVAILABLE"
+        assert transport.calls == 1
+
+    def test_non_retryable_error_not_retried(self):
+        from tools.protocol.errors import MCPArgumentInvalid
+
+        transport = _FlakyTransport(fail_times=99, exc=MCPArgumentInvalid("bad"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=3)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is False
+        assert result.error["code"] == "MCP_ARGUMENT_INVALID"
+        assert transport.calls == 1
+
+    def test_retry_stops_at_ceiling(self):
+        from tools.protocol.errors import MCPTransportUnavailable
+
+        transport = _FlakyTransport(fail_times=99, exc=MCPTransportUnavailable("down"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=2)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is False
+        # 1 initial attempt + 2 retries = 3 transport calls
+        assert transport.calls == 3
+
+
 # ── Agent MCP tool names ─────────────────────────────────────
 
 class TestAgentMCPToolNames:

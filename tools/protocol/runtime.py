@@ -145,7 +145,7 @@ class ToolRuntime:
 
         try:
             sanitized = self._sanitize_args(args, caller)
-            raw = await self._transport.call(tool_name, sanitized, timeout_ms=descriptor.timeout_ms)
+            raw = await self._call_with_retry(descriptor, tool_name, sanitized)
             elapsed = self._elapsed(start)
 
             self._validate_output(descriptor, raw, trace_id)
@@ -190,6 +190,39 @@ class ToolRuntime:
                 future = pool.submit(asyncio.run, self.call(tool_name, args, context))
                 return future.result()
         return asyncio.run(self.call(tool_name, args, context))
+
+    async def _call_with_retry(
+        self,
+        descriptor: ToolDescriptor,
+        tool_name: str,
+        sanitized: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run the transport call with bounded retry on *retryable* errors only.
+
+        ``max_attempts`` is the number of retries after the initial attempt, so
+        ``max_attempts=0`` (today's default for every descriptor) makes exactly
+        one attempt — the wiring is behavior-preserving until a tool opts in.
+        Only ``retryable`` MCP errors (rate-limit / transport / timeout) are
+        retried; a schema or permission fault is not transient and propagates
+        immediately. Wraps the transport execution alone — guard, input and
+        output validation stay outside the retry loop.
+        """
+        import asyncio
+
+        policy = descriptor.retry_policy
+        attempt = 0
+        while True:
+            try:
+                return await self._transport.call(
+                    tool_name, sanitized, timeout_ms=descriptor.timeout_ms
+                )
+            except MCPError as exc:
+                if exc.code.retryable and attempt < policy.max_attempts:
+                    attempt += 1
+                    if policy.backoff_ms > 0:
+                        await asyncio.sleep(policy.backoff_ms / 1000)
+                    continue
+                raise
 
     @staticmethod
     def _sanitize_args(args: dict[str, Any], caller: CallerContext) -> dict[str, Any]:
