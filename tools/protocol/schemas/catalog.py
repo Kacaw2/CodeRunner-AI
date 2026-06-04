@@ -57,7 +57,28 @@ _reg(ToolDescriptor(
         "required": ["student_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "problem_id": {"type": "integer"},
+                        "question_id": {"type": "integer"},
+                        "question_title": {"type": ["string", "null"]},
+                        "language": {"type": ["string", "null"]},
+                        "status": {"type": ["string", "null"]},
+                        "score": {"type": ["number", "null"]},
+                        "submitted_at": {"type": ["string", "null"]},
+                    },
+                },
+            },
+            "total": {"type": "integer"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -77,7 +98,21 @@ _reg(ToolDescriptor(
         "required": ["submission_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "problem_id": {"type": ["integer", "null"]},
+            "question_id": {"type": "integer"},
+            "question_title": {"type": ["string", "null"]},
+            "language": {"type": ["string", "null"]},
+            "code": {"type": ["string", "null"]},
+            "status": {"type": ["string", "null"]},
+            "score": {"type": ["number", "null"]},
+            "submitted_at": {"type": ["string", "null"]},
+            "cases": {"type": "array"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -95,7 +130,20 @@ _reg(ToolDescriptor(
         "required": ["student_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "student_id": {"type": "integer"},
+            "preferred_language": {"type": ["string", "null"]},
+            "weak_topics": {"type": "array", "items": {"type": "string"}},
+            "strong_topics": {"type": "array", "items": {"type": "string"}},
+            "total_submissions": {"type": "integer"},
+            "acceptance_rate": {"type": "number"},
+            "active_days": {"type": "integer"},
+            "current_streak": {"type": "integer"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -116,7 +164,15 @@ _reg(ToolDescriptor(
         "required": ["question_data", "teacher_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "draft_id": {"type": "integer"},
+            "status": {"type": "string"},
+            "message": {"type": "string"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 # ── Code Server tools ────────────────────────────────────────────
@@ -206,7 +262,13 @@ _reg(ToolDescriptor(
         "required": ["query"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "relevant_knowledge": {"type": "array"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -226,7 +288,13 @@ _reg(ToolDescriptor(
         "required": ["query"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "similar_problems": {"type": "array"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -244,7 +312,13 @@ _reg(ToolDescriptor(
         "required": ["query"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "error_patterns": {"type": "array"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 # ── Analytics Server tools ───────────────────────────────────────
@@ -265,7 +339,20 @@ _reg(ToolDescriptor(
         "required": ["student_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "student_id": {"type": "integer"},
+            "period_days": {"type": "integer"},
+            "total_submissions": {"type": "integer"},
+            "total_accepted": {"type": "integer"},
+            "overall_acceptance_rate": {"type": "number"},
+            "active_days": {"type": "integer"},
+            "current_streak_days": {"type": "integer"},
+            "daily_activity": {"type": "array"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -283,7 +370,15 @@ _reg(ToolDescriptor(
         "required": ["teacher_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "questions_count": {"type": "integer"},
+            "classrooms_count": {"type": "integer"},
+            "students_count": {"type": "integer"},
+            "submissions_count": {"type": "integer"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -301,7 +396,19 @@ _reg(ToolDescriptor(
         "required": ["teacher_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "teacher_id": {"type": "integer"},
+            "classroom_count": {"type": "integer"},
+            "total_students": {"type": "integer"},
+            "total_submissions": {"type": "integer"},
+            "overall_acceptance_rate": {"type": "number"},
+            "classrooms": {"type": "array"},
+            "message": {"type": "string"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -319,7 +426,21 @@ _reg(ToolDescriptor(
         "required": ["problem_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "problem_id": {"type": "integer"},
+            "total_submissions": {"type": "integer"},
+            "unique_students": {"type": "integer"},
+            "students_who_passed": {"type": "integer"},
+            "student_pass_rate": {"type": "number"},
+            "submission_acceptance_rate": {"type": "number"},
+            "status_distribution": {"type": "object"},
+            "average_attempts_per_student": {"type": "number"},
+            "message": {"type": "string"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 _reg(ToolDescriptor(
@@ -337,7 +458,14 @@ _reg(ToolDescriptor(
         "required": ["run_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "run": {"type": "object"},
+            "steps": {"type": "array"},
+            "error": {"type": "string"},
+        },
+    },
 ))
 
 # ── Approval Server tools ────────────────────────────────────────
@@ -359,5 +487,13 @@ _reg(ToolDescriptor(
         "required": ["approval_id"],
         "additionalProperties": False,
     },
-    output_schema={"type": "object"},
+    output_schema={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "result": {"type": ["object", "null"]},
+            "message": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+    },
 ))

@@ -129,6 +129,19 @@ class TestToolCatalog:
         assert "coderunner.code.execute" in high_risk
         assert "coderunner.problem.save_generated" in high_risk
 
+    def test_no_tool_ships_bare_output_schema_placeholder(self):
+        """Every catalog tool must declare a real output_schema with named
+        properties, not the bare ``{"type": "object"}`` placeholder. This keeps
+        the output contract describable (and enforceable via
+        MCP_OUTPUT_SCHEMA_ENFORCE) instead of silently accepting any shape."""
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        offenders = [
+            name for name, d in TOOL_CATALOG.items()
+            if not d.output_schema.get("properties")
+        ]
+        assert not offenders, f"tools with placeholder output_schema: {offenders}"
+
 
 # ── Registry ──────────────────────────────────────────────────
 
@@ -461,6 +474,53 @@ class TestRetryPolicy:
         assert result.ok is False
         # 1 initial attempt + 2 retries = 3 transport calls
         assert transport.calls == 3
+
+
+# ── Output schema enforce toggle ─────────────────────────────
+
+def _schema_runtime(transport_result):
+    from tools.protocol.runtime import ToolRuntime, ToolCallContext
+    from tools.protocol.registry import ToolRegistry
+    from tools.protocol.transports.inproc import LocalTransport
+    from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+    from core.auth.context import CallerContext
+
+    reg = ToolRegistry()
+    reg.register(ToolDescriptor(
+        name="test.schema", version="1.0.0", description="",
+        input_schema={}, risk_level=RiskLevel.LOW,
+        output_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+        },
+    ))
+    transport = LocalTransport()
+    transport.register_handler("test.schema", lambda **kw: transport_result)
+    runtime = ToolRuntime(registry=reg, transport=transport)
+    ctx = ToolCallContext(caller=CallerContext(user_id=1, role="student", agent_type=""))
+    return runtime, ctx
+
+
+class TestOutputSchemaEnforce:
+    def test_default_off_warns_and_passes(self, monkeypatch):
+        monkeypatch.delenv("MCP_OUTPUT_SCHEMA_ENFORCE", raising=False)
+        runtime, ctx = _schema_runtime({"unexpected": True})  # missing "status"
+        result = runtime.call_sync("test.schema", {}, ctx)
+        assert result.ok is True  # warn-only: mismatch does not fail the call
+
+    def test_enforce_on_fails_mismatch(self, monkeypatch):
+        monkeypatch.setenv("MCP_OUTPUT_SCHEMA_ENFORCE", "true")
+        runtime, ctx = _schema_runtime({"unexpected": True})  # missing "status"
+        result = runtime.call_sync("test.schema", {}, ctx)
+        assert result.ok is False
+        assert result.error["code"] == "MCP_SCHEMA_INVALID"
+
+    def test_enforce_on_passes_valid_output(self, monkeypatch):
+        monkeypatch.setenv("MCP_OUTPUT_SCHEMA_ENFORCE", "true")
+        runtime, ctx = _schema_runtime({"status": "ok"})
+        result = runtime.call_sync("test.schema", {}, ctx)
+        assert result.ok is True
 
 
 # ── Agent MCP tool names ─────────────────────────────────────

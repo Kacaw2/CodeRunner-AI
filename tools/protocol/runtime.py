@@ -19,6 +19,7 @@ from tools.protocol.errors import (
     MCPApprovalRequired,
     MCPInternalError,
     MCPArgumentInvalid,
+    MCPSchemaInvalid,
 )
 from core.observability.audit import AuditEntry, emit_audit
 from tools.protocol.policies.guard import run_guard
@@ -29,6 +30,14 @@ from tools.protocol.transports.inproc import LocalTransport
 logger = logging.getLogger(__name__)
 
 _GLOBAL_RUNTIME: ToolRuntime | None = None
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _output_schema_enforced() -> bool:
+    """Read MCP_OUTPUT_SCHEMA_ENFORCE at call time so the toggle is live."""
+    import os
+    return os.environ.get("MCP_OUTPUT_SCHEMA_ENFORCE", "").strip().lower() in _TRUTHY
 
 
 @dataclass
@@ -259,11 +268,13 @@ class ToolRuntime:
         result: Any,
         trace_id: str,
     ) -> None:
-        """Warn-only output_schema check (schema 先松后紧).
+        """output_schema check, warn-only by default (schema 先松后紧).
 
-        Logs a warning on mismatch but never fails the call, so completing the
-        catalog's output_schemas can't turn previously-working tools into
-        ``MCPSchemaInvalid`` errors. Flip to enforce once schemas are complete.
+        Default behavior logs a warning on mismatch but never fails the call.
+        Setting ``MCP_OUTPUT_SCHEMA_ENFORCE`` truthy flips a mismatch into an
+        ``MCPSchemaInvalid`` error — a single ops decision once the catalog's
+        schemas are trusted, not a code change. The default stays off so that
+        completing schemas cannot turn a previously-working tool into an error.
         """
         if not descriptor.output_schema:
             return
@@ -271,10 +282,17 @@ class ToolRuntime:
             import jsonschema
             jsonschema.validate(result, descriptor.output_schema)
         except jsonschema.ValidationError as exc:
+            if _output_schema_enforced():
+                raise MCPSchemaInvalid(
+                    f"output_schema mismatch for tool '{descriptor.name}': {exc.message}",
+                    trace_id=trace_id,
+                ) from exc
             logger.warning(
                 "output_schema mismatch tool=%s trace_id=%s: %s",
                 descriptor.name, trace_id, exc.message,
             )
+        except MCPSchemaInvalid:
+            raise
         except Exception:  # noqa: BLE001 — observability must never block a tool result
             logger.exception("output_schema validation crashed tool=%s", descriptor.name)
 
