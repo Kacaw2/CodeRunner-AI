@@ -1,0 +1,119 @@
+# Phase 4: Planning and Task Execution System — 可执行任务清单
+
+> 状态：Active
+> 日期：2026-06-04
+> 上位计划：`docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`（Phase 4 节）
+> 范围：`graph/`、`app/models/workflow.py`、`core/db/models/workflow.py`、`core/db/models/agent_trace.py`、`core/db/models/mcp_approval.py`、`migrations/`、`tools/protocol/`
+
+## 背景：代码现状（落任务前的事实基线）
+
+Phase 4 不是从零搭 workflow。早先工作已经搭好 workflow 骨架，本阶段是在其上补“可追溯 / 可审计 / 结构化 delegation / 统一入口”这一层。
+
+已具备：
+
+- `graph/engine.py` `WorkflowEngine.execute()` / `resume_after_approval()`：step 循环、DB 持久化、human_gate 暂停、per-step retry + critic 回退、SSE 事件流。
+- `graph/planner.py` `create_plan()`：模板（generation/review）+ LLM 规划，step 类型 `agent_call/tool_call/validation/llm_call/human_gate`，`risk_level`/`requires_approval`/`depends_on`。
+- `graph/handlers.py` + `graph/node_registry.py`：step 类型分发；`node_registry.py:57` 已从 agent 返回值取到 `trace_id`，但 engine 未落库。
+- `graph/handoff.py`：已产出结构化字段 `handoff_to/handoff_reason/handoff_source/handoff_summary`，但**触发仍是 LLM 文本里 regex 抠 `[HANDOFF: agent | reason]`**。
+- `graph/recovery.py`：启动时把中途 workflow 直接标 `failed`（不做 mid-flight resume，安全取向）。
+
+Phase 1 依赖已就绪（已核对）：
+
+- `agents/session.py` `AgentSession` 承载 `trace_id`；`agents/runtime.py` `_acquire()` 生成 `trace_id`（`TraceCollector.run_id`），`run()/stream()` 返回的 state 经 `to_state()` 带回 `trace_id`。
+- `core/db/models/agent_trace.py:48` `trace_id` 唯一索引列；**`:55` 已有 `workflow_run_id` 列**（trace→workflow 的反向引用位已存在，但当前未被 engine 写入）。
+- 结论：workflow step 要存 trace_id **无需新增贯穿管线**，agent.invoke() 返回的 state 里已有可用且与 trace store 一致的 `trace_id`。
+
+关键约束（写任务时必须遵守）：
+
+1. **双 ORM 一致性**：`workflow_runs` / `workflow_steps` 两张表由两份模型映射——`app/models/workflow.py`(Flask `db.Model`，被 engine/supervisor/recovery/`app/api`/测试用) 与 `core/db/models/workflow.py`(纯 SQLAlchemy `Base`，被 `workers/task_runner.py`、`app/api/v1/agents/workflows.py` 用)。任何加列必须**两份同步改**。
+2. **Migration 优先**：按既定 schema 策略，所有加列必须配一条 Alembic migration，模型定义与 migration 同时落地，禁止只靠 `create_all()`。
+3. **既有行为不回退**：human_gate 暂停/恢复、per-step retry、critic、SSE 事件、`recovery` 安全标 failed 行为保持。
+
+## 任务清单（按价值与依赖排序）
+
+### T1 — trace_id 双向绑定（最高优先，依赖已就绪）
+
+**目标**：每个 workflow step 落库其 agent run 的 `trace_id`；每条 trace 反向记录所属 `workflow_run_id` + `step_index`。打通 workflow ↔ trace ↔ eval。
+
+**改动**：
+- schema：`workflow_steps` 加列 `trace_id VARCHAR(64) NULL`（指向 `agent_trace_runs.trace_id`，建索引；用逻辑引用即可，不强加 FK 约束以免跨 ORM/跨库耦合）。两份模型 + 一条 migration。
+- `graph/engine.py`：执行 step 前，把 `workflow_run_id` 和 `step_index` 注入传给 agent 的 `state["context"]`，使 `AgentSession`/trace 记录 `workflow_run_id`（填充 `agent_trace.py:55` 已有列）；step 完成后把 handler 返回的 `trace_id`（`node_registry.py:57` 已取到）写入 `WorkflowStep.trace_id`，而不是丢弃。
+- `tool_call` step：同理把 `trace_id` 透传到 `ToolCallContext`，保证工具 audit 与 step 同 trace。
+
+**验收**：一个多步 run 执行后，`workflow_steps.trace_id` 全部非空，且能在 `agent_trace_runs` 查到对应 `trace_id`；该 trace 的 `workflow_run_id`/`step_index` 与 step 对应。新增 `tests/test_workflow_trace_binding.py`。
+
+### T2 — 结构化审批审计记录（替换 output_data 内联反馈）
+
+**目标**：human_gate 审批产生不可变审计记录（审批人、决策、意见、时间），而非把反馈塞进 `WorkflowStep.output_data`。
+
+**改动**：
+- 先评估复用 `core/db/models/mcp_approval.py`（已存在的审批模型）——若其结构可承载 workflow 审批（resource 类型 + reference id + approver + decision + feedback + ts），优先扩展复用，避免新建并行审批体系；不合适再新增 `workflow_approvals` 表。
+- `graph/engine.py` `resume_after_approval()`：写一条 approval 记录（`workflow_run_id`、`step_index`、`approver_user_id`、`decision=approved|rejected`、`feedback`、`created_at`），`output_data` 不再作为审批轨迹来源。
+- `SupervisorAgent.resume_workflow()` / API resume 入口：把当前操作者 user_id 传到 engine，作为 `approver_user_id`（不能从 LLM/state 自取）。
+
+**验收**：审批后存在独立 approval 记录含 approver 身份与决策；驳回路径也留痕。新增 `tests/test_workflow_approval_audit.py`。
+
+### T3 — handoff 改为 tool-based delegation（去掉 regex 文本标记）
+
+**目标**：把 delegation 从“LLM 写 `[HANDOFF:...]` 文本、平台 regex 解析”改为**结构化 tool call**，由工具边界做 schema 校验 + role/target RBAC——对齐“平台强制权限，不依赖 prompt”与 Claude Code 的 tool_use delegation 模式。
+
+**改动**：
+- 在 ToolRuntime 注册一个受管控的 `delegate`（或 `handoff`）工具，typed 参数 `target: agent_type`、`reason: str`、`summary: str`；target 合法性、`can_route_to(target, user_role)`、summary 截断在工具边界强制。
+- `agents/` 系统 prompt：移除 `HANDOFF_PROMPT_ADDENDUM` 的文本标记教学，改为说明调用 `delegate` 工具。
+- `graph/handoff.py`：保留已结构化的 `handoff_to/reason/source/summary` 字段与 `apply_handoff()`/`rebuild_handoff_messages()`（这部分已是好设计）；删除 `HANDOFF_PATTERN` 正则与 `detect_handoff()` 的文本解析，改由 `delegate` 工具调用结果填充这些字段。
+- 灰度：可加开关，先让 tool 与 regex 并存一版，确认 tool 路径稳定后删 regex（与 Phase 3.5 `MCP_OUTPUT_SCHEMA_ENFORCE` 同风格）。
+
+**验收**：agent 通过调用 `delegate` 工具触发 handoff；非法 target / 越权 role 在工具边界被拒并 audit；`graph/runner.py` handoff 路由与 `workers/chat.py` 流式 handoff 行为不回退。更新 `tests/`（handoff 相关）。
+
+### T4 — 统一多步任务入口
+
+**目标**：让 `WorkflowEngine` 成为多步 agentic 任务的唯一执行路径，消除“部分场景才用 workflow”。
+
+**改动**：
+- 梳理当前入口：`SupervisorAgent.invoke_from_chat()`（chat 启发式）+ `app/api/v1/ai.py` / `app/api/v1/agents/workflows.py`（API）走 workflow；单 agent 走 `graph/runner.py` `AgentOrchestrator`。
+- 明确判定边界：单轮单 agent 仍可走 orchestrator；一旦触发 handoff/多步/human_gate，统一收敛进 `WorkflowEngine`，避免两套编排对同类任务并行。
+- 不强行把所有单轮对话塞进 workflow（避免过度工程）；目标是“多步任务只有一条路径”。
+
+**验收**：多步/含 handoff 的任务全部经 `WorkflowEngine`，可被 trace/审批/恢复统一覆盖；单轮对话路径不受影响、延迟不退化。补一个入口选择的回归测试。
+
+### T5 — workflow step 上下文残留收敛
+
+**目标**：step 间不再无差别传整个 `step_outputs` dict，只传被 `depends_on` 引用的上游输出 + 必要摘要。
+
+**改动**：
+- `graph/handlers.py` / `graph/engine.py`：构造下游 step 的 `context` 时，依据该 step 的 `depends_on` 裁剪 `step_outputs`；无声明依赖则给摘要而非全量残留。
+- 与 agent handoff 已有的 1500 字摘要策略对齐。
+
+**验收**：下游 step 只能看到声明依赖的上游输出；generation pipeline 端到端结果不变。新增针对裁剪逻辑的单测。
+
+### T6 — resume/replay 边界明确化（部分降级，避免过度工程）
+
+**目标**：明确“可恢复”的语义边界，不在本阶段强做完整 replay。
+
+**改动 / 决策**：
+- 保持 `recovery.py` 对中途 workflow 标 failed 的安全取向；在此基础上支持“从最近一个已完成 step 之后恢复”（已有 `current_step_index` + `plan_json` 可支撑）。
+- **完整状态回放（任意 step 重放）依赖 step 幂等**，按上位计划推迟到 Phase 6 配合幂等/配额一起做。把上位计划 Phase 4 验收里的“状态回放”相应降级表述为“可从最近完成 step 恢复”。
+
+**验收**：暂停后可从断点继续；不承诺任意 step 重放。文档同步修订上位计划的该条验收。
+
+## 依赖与执行顺序
+
+1. **T1 先做**：trace 绑定是 T2(审批关联 trace)、Phase 6(eval 关联 trace) 的地基，且依赖已 100% 就绪。
+2. T2 紧随 T1（审批记录可引用 trace_id）。
+3. T3 可与 T1/T2 并行（不同子系统），但需在 T4 之前——T4 的“多步统一入口”假定 delegation 已结构化。
+4. T4 在 T3 后。
+5. T5、T6 收尾，风险最低。
+
+## 非目标（本阶段不做）
+
+- step 幂等、per-tool/per-user 配额、写工具幂等、多租户隔离 → Phase 6。
+- 完整任意-step replay → Phase 6。
+- workflow trace viewer / dashboard UI → 不在本路线。
+- 不把所有单轮对话强制塞进 WorkflowEngine（T4 只收敛多步任务）。
+
+## schema 变更协议（T1/T2 适用）
+
+每次加列：
+1. 改 `app/models/workflow.py`（或 `mcp_approval.py`）+ `core/db/models/workflow.py` **两份**模型，列定义一致。
+2. 写一条 Alembic migration（`migrations/`），upgrade/downgrade 完整。
+3. 跑既有 `tests/test_graph_engine.py` 等确认不回退，再补本阶段新测试。
