@@ -180,6 +180,38 @@ docker compose down -v
 docker compose up -d --build
 ```
 
+
+```bash
+# 重建 + 重启(最常用,改了 migrations/依赖/Dockerfile 时)
+docker compose build <服务>            # 如 web / workers / mcp_gateway
+docker compose up -d <服务>            # 用新镜像重建容器
+# 一步到位:
+docker compose up -d --build <服务>
+
+# 仅重启(只改了 web 挂载目录里的代码)
+docker compose restart web
+
+# 全栈起停
+docker compose up -d                   # 起全部
+docker compose down                    # 停并删容器(数据卷保留)
+docker compose ps                      # 看状态/健康
+
+# 日志
+docker compose logs -f web             # 跟某服务
+docker compose logs --tail=100 workers
+
+# 进容器执行命令 / 跑迁移
+docker compose exec web flask db current
+docker compose exec web flask db history
+docker compose exec web flask db upgrade head
+docker compose exec web bash          # 进 shell
+
+# 直连数据库排查
+docker compose exec db mysql -ueducode -peducode_password coderunner
+```
+
+
+
 ### Makefile 快捷方式
 
 项目根的 `Makefile`（如已配置）：
