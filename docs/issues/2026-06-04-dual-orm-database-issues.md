@@ -89,10 +89,16 @@ core 的 `chat_task.py` 外键指向 `users.id`、`ai_conversations.id`、`ai_me
 真正的解法不是"修某个 bug",而是定清边界并收敛到单一事实源:
 
 1. **先做迁移基线**:手写一个基线迁移,把两套 metadata 的全部表纳入,让 `flask db upgrade` 能从空库建出完整 schema,然后去掉 `create_all()`。收益最大,可一次性压住 P1(迁移)/ P2(建表顺序)/ P1(create_all 兜底)三条。
+   **✅ 已完成**(`docs/plans/active/2026-06-04-dual-orm-single-schema-source-plan.md`):合并 metadata 后 autogenerate 出单条基线 `migrations/versions/e21895a59f7d_baseline_full_schema.py`(`down_revision=None`,35 表,空库 `upgrade head` 通过),`tests/test_migration_full_schema.py` 由 xfail 转为常态 PASS,`app/__init__.py` 启动期 `db.create_all()` 兜底已撤除。
+   遗留:`workers/__main__.py:51` 仍有一处 worker 进程启动期的 `Base.metadata.create_all(engine)`(只建 core trace/eval 表)——属另一独立入口,基线已覆盖这些表,作为后续清理项,不在本次范围。
 2. **统一引擎/URL**:让 core 复用 Flask 同一个 engine 和同一份 URL 配置(或反之),消除双池双事务。
+   **⏸ 暂缓**:与架构升级路线图(runtime/Agent Host 要脱离 Flask 独立)方向相反,需先有路线决策再动 code。
 3. **消除重复表定义**:每张表只保留一个 mapped class,另一层通过 repository/service 访问。
+   **⏸ 暂缓**:与当前过渡态(Phase 4 计划硬性要求"加列两份模型同步改")冲突,属后续独立工作。
 4. **归位 mcp 模型**:要么真正用 core `Base`,要么挪回 `app/models`,别在 core 下用 Flask db。
+   **⏸ 暂缓**:与 Phase 4 T2(计划复用/扩展 `core/db/models/mcp_approval.py`)耦合,到那里一并决策。
 5. **让 Alembic 看见全部 metadata**:`env.py` 的 target_metadata 合并两套(或统一后只剩一套)。
+   **✅ 已完成**:`core/db/metadata.py` `build_target_metadata()`(Flask 定义在 7 张共享表上优先,core-only 表叠加),`migrations/env.py:get_metadata()` 改用之,`tests/test_combined_metadata.py` 守住。
 
 ---
 
