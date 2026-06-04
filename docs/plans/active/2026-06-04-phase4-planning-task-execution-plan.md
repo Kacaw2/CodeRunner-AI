@@ -80,33 +80,33 @@ regex 文本通道与 tool 通道并存只会留下一个绕过 RBAC 的后门�
 **实现清单（落地步骤，逐项可勾选）**
 
 *核心管线（delegate 工具落地）*
-- [ ] `tools/protocol/schemas/catalog.py`：`_reg()` 新增 `coderunner.agent.delegate` 描述符——`server="agent"`、`internal_only=True`、`required_scopes=["agent:delegate"]`、typed 参数 `target`(agent_type enum)/`reason`(str)/`summary`(str)。
-- [ ] `mcp_gateway/bootstrap.py`：注册 delegate handler（`transport.register_handler`）；handler 在边界做 `target` 合法性 + `can_route_to(target, caller_role)` 校验，越权 raise `MCPPermissionDenied`（→ audit status=error，envelope ok=False）；summary 截断。
-- [ ] `agents/runtime.py` `_sanitize_args`：注入 `_caller_agent_type`，使 delegate handler 能识别发起方 agent 做 `can_route_to`。
-- [ ] `agents/executor.py` `ToolCallExecutor.run`：识别 delegate 工具调用结果，把 `handoff_to/handoff_reason/handoff_source/handoff_summary` 写入 `session.extra_state`（经 `session.to_state()` → `_apply_after_run` 反射回 state）。
-- [ ] `core/definitions.py`：4 个 agent 的 `allowed_tools` 各加入 `coderunner.agent.delegate`（RBAC 准入前提）。
+- [x] `tools/protocol/schemas/catalog.py`：`_reg()` 新增 `coderunner.agent.delegate` 描述符——`server="agent"`、`internal_only=True`、`required_scopes=["agent:delegate"]`、typed 参数 `target`(agent_type enum)/`reason`(str)/`summary`(str)。
+- [x] `mcp_gateway/bootstrap.py`：注册 delegate handler（`_register_agent_handlers` → `transport.register_handler`）；handler 经共享 `validate_handoff_target(source, target, role)` 在边界做 `target` 合法性 + per-source 声明 + `can_route_to(target, caller_role)` 校验，越权 raise `MCPPermissionDenied`（→ audit status=error，envelope ok=False）；summary 截断。
+- [x] `tools/protocol/runtime.py` `_sanitize_args`：注入 `_caller_agent_type`，使 delegate handler 能识别发起方 agent 做 `can_route_to`。（原计划误写 `agents/runtime.py`；`_sanitize_args` 实际在 `tools/protocol/runtime.py`。）
+- [x] `agents/executor.py` `ToolCallExecutor.run`：识别 delegate 工具调用结果，把 `handoff_to/handoff_reason/handoff_source/handoff_summary` 写入 `session.extra_state`（经 `session.to_state()` → `_apply_after_run` 反射回 state）。
+- [x] `core/definitions.py`：4 个 agent 的 `allowed_tools` 各加入 `coderunner.agent.delegate`（RBAC 准入前提）。
 
 *硬删 regex*
-- [ ] `graph/handoff.py`：删除 `HANDOFF_PATTERN`、`detect_handoff()`、旧 `HANDOFF_PROMPT_ADDENDUM`（文本标记教学）；保留 `apply_handoff()`/`rebuild_handoff_messages()`/`VALID_HANDOFF_TARGETS`；新增 tool-based prompt addendum + 共享的 target 校验函数（handler 与 apply 复用）。
-- [ ] `agents/runtime.py` `_apply_after_run`：移除 `detect_handoff(out_state)` 调用，仅保留 `_HANDOFF_KEYS` 反射（字段现由 executor 填充）。
+- [x] `graph/handoff.py`：删除 `HANDOFF_PATTERN`、`detect_handoff()`、旧 `HANDOFF_PROMPT_ADDENDUM`（文本标记教学）；保留 `apply_handoff()`/`rebuild_handoff_messages()`/`VALID_HANDOFF_TARGETS`；新增 tool-based prompt addendum + 共享的 `validate_handoff_target()` 校验函数（handler 复用）。
+- [x] `agents/runtime.py` `_apply_after_run`：移除 `detect_handoff(out_state)` 调用，仅保留 `_HANDOFF_KEYS` 反射（字段现由 executor 填充）。
 
 *Prompt*
-- [ ] 4 个 agent 的系统 prompt + `mcp_gateway/resources.py`（line 62-63 返回 addendum）：从「写 `[HANDOFF:...]`」改为「调用 `delegate` 工具」。
+- [x] 4 个 agent 的系统 prompt（`agents/prompts/*.md` 移除 `[HANDOFF:...]` 文本指令，改为调用 `delegate` 工具）+ `graph/handoff.py` 的 `HANDOFF_PROMPT_ADDENDUM`（教学改为 tool call）；`mcp_gateway/resources.py` 仅引用 addendum 常量名，无需改动。
 
 *Gateway 契约面*
-- [ ] `mcp_gateway/tool_map.py`：`EXTERNAL_TOOL_MAP` 加 `"delegate": "coderunner.agent.delegate"`。
-- [ ] 重新生成 `mcp_gateway/generated_tools.py`（`python -m mcp_gateway._codegen`）；`EXPECTED_TOOL_COUNT` 随 `len(EXTERNAL_TOOL_MAP)` 自增。
-- [ ] 新增内部 scope `agent:delegate`（归 INTERNAL_SCOPES，非 CANONICAL_SCOPES）；`scopes_for_agent` 自动并入 allowed_tools 的 required_scopes。
+- [x] `mcp_gateway/tool_map.py`：`EXTERNAL_TOOL_MAP` 加 `"delegate": "coderunner.agent.delegate"`。
+- [x] 重新生成 `mcp_gateway/generated_tools.py`（`python -m mcp_gateway._codegen`）；`EXPECTED_TOOL_COUNT` 已是 `len(EXTERNAL_TOOL_MAP)`，自动随之自增（原计划设想手改，实际无需）。
+- [x] 新增内部 scope `agent:delegate`（归 INTERNAL_SCOPES，非 CANONICAL_SCOPES）；`scopes_for_agent` 自动并入 allowed_tools 的 required_scopes。
 
 *Matrix / 契约测试 oracle 同步*
-- [ ] `evals/mcp/permission_matrix.yaml`：补 delegate 行（合法委派 allow、越权/非法 target deny）。
-- [ ] `tests/test_tool_protocol.py`（catalog 集合 line 104-122、scopeless 集合 line 166）、`tests/test_mcp_gateway_catalog_contract.py`（`EXPECTED_EXTERNAL_TOOL_MAP` line 42、`INTERNAL_SCOPES` line 35）、`tests/test_mcp_permission_matrix.py`、`tests/test_mcp_gateway.py` / `tests/test_mcp_gateway_human_gate.py`（工具计数）：同步预期值。
+- [x] `evals/mcp/permission_matrix.yaml`：补 delegate 行（agent_host AGENT_MINIMAL allow；external_client 被 internal_only 拒为 `MCP_PERMISSION_DENIED`）。注：target-edge RBAC 在 handler 而非 guard，matrix 仅覆盖 guard 级准入。
+- [x] `tests/test_tool_protocol.py`（catalog 集合）、`tests/test_mcp_gateway_catalog_contract.py`（`EXPECTED_EXTERNAL_TOOL_MAP`、`INTERNAL_SCOPES`）、`tests/test_agent_scopes.py`、`tests/test_agent_mcp_client_boundary.py`（agent 最小 scope 集合）：同步预期值。
 
 *测试*
-- [ ] 删除 regex 用例：`tests/test_handoff_context.py`（`detect_handoff` line 68-104）、`tests/test_agent_features.py`（`detect_handoff` line 308-350）。
-- [ ] 新增 tool-based handoff 测试：delegate 工具调用触发 handoff、字段正确填充、非法 target / 越权 role 在边界被拒并 audit；`graph/runner.py` 路由与 `workers/chat.py` 流式 handoff 行为不回退。
+- [x] 删除 regex 用例：`tests/test_handoff_context.py`（`detect_handoff`）、`tests/test_agent_features.py`（`detect_handoff`）。
+- [x] 新增 tool-based handoff 测试：`validate_handoff_target` 单测 + delegate 工具经 in-proc client 端到端触发 handoff（字段正确填充）/ 非法 target 在边界被拒（`MCP_PERMISSION_DENIED`）；`graph/runner.py` 路由与 `workers/chat.py` 流式 handoff 行为不回退（既有用例全绿）。
 
-**验收**：agent 通过调用 `delegate` 工具触发 handoff；非法 target / 越权 role 在工具边界被拒并 audit；`graph/runner.py` handoff 路由与 `workers/chat.py` 流式 handoff 行为不回退；regex 通道彻底移除，无残留绕过路径。
+**验收**：agent 通过调用 `delegate` 工具触发 handoff；非法 target / 越权 role 在工具边界被拒并 audit；`graph/runner.py` handoff 路由与 `workers/chat.py` 流式 handoff 行为不回退；regex 通道彻底移除，无残留绕过路径。**（已完成，416 个相关测试全绿。）**
 
 ### T4 — 统一多步任务入口
 

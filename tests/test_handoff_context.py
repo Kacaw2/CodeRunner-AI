@@ -65,44 +65,90 @@ def test_handoff_records_source_agent():
     assert state["handoff_source"] == "tutor"
 
 
-def test_detect_handoff_sets_source():
-    from graph.handoff import detect_handoff
+def test_validate_handoff_target_allows_declared_edge():
+    from graph.handoff import validate_handoff_target
 
-    state = {
-        "agent_type": "tutor",
-        "user_role": "student",
-        "final_response": "Here's a partial answer. [HANDOFF: reviewer | needs structured review]",
-    }
-    detect_handoff(state)
-    assert state["handoff_to"] == "reviewer"
-    assert state["handoff_source"] == "tutor"
+    # tutor declares {reviewer, analytics}; a student may use reviewer.
+    assert validate_handoff_target("tutor", "reviewer", "student") is None
 
 
-def test_detect_handoff_respects_per_agent_targets():
-    """A handoff to an agent not in the source's declared targets is dropped."""
-    from graph.handoff import detect_handoff
+def test_validate_handoff_target_rejects_undeclared_edge():
+    from graph.handoff import validate_handoff_target
 
-    # generator's handoff_targets is {"analytics"} only — a generator->tutor
-    # marker must NOT produce a handoff.
-    state = {
-        "agent_type": "generator",
-        "user_role": "teacher",
-        "final_response": "Done. [HANDOFF: tutor | help the student]",
-    }
-    out = detect_handoff(state)
-    assert out.get("handoff_to") is None
+    # generator declares {analytics} only — generator->tutor is not allowed.
+    error = validate_handoff_target("generator", "tutor", "teacher")
+    assert error is not None
+    assert "generator" in error
 
 
-def test_detect_handoff_allows_declared_target():
-    from graph.handoff import detect_handoff
+def test_validate_handoff_target_rejects_self_handoff():
+    from graph.handoff import validate_handoff_target
 
-    state = {
-        "agent_type": "generator",
-        "user_role": "teacher",
-        "final_response": "Done. [HANDOFF: analytics | show difficulty stats]",
-    }
-    out = detect_handoff(state)
-    assert out.get("handoff_to") == "analytics"
+    assert validate_handoff_target("tutor", "tutor", "student") is not None
+
+
+def test_validate_handoff_target_rejects_unknown_target():
+    from graph.handoff import validate_handoff_target
+
+    assert validate_handoff_target("tutor", "nonexistent", "student") is not None
+
+
+def _bootstrapped_runtime():
+    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from tools.protocol.runtime import get_tool_runtime, set_tool_runtime, reset_tool_runtime
+
+    return bootstrap_tool_runtime, get_tool_runtime, set_tool_runtime, reset_tool_runtime
+
+
+def test_delegate_tool_call_populates_handoff_fields():
+    """End-to-end: the delegate tool, called as an agent through the real
+    pipeline, returns the structured handoff fields (no free-text marker)."""
+    from mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
+
+    boot, get_rt, set_rt, reset_rt = _bootstrapped_runtime()
+    previous = get_rt()
+    try:
+        boot()
+        client = InProcessMCPToolClient()
+        identity = MCPClientIdentity(user_id=1, role="student", agent_type="tutor")
+        envelope = client.call_tool(
+            "coderunner.agent.delegate",
+            {"target": "reviewer", "reason": "needs structured review",
+             "summary": "off-by-one in inner loop"},
+            identity,
+        )
+        assert envelope["ok"] is True
+        data = envelope["data"]
+        assert data["handoff_to"] == "reviewer"
+        assert data["handoff_source"] == "tutor"
+        assert data["handoff_summary"] == "off-by-one in inner loop"
+    finally:
+        reset_rt()
+        set_rt(previous)
+
+
+def test_delegate_tool_call_rejects_undeclared_target():
+    """An edge the source agent does not declare is denied at the tool boundary,
+    not silently dropped — the agent cannot route to an unintended agent."""
+    from mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
+
+    boot, get_rt, set_rt, reset_rt = _bootstrapped_runtime()
+    previous = get_rt()
+    try:
+        boot()
+        client = InProcessMCPToolClient()
+        # tutor does not declare generator as a handoff target.
+        identity = MCPClientIdentity(user_id=1, role="teacher", agent_type="tutor")
+        envelope = client.call_tool(
+            "coderunner.agent.delegate",
+            {"target": "generator", "reason": "make a problem"},
+            identity,
+        )
+        assert envelope["ok"] is False
+        assert envelope["error"]["code"] == "MCP_PERMISSION_DENIED"
+    finally:
+        reset_rt()
+        set_rt(previous)
 
 
 def test_apply_handoff_worker_mode_replaces_list_without_remove_markers():

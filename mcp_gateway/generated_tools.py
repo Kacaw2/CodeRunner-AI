@@ -123,6 +123,13 @@ def register_generated_catalog_tools(mcp: FastMCP) -> None:
             )
         return _guarded(_call)
 
+    @mcp.tool(name='delegate', description="Delegate the conversation to another agent. Call this when a different agent would clearly handle the user's request better. Provide a concise summary so the next agent can continue without re-deriving context.")
+    def delegate(target: str, reason: str, summary: str = '') -> str:
+        return _guarded(lambda: call_via_runtime(
+            'coderunner.agent.delegate',
+            {"target": target, "reason": reason, "summary": summary},
+        ))
+
     @mcp.tool(name='check_approval', description='Check the status of a pending tool approval and retrieve the result if approved.')
     def check_approval(approval_id: str) -> str:
         return _guarded(lambda: call_via_runtime(

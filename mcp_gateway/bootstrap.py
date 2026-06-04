@@ -29,6 +29,7 @@ def bootstrap_tool_runtime(*, session_factory=None) -> ToolRuntime:
     _register_code_handlers(transport)
     _register_knowledge_handlers(transport)
     _register_analytics_handlers(transport, session_factory)
+    _register_agent_handlers(transport)
     _register_approval_handlers(transport, registry)
 
     _assert_rbac_consistent(registry)
@@ -257,6 +258,34 @@ def _execute_approved_tool(approval, *, transport, registry) -> dict:
     except Exception as exc:  # noqa: BLE001 — surface as tool error, not crash
         logger.exception("approved tool execution failed: tool=%s", tool_name)
         return {"error": f"Tool execution failed: {exc}"}
+
+
+def _register_agent_handlers(transport: LocalTransport) -> None:
+    from graph.handoff import HANDOFF_SUMMARY_LIMIT, validate_handoff_target
+    from tools.protocol.errors import MCPPermissionDenied
+
+    def delegate(
+        target: str,
+        reason: str,
+        summary: str = "",
+        _caller_agent_type: str = "",
+        _caller_role: str = "student",
+        **_kw,
+    ) -> dict:
+        # RBAC at the boundary: the source/target edge and the caller's role are
+        # validated here, never trusted from LLM text. Identity comes from the
+        # sanitized caller context (_caller_*), not from tool args.
+        error = validate_handoff_target(_caller_agent_type, target, _caller_role)
+        if error:
+            raise MCPPermissionDenied(error)
+        return {
+            "handoff_to": target,
+            "handoff_reason": reason,
+            "handoff_source": _caller_agent_type,
+            "handoff_summary": (summary or "")[:HANDOFF_SUMMARY_LIMIT],
+        }
+
+    transport.register_handler("coderunner.agent.delegate", delegate)
 
 
 def _register_approval_handlers(transport: LocalTransport, registry: ToolRegistry) -> None:

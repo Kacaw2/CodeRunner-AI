@@ -246,6 +246,7 @@ class ToolRuntime:
             sanitized["teacher_id"] = caller.user_id
         sanitized["_caller_user_id"] = caller.user_id
         sanitized["_caller_role"] = caller.role
+        sanitized["_caller_agent_type"] = caller.agent_type
         return sanitized
 
     @staticmethod

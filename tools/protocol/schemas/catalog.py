@@ -468,6 +468,50 @@ _reg(ToolDescriptor(
     },
 ))
 
+# ── Agent Server tools ───────────────────────────────────────────
+
+# Tool-based delegation (handoff). Internal-only: only trusted agent_host
+# callers may delegate; an external API key is rejected by the actor gate
+# regardless of scope. The descriptor enforces the typed shape; the registered
+# handler enforces target legality + per-source/role RBAC at the boundary, so
+# delegation can never be a free-text channel that bypasses routing rules.
+_reg(ToolDescriptor(
+    name="coderunner.agent.delegate",
+    version="1.0.0",
+    description=(
+        "Delegate the conversation to another agent. Call this when a different "
+        "agent would clearly handle the user's request better. Provide a concise "
+        "summary so the next agent can continue without re-deriving context."
+    ),
+    server="agent",
+    risk_level=RiskLevel.LOW,
+    required_scopes=["agent:delegate"],
+    internal_only=True,
+    input_schema={
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "enum": ["tutor", "reviewer", "generator", "analytics"],
+            },
+            "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+            "summary": {"type": "string", "maxLength": 4000, "default": ""},
+        },
+        "required": ["target", "reason"],
+        "additionalProperties": False,
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "handoff_to": {"type": "string"},
+            "handoff_reason": {"type": "string"},
+            "handoff_source": {"type": "string"},
+            "handoff_summary": {"type": "string"},
+        },
+        "required": ["handoff_to"],
+    },
+))
+
 # ── Approval Server tools ────────────────────────────────────────
 
 # No required_scopes: this is the post-approval polling loop, callable by

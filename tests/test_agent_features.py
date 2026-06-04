@@ -304,51 +304,18 @@ class TestAnalyticsTools:
 
 class TestHandoff:
 
-    def test_handoff_pattern_detected(self):
-        from graph.handoff import detect_handoff
-        state = {
-            "agent_type": "tutor",
-            "user_role": "student",
-            "final_response": "I can help, but for a detailed review: [HANDOFF: reviewer | Student needs a code review]",
-            "previous_agents": [],
-        }
-        result = detect_handoff(state)
-        assert result["handoff_to"] == "reviewer"
-        assert result["handoff_reason"] == "Student needs a code review"
-        assert "[HANDOFF:" not in result["final_response"]
+    def test_declared_edge_allowed_at_boundary(self):
+        from graph.handoff import validate_handoff_target
+        assert validate_handoff_target("tutor", "reviewer", "student") is None
 
-    def test_handoff_not_triggered_without_marker(self):
-        from graph.handoff import detect_handoff
-        state = {
-            "agent_type": "tutor",
-            "user_role": "student",
-            "final_response": "Here's a hint for your code.",
-            "previous_agents": [],
-        }
-        result = detect_handoff(state)
-        assert result.get("handoff_to") is None
+    def test_undeclared_edge_rejected_at_boundary(self):
+        from graph.handoff import validate_handoff_target
+        # tutor does not declare generator as a handoff target.
+        assert validate_handoff_target("tutor", "generator", "student") is not None
 
-    def test_handoff_blocked_for_student_to_generator(self):
-        from graph.handoff import detect_handoff
-        state = {
-            "agent_type": "tutor",
-            "user_role": "student",
-            "final_response": "[HANDOFF: generator | Create a problem]",
-            "previous_agents": [],
-        }
-        result = detect_handoff(state)
-        assert result.get("handoff_to") is None
-
-    def test_handoff_blocked_for_same_agent(self):
-        from graph.handoff import detect_handoff
-        state = {
-            "agent_type": "tutor",
-            "user_role": "student",
-            "final_response": "[HANDOFF: tutor | Retry myself]",
-            "previous_agents": [],
-        }
-        result = detect_handoff(state)
-        assert result.get("handoff_to") is None
+    def test_same_agent_handoff_rejected_at_boundary(self):
+        from graph.handoff import validate_handoff_target
+        assert validate_handoff_target("tutor", "tutor", "student") is not None
 
     def test_check_handoff_routes_correctly(self):
         from graph.runner import _check_handoff
@@ -414,7 +381,7 @@ class TestHandoff:
                 "user_role": "student",
                 "context": {},
             })
-            assert "HANDOFF" in ctx, f"{AgentCls.__name__} missing HANDOFF in system context"
+            assert "delegate" in ctx, f"{AgentCls.__name__} missing delegate guidance in system context"
 
     def test_state_has_handoff_fields(self):
         from core.state import AgentState

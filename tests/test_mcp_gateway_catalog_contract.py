@@ -34,6 +34,7 @@ CANONICAL_SCOPES = {
 # accurate about what API keys are minted against.
 INTERNAL_SCOPES = {
     "code:execute_internal",
+    "agent:delegate",
 }
 
 ALL_SCOPES = CANONICAL_SCOPES | INTERNAL_SCOPES
@@ -55,6 +56,7 @@ EXPECTED_EXTERNAL_TOOL_MAP = {
     "execute_code": "coderunner.code.execute",
     "execute_internal": "coderunner.code.execute_internal",
     "save_generated_problem": "coderunner.problem.save_generated",
+    "delegate": "coderunner.agent.delegate",
     "check_approval": "coderunner.approval.check",
 }
 

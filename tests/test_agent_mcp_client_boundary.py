@@ -145,5 +145,6 @@ def test_transport_client_mints_verifiable_token_with_minimal_scopes():
     assert claims["agent_type"] == "tutor"
     assert claims["task_id"] == "task-1"
     assert set(claims["scopes"]) == {
-        "code:execute", "problem:read", "submission:read", "knowledge:read"
+        "code:execute", "problem:read", "submission:read", "knowledge:read",
+        "agent:delegate",
     }

@@ -10,6 +10,11 @@ import json
 
 from langchain_core.messages import ToolMessage
 
+DELEGATE_TOOL = "coderunner.agent.delegate"
+_HANDOFF_RESULT_KEYS = (
+    "handoff_to", "handoff_reason", "handoff_source", "handoff_summary",
+)
+
 
 class ToolCallExecutor:
     """Runs a single LLM tool call through the MCP client adapter."""
@@ -64,7 +69,16 @@ class ToolCallExecutor:
         ))
 
         if envelope.get("ok"):
-            content = json.dumps(envelope.get("data", {}), ensure_ascii=False)
+            data = envelope.get("data", {})
+            # Delegation is a structured tool call: the handler validated the
+            # target edge + role at the boundary and returned the handoff fields.
+            # Reflect them onto the session so the runner/worker switches agents
+            # after the run (replaces the old free-text marker path).
+            if name == DELEGATE_TOOL and session is not None and isinstance(data, dict):
+                for key in _HANDOFF_RESULT_KEYS:
+                    if data.get(key):
+                        session.extra_state[key] = data[key]
+            content = json.dumps(data, ensure_ascii=False)
         elif envelope.get("status") == "approval_required":
             err = envelope.get("error") or {}
             content = json.dumps({

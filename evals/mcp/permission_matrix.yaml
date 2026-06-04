@@ -250,3 +250,24 @@ cases:
     scopes: [analytics:read]
     tool: coderunner.analytics.problem_difficulty
     expected: ok
+
+  # ── Agent delegation: internal_only tool, guard-level access only ──
+  # Target-edge + role RBAC for the handoff lives in the delegate handler
+  # (validate_handoff_target), not the guard. These rows cover only the guard
+  # decision: an internal agent carrying its minimal scope passes; an external
+  # client is rejected by the internal_only actor gate even holding the scope.
+  - id: int_tutor_delegate_with_minimal_scope_ok
+    caller_type: agent_host
+    role: student
+    agent_type: tutor
+    scopes: AGENT_MINIMAL
+    tool: coderunner.agent.delegate
+    expected: ok
+
+  - id: ext_student_delegate_actor_gate_denied
+    caller_type: external_client
+    role: student
+    agent_type: ""
+    scopes: [agent:delegate]
+    tool: coderunner.agent.delegate
+    expected: MCP_PERMISSION_DENIED

@@ -118,6 +118,7 @@ class TestToolCatalog:
             "coderunner.analytics.problem_difficulty",
             "coderunner.trace.get_agent_trace",
             "coderunner.approval.check",
+            "coderunner.agent.delegate",
         }
         assert expected == set(TOOL_CATALOG.keys())
 
@@ -539,7 +540,8 @@ class TestAgentMCPToolNames:
 
         tools = ReviewerAgent().mcp_tool_names
         assert "coderunner.code.execute" in tools
-        assert len(tools) == 2
+        assert "coderunner.agent.delegate" in tools
+        assert len(tools) == 3
 
     def test_generator_declares_mcp_names(self):
         from agents.generator.agent import GeneratorAgent

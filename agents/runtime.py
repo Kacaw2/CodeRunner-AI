@@ -73,10 +73,13 @@ class AgentRuntime:
         return trace, owns_trace, llm_with_tools, messages
 
     def _apply_after_run(self, session, out_state):
-        """Fire AFTER_AGENT_RUN, run handoff detection, and reflect handoff keys
-        back onto the session so the caller's state (e.g. AgentHarness) sees them."""
+        """Fire AFTER_AGENT_RUN and reflect handoff keys back onto the session so
+        the caller's state (e.g. AgentHarness) sees them.
+
+        Handoff fields are populated by the ``delegate`` tool call inside the loop
+        (see ToolCallExecutor); this method only mirrors them — there is no
+        free-text marker detection."""
         from agents.hooks import HookContext, HookEvent, get_hook_manager
-        from graph.handoff import detect_handoff
 
         get_hook_manager().fire(HookContext(
             event=HookEvent.AFTER_AGENT_RUN,
@@ -84,7 +87,6 @@ class AgentRuntime:
             state=out_state,
             final_response=session.final_response,
         ))
-        out_state = detect_handoff(out_state)
         for k in _HANDOFF_KEYS:
             if out_state.get(k) is not None:
                 session.extra_state[k] = out_state[k]
