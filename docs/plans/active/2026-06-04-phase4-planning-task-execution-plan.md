@@ -119,7 +119,9 @@ regex 文本通道与 tool 通道并存只会留下一个绕过 RBAC 的后门�
 
 **验收**：多步/含 handoff 的任务全部经 `WorkflowEngine`，可被 trace/审批/恢复统一覆盖；单轮对话路径不受影响、延迟不退化。补一个入口选择的回归测试。
 
-### T5 — workflow step 上下文残留收敛
+### T5 — workflow step 上下文残留收敛 ✅ Done
+
+> 落地：`graph/engine.py` 新增 `select_step_outputs(step_def, full_outputs)` + `_summarize_step_outputs()`，在 `_execute_step` 构造下游 context 时裁剪 `step_outputs`——仅透传 `depends_on`（按引用，保留既有 in-place mutation 行为），无声明依赖时给按 `HANDOFF_SUMMARY_LIMIT`(1500) 截断的逐步摘要而非全量残留。验收测试 `tests/test_workflow_context_scope.py` 绿（含 engine 端到端裁剪）。
 
 **目标**：step 间不再无差别传整个 `step_outputs` dict，只传被 `depends_on` 引用的上游输出 + 必要摘要。
 
@@ -127,9 +129,16 @@ regex 文本通道与 tool 通道并存只会留下一个绕过 RBAC 的后门�
 - `graph/handlers.py` / `graph/engine.py`：构造下游 step 的 `context` 时，依据该 step 的 `depends_on` 裁剪 `step_outputs`；无声明依赖则给摘要而非全量残留。
 - 与 agent handoff 已有的 1500 字摘要策略对齐。
 
-**验收**：下游 step 只能看到声明依赖的上游输出；generation pipeline 端到端结果不变。新增针对裁剪逻辑的单测。
+**执行偏差（已落地）**
+- 裁剪函数放在 `graph/engine.py`（`_execute_step` 调用处），非 `graph/handlers.py`——handlers.py 是 generation 域 handler，裁剪是 engine 级关注点。
+- `depends_on` 声明补在 `graph/planner.py` `GENERATION_TEMPLATE`（模板定义处），非 handlers.py：generation handler 硬编码读 `step_outputs.get(0/1/2/3)`，故给 step1/2/3 补 `depends_on:[0]` 以保证裁剪后仍取得上游全量 → 端到端结果不变。step 0 无上游依赖（其对 step2 的 dedup 读取在线性首跑永不命中，裁剪后取摘要返回 `{}`，行为一致）。
+- `validation` step 的 `validates_step` 视作隐式依赖一并透传（否则 `_handle_validation` 取不到目标 step 输出）。
 
-### T6 — resume/replay 边界明确化（部分降级，避免过度工程）
+**验收**：下游 step 只能看到声明依赖的上游输出；generation pipeline 端到端结果不变。新增针对裁剪逻辑的单测。**（已完成，相关 66 个测试全绿。）**
+
+### T6 — resume/replay 边界明确化（部分降级，避免过度工程）✅ Done
+
+> 落地：`graph/engine.py` 新增 `resume_from_last_completed_step(workflow_run_id, user_role)`——从 `plan_json` + 已完成 step 的 `output_data` 重建 `step_outputs`，在 `last_completed + 1` 续跑；不重跑已完成 step，不做任意-step 回放。抽出共享 `_run_remaining_steps()`，`resume_after_approval()` 与新方法共用（approval 路径行为不变，T2 测试仍绿）。`recovery.py` 保持安全标 failed 取向，未改动（已满足要求；resume 为显式 opt-in，非自动）。上位计划 Phase 4 验收"状态回放"已降级为"可从最近完成 step 续跑"。验收测试 `tests/test_workflow_resume.py` 绿。
 
 **目标**：明确“可恢复”的语义边界，不在本阶段强做完整 replay。
 
@@ -137,7 +146,12 @@ regex 文本通道与 tool 通道并存只会留下一个绕过 RBAC 的后门�
 - 保持 `recovery.py` 对中途 workflow 标 failed 的安全取向；在此基础上支持“从最近一个已完成 step 之后恢复”（已有 `current_step_index` + `plan_json` 可支撑）。
 - **完整状态回放（任意 step 重放）依赖 step 幂等**，按上位计划推迟到 Phase 6 配合幂等/配额一起做。把上位计划 Phase 4 验收里的“状态回放”相应降级表述为“可从最近完成 step 恢复”。
 
-**验收**：暂停后可从断点继续；不承诺任意 step 重放。文档同步修订上位计划的该条验收。
+**执行偏差（已落地）**
+- 新增 `resume_from_last_completed_step` 为 engine 级 opt-in 方法，未连 API（避免本阶段范围蔓延；API 接线可留待后续按需）。
+- 下游若有 `requires_approval` 且未完成的 step，续跑时重新进入 `waiting_approval`（re-gate），不绕过审批。
+- 不替换/触碰 `recovery.py` 的自动行为：续跑必须显式调用，符合"安全取向"。
+
+**验收**：暂停后可从断点继续；不承诺任意 step 重放。文档同步修订上位计划的该条验收。**（已完成，4 个新测试 + T2 审批测试全绿。）**
 
 ## 依赖与执行顺序
 

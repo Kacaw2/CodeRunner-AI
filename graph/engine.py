@@ -13,6 +13,7 @@ import logging
 import time
 from uuid import uuid4
 
+from graph.handoff import HANDOFF_SUMMARY_LIMIT
 from graph.node_registry import get_step_handler
 from graph.state import WorkflowPlan, WorkflowState
 
@@ -20,6 +21,42 @@ logger = logging.getLogger(__name__)
 
 MAX_WORKFLOW_STEPS = 10
 DEFAULT_TIMEOUT_SECONDS = 300
+
+
+def _summarize_step_outputs(full_outputs: dict) -> dict:
+    """Truncated, read-only view of upstream outputs for steps with no declared deps.
+
+    A step that declares no ``depends_on`` (and no ``validates_step``) must not see
+    the full residue of every prior step. It gets a per-step truncated string
+    instead, aligned with the agent-handoff summary limit, so downstream context
+    stays bounded.
+    """
+    summary: dict = {}
+    for idx, output in full_outputs.items():
+        text = str(output)
+        if len(text) > HANDOFF_SUMMARY_LIMIT:
+            text = text[:HANDOFF_SUMMARY_LIMIT] + "…[truncated]"
+        summary[idx] = text
+    return summary
+
+
+def select_step_outputs(step_def: dict, full_outputs: dict) -> dict:
+    """Build the upstream-output view a step is allowed to see.
+
+    Only outputs the step declares a dependency on (``depends_on`` plus the
+    ``validates_step`` a validation step targets) are passed through in full —
+    by reference, so existing in-place mutation behavior is preserved. A step
+    with no declared dependency gets a truncated summary instead of the full
+    residue, never the raw upstream dict.
+    """
+    allowed = set(step_def.get("depends_on") or [])
+    validates = step_def.get("validates_step")
+    if validates is not None:
+        allowed.add(validates)
+
+    if allowed:
+        return {idx: full_outputs[idx] for idx in allowed if idx in full_outputs}
+    return _summarize_step_outputs(full_outputs)
 
 
 class WorkflowEngine:
@@ -294,13 +331,126 @@ class WorkflowEngine:
             "context": plan.get("context", {}),
         }
 
+        return self._run_remaining_steps(
+            workflow_run, remaining_steps, all_db_steps, context, state)
+
+    def resume_from_last_completed_step(
+        self,
+        workflow_run_id: str,
+        user_role: str = "teacher",
+    ) -> WorkflowState:
+        """Resume an interrupted run from the step after its last completed one.
+
+        This is the bounded "resume from breakpoint" semantics for Phase 4: it
+        rebuilds ``step_outputs`` from already-completed steps and continues at
+        ``last_completed + 1``. It deliberately does NOT replay arbitrary steps
+        (that needs step idempotency, deferred to Phase 6) and does not re-run any
+        step already marked completed. ``recovery.py`` still fails orphaned runs on
+        startup; this is an explicit, opt-in continuation, not an automatic one.
+        """
+        from app.core.timezone import now_china
+        from app.models.workflow import WorkflowRun, WorkflowStep
+
+        session = self._get_session()
+
+        workflow_run = session.get(WorkflowRun, workflow_run_id)
+        if not workflow_run:
+            return {"status": "error", "error": "Workflow run not found"}
+        if workflow_run.status in ("completed", "cancelled"):
+            return {"status": workflow_run.status,
+                    "error": "Workflow already finished; nothing to resume"}
+        if workflow_run.status == "waiting_approval":
+            return {"status": "error",
+                    "error": "Run is at a human gate; use resume_after_approval"}
+
+        plan = workflow_run.plan_json or {}
+        steps_def = plan.get("steps", [])
+
+        all_db_steps = (
+            session.query(WorkflowStep)
+            .filter_by(workflow_run_id=workflow_run_id)
+            .order_by(WorkflowStep.step_index)
+            .all()
+        )
+
+        completed = [s for s in all_db_steps if s.status == "completed"]
+        last_completed = max((s.step_index for s in completed), default=-1)
+        resume_index = last_completed + 1
+
+        step_outputs = {
+            s.step_index: s.output_data for s in completed if s.output_data
+        }
+
+        remaining_steps = [
+            sd for sd in steps_def if sd.get("step_index", 0) >= resume_index
+        ]
+
+        if not remaining_steps:
+            workflow_run.status = "completed"
+            workflow_run.completed_at = now_china()
+            workflow_run.result = step_outputs
+            session.commit()
+            return {"status": "completed", "workflow_run_id": workflow_run_id}
+
+        # Clear stale state on not-yet-completed steps so they execute cleanly.
+        for s in all_db_steps:
+            if s.step_index >= resume_index and s.status != "completed":
+                s.status = "pending"
+                s.error_detail = None
+                s.completed_at = None
+
+        workflow_run.status = "executing"
+        workflow_run.current_step_index = resume_index
+        workflow_run.error_detail = None
+        workflow_run.completed_at = None
+        session.commit()
+
+        context = {
+            "user_id": workflow_run.user_id,
+            "user_role": user_role,
+            "step_outputs": step_outputs,
+            "agent_context": plan.get("context", {}),
+            "workflow_run_id": workflow_run_id,
+        }
+
+        state: WorkflowState = {
+            "workflow_run_id": workflow_run_id,
+            "user_id": workflow_run.user_id,
+            "user_role": user_role,
+            "goal": workflow_run.goal,
+            "workflow_type": workflow_run.workflow_type,
+            "plan": plan,
+            "current_step_index": resume_index,
+            "step_outputs": step_outputs,
+            "status": "executing",
+            "error": None,
+            "final_result": None,
+            "context": plan.get("context", {}),
+        }
+
+        return self._run_remaining_steps(
+            workflow_run, remaining_steps, all_db_steps, context, state)
+
+    def _run_remaining_steps(
+        self, workflow_run, remaining_steps, all_db_steps, context, state: WorkflowState
+    ) -> WorkflowState:
+        """Execute the tail of a plan, shared by both resume paths.
+
+        Re-gates any not-yet-completed step that requires approval, fails the run
+        on the first failing step, and otherwise marks it completed. Already
+        completed steps are never re-run (they are not in ``remaining_steps``).
+        """
+        from app.core.timezone import now_china
+
+        session = self._get_session()
+
         for step_def in remaining_steps:
             idx = step_def.get("step_index", 0)
             db_step = next((s for s in all_db_steps if s.step_index == idx), None)
             if not db_step:
                 continue
 
-            if db_step.requires_approval:
+            if db_step.requires_approval and db_step.status != "completed":
                 db_step.status = "waiting_approval"
                 workflow_run.status = "waiting_approval"
                 workflow_run.current_step_index = idx
@@ -366,7 +516,7 @@ class WorkflowEngine:
             try:
                 enriched_def = dict(step_def)
                 enriched_def["input_data"] = db_step.input_data
-                context["step_outputs"] = state["step_outputs"]
+                context["step_outputs"] = select_step_outputs(step_def, state["step_outputs"])
                 context["step_index"] = db_step.step_index
 
                 output = handler(enriched_def, context)

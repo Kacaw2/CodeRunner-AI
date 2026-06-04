@@ -75,6 +75,7 @@ GENERATION_TEMPLATE: list[WorkflowStepDef] = [
         "instruction": "Run the reference solution against test cases to verify correctness",
         "risk_level": "medium",
         "requires_approval": False,
+        "depends_on": [0],
     },
     {
         "step_index": 2,
@@ -83,6 +84,7 @@ GENERATION_TEMPLATE: list[WorkflowStepDef] = [
         "instruction": "Search knowledge base for similar existing problems",
         "risk_level": "low",
         "requires_approval": False,
+        "depends_on": [0],
     },
     {
         "step_index": 3,
@@ -91,6 +93,7 @@ GENERATION_TEMPLATE: list[WorkflowStepDef] = [
         "instruction": "Review problem quality: clarity, constraints, examples, difficulty",
         "risk_level": "low",
         "requires_approval": False,
+        "depends_on": [0],
     },
     {
         "step_index": 4,
