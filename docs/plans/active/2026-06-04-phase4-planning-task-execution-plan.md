@@ -31,7 +31,9 @@ Phase 1 依赖已就绪（已核对）：
 
 ## 任务清单（按价值与依赖排序）
 
-### T1 — trace_id 双向绑定（最高优先，依赖已就绪）
+### T1 — trace_id 双向绑定（最高优先，依赖已就绪）✅ Done
+
+> 落地：`workflow_steps.trace_id` 双 ORM 加列 + migration `b1f7a2c9d3e4`；`graph/engine.py` 注入 `workflow_run_id/step_index` 并回写 `trace_id`；`graph/node_registry.py` 透传/回传 trace_id。验收测试 `tests/test_workflow_trace_binding.py` 绿。
 
 **目标**：每个 workflow step 落库其 agent run 的 `trace_id`；每条 trace 反向记录所属 `workflow_run_id` + `step_index`。打通 workflow ↔ trace ↔ eval。
 
@@ -42,7 +44,9 @@ Phase 1 依赖已就绪（已核对）：
 
 **验收**：一个多步 run 执行后，`workflow_steps.trace_id` 全部非空，且能在 `agent_trace_runs` 查到对应 `trace_id`；该 trace 的 `workflow_run_id`/`step_index` 与 step 对应。新增 `tests/test_workflow_trace_binding.py`。
 
-### T2 — 结构化审批审计记录（替换 output_data 内联反馈）
+### T2 — 结构化审批审计记录（替换 output_data 内联反馈）✅ Done
+
+> 落地：评估后新建独立 `workflow_approvals` 表（migration `c2e8b4f1a6d7`）+ `WorkflowApproval` 模型（`app/models/workflow.py`），未复用 `mcp_approval`（其 resource/scope 模型面向 MCP 工具审批，强塞 workflow 反而耦合）；`graph/engine.py resume_after_approval()` 先写 approval 记录再分叉 approve/reject，approve 路径 `output_data` 不再含 feedback；`approver_user_id` 由 API（`app/api/v1/ai.py`）→ supervisor → engine 透传，不从 LLM/state 自取。验收测试 `tests/test_workflow_approval_audit.py` 绿。
 
 **目标**：human_gate 审批产生不可变审计记录（审批人、决策、意见、时间），而非把反馈塞进 `WorkflowStep.output_data`。
 
@@ -61,9 +65,48 @@ Phase 1 依赖已就绪（已核对）：
 - 在 ToolRuntime 注册一个受管控的 `delegate`（或 `handoff`）工具，typed 参数 `target: agent_type`、`reason: str`、`summary: str`；target 合法性、`can_route_to(target, user_role)`、summary 截断在工具边界强制。
 - `agents/` 系统 prompt：移除 `HANDOFF_PROMPT_ADDENDUM` 的文本标记教学，改为说明调用 `delegate` 工具。
 - `graph/handoff.py`：保留已结构化的 `handoff_to/reason/source/summary` 字段与 `apply_handoff()`/`rebuild_handoff_messages()`（这部分已是好设计）；删除 `HANDOFF_PATTERN` 正则与 `detect_handoff()` 的文本解析，改由 `delegate` 工具调用结果填充这些字段。
-- 灰度：可加开关，先让 tool 与 regex 并存一版，确认 tool 路径稳定后删 regex（与 Phase 3.5 `MCP_OUTPUT_SCHEMA_ENFORCE` 同风格）。
+- ~~灰度：可加开关，先让 tool 与 regex 并存一版~~ → **执行偏差（已决策）**：不灰度、不留开关，一次性**硬删 regex**，tool-based delegation 成为唯一路径。
 
-**验收**：agent 通过调用 `delegate` 工具触发 handoff；非法 target / 越权 role 在工具边界被拒并 audit；`graph/runner.py` handoff 路由与 `workers/chat.py` 流式 handoff 行为不回退。更新 `tests/`（handoff 相关）。
+**执行偏差与理由（hard-delete regex，非灰度）**
+
+原计划设想 tool/regex 并存一版灰度。决策改为一次性硬删 `[HANDOFF:...]` 文本解析，依据如下业界先例——delegation 应是平台强制的结构化能力，而非可被绕过的「模型输出文本约定」：
+
+- **OpenAI Agents SDK**：handoff 作为 LLM 可调用的工具暴露（如 `transfer_to_refund_agent`），带 typed handoff input / input filter / handoff tracing——委派是 typed tool call，不是文本标记。
+- **Claude Code Agent SDK / subagents**：子代理经 Agent 工具调用，拥有独立 context / 专用 prompt / 受限 tool 集——委派由工具边界与能力清单约束。
+- **Claude Code MCP 文档**：强调通过 MCP 工具扩展 agent，而非依赖特殊的模型输出文本。
+
+regex 文本通道与 tool 通道并存只会留下一个绕过 RBAC 的后门，灰度无收益；故直接收敛到工具边界。
+
+**实现清单（落地步骤，逐项可勾选）**
+
+*核心管线（delegate 工具落地）*
+- [ ] `tools/protocol/schemas/catalog.py`：`_reg()` 新增 `coderunner.agent.delegate` 描述符——`server="agent"`、`internal_only=True`、`required_scopes=["agent:delegate"]`、typed 参数 `target`(agent_type enum)/`reason`(str)/`summary`(str)。
+- [ ] `mcp_gateway/bootstrap.py`：注册 delegate handler（`transport.register_handler`）；handler 在边界做 `target` 合法性 + `can_route_to(target, caller_role)` 校验，越权 raise `MCPPermissionDenied`（→ audit status=error，envelope ok=False）；summary 截断。
+- [ ] `agents/runtime.py` `_sanitize_args`：注入 `_caller_agent_type`，使 delegate handler 能识别发起方 agent 做 `can_route_to`。
+- [ ] `agents/executor.py` `ToolCallExecutor.run`：识别 delegate 工具调用结果，把 `handoff_to/handoff_reason/handoff_source/handoff_summary` 写入 `session.extra_state`（经 `session.to_state()` → `_apply_after_run` 反射回 state）。
+- [ ] `core/definitions.py`：4 个 agent 的 `allowed_tools` 各加入 `coderunner.agent.delegate`（RBAC 准入前提）。
+
+*硬删 regex*
+- [ ] `graph/handoff.py`：删除 `HANDOFF_PATTERN`、`detect_handoff()`、旧 `HANDOFF_PROMPT_ADDENDUM`（文本标记教学）；保留 `apply_handoff()`/`rebuild_handoff_messages()`/`VALID_HANDOFF_TARGETS`；新增 tool-based prompt addendum + 共享的 target 校验函数（handler 与 apply 复用）。
+- [ ] `agents/runtime.py` `_apply_after_run`：移除 `detect_handoff(out_state)` 调用，仅保留 `_HANDOFF_KEYS` 反射（字段现由 executor 填充）。
+
+*Prompt*
+- [ ] 4 个 agent 的系统 prompt + `mcp_gateway/resources.py`（line 62-63 返回 addendum）：从「写 `[HANDOFF:...]`」改为「调用 `delegate` 工具」。
+
+*Gateway 契约面*
+- [ ] `mcp_gateway/tool_map.py`：`EXTERNAL_TOOL_MAP` 加 `"delegate": "coderunner.agent.delegate"`。
+- [ ] 重新生成 `mcp_gateway/generated_tools.py`（`python -m mcp_gateway._codegen`）；`EXPECTED_TOOL_COUNT` 随 `len(EXTERNAL_TOOL_MAP)` 自增。
+- [ ] 新增内部 scope `agent:delegate`（归 INTERNAL_SCOPES，非 CANONICAL_SCOPES）；`scopes_for_agent` 自动并入 allowed_tools 的 required_scopes。
+
+*Matrix / 契约测试 oracle 同步*
+- [ ] `evals/mcp/permission_matrix.yaml`：补 delegate 行（合法委派 allow、越权/非法 target deny）。
+- [ ] `tests/test_tool_protocol.py`（catalog 集合 line 104-122、scopeless 集合 line 166）、`tests/test_mcp_gateway_catalog_contract.py`（`EXPECTED_EXTERNAL_TOOL_MAP` line 42、`INTERNAL_SCOPES` line 35）、`tests/test_mcp_permission_matrix.py`、`tests/test_mcp_gateway.py` / `tests/test_mcp_gateway_human_gate.py`（工具计数）：同步预期值。
+
+*测试*
+- [ ] 删除 regex 用例：`tests/test_handoff_context.py`（`detect_handoff` line 68-104）、`tests/test_agent_features.py`（`detect_handoff` line 308-350）。
+- [ ] 新增 tool-based handoff 测试：delegate 工具调用触发 handoff、字段正确填充、非法 target / 越权 role 在边界被拒并 audit；`graph/runner.py` 路由与 `workers/chat.py` 流式 handoff 行为不回退。
+
+**验收**：agent 通过调用 `delegate` 工具触发 handoff；非法 target / 越权 role 在工具边界被拒并 audit；`graph/runner.py` handoff 路由与 `workers/chat.py` 流式 handoff 行为不回退；regex 通道彻底移除，无残留绕过路径。
 
 ### T4 — 统一多步任务入口
 

@@ -35,12 +35,20 @@ def _handle_agent_call(step_def: dict, context: dict) -> dict:
     if not agent:
         return {"error": f"Unknown agent: {agent_type}", "success": False}
 
+    # Bind the agent run to its owning workflow so the trace records
+    # workflow_run_id (a trace-link column) and step_index (kept in input_context).
+    agent_context = dict(context.get("agent_context", {}))
+    if context.get("workflow_run_id") is not None:
+        agent_context["workflow_run_id"] = context["workflow_run_id"]
+    if context.get("step_index") is not None:
+        agent_context["step_index"] = context["step_index"]
+
     state = {
         "messages": [HumanMessage(content=instruction)],
         "agent_type": agent_type,
         "user_id": context.get("user_id", 0),
         "user_role": context.get("user_role", "student"),
-        "context": context.get("agent_context", {}),
+        "context": agent_context,
         "tool_results": [],
         "final_response": "",
         "auto_routed": True,
@@ -76,15 +84,18 @@ def _handle_tool_call(step_def: dict, context: dict) -> dict:
         agent_type=agent_type,
         task_id=context.get("task_id"),
         conversation_id=context.get("conversation_id"),
+        trace_id=context.get("trace_id"),
     )
     ctx = ToolCallContext(caller=caller)
 
     result = runtime.call_sync(tool_name, tool_args, ctx)
 
+    # Bind the step to the same trace the tool audit used (caller.trace_id),
+    # so workflow_steps.trace_id correlates with the tool's emitted audit.
     if result.ok:
-        return {"success": True, "result": result.data}
+        return {"success": True, "result": result.data, "trace_id": caller.trace_id}
     return {"error": result.error.get("message", "Tool call failed") if result.error else "Unknown error",
-            "success": False}
+            "success": False, "trace_id": caller.trace_id}
 
 
 def _handle_validation(step_def: dict, context: dict) -> dict:

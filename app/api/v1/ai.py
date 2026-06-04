@@ -2229,7 +2229,9 @@ def approve_workflow_step(workflow_run_id):
     try:
         from graph import SupervisorAgent
         supervisor = SupervisorAgent()
-        state = supervisor.resume_workflow(workflow_run_id, approved, feedback)
+        state = supervisor.resume_workflow(
+            workflow_run_id, approved, feedback, approver_user_id=user.id
+        )
 
         return jsonify({
             "workflow_run_id": workflow_run_id,

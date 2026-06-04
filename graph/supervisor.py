@@ -79,11 +79,19 @@ class SupervisorAgent:
         state["_events"] = engine.events
         return state
 
-    def resume_workflow(self, workflow_run_id: str, approved: bool, feedback: str = "") -> WorkflowState:
+    def resume_workflow(
+        self,
+        workflow_run_id: str,
+        approved: bool,
+        feedback: str = "",
+        approver_user_id: int | None = None,
+    ) -> WorkflowState:
         """Resume a workflow paused at a human gate."""
         logger.info("Supervisor resuming workflow %s: approved=%s", workflow_run_id, approved)
         engine = WorkflowEngine(session=self._session)
-        return engine.resume_after_approval(workflow_run_id, approved, feedback)
+        return engine.resume_after_approval(
+            workflow_run_id, approved, feedback, approver_user_id=approver_user_id
+        )
 
     def get_workflow_status(self, workflow_run_id: str) -> dict:
         """Query current status of a workflow run."""

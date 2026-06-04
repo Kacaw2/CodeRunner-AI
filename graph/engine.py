@@ -196,10 +196,16 @@ class WorkflowEngine:
 
         return state
 
-    def resume_after_approval(self, workflow_run_id: str, approved: bool, feedback: str = "") -> WorkflowState:
+    def resume_after_approval(
+        self,
+        workflow_run_id: str,
+        approved: bool,
+        feedback: str = "",
+        approver_user_id: int | None = None,
+    ) -> WorkflowState:
         """Resume a workflow that was paused at a human_gate step."""
         from app.core.timezone import now_china
-        from app.models.workflow import WorkflowRun, WorkflowStep
+        from app.models.workflow import WorkflowApproval, WorkflowRun, WorkflowStep
 
         session = self._get_session()
 
@@ -214,6 +220,16 @@ class WorkflowEngine:
             .first()
         )
 
+        # Immutable audit record of the decision (approver, decision, feedback).
+        # The authoritative approval trail lives here, not in step.output_data.
+        session.add(WorkflowApproval(
+            workflow_run_id=workflow_run_id,
+            step_index=current_index,
+            approver_user_id=approver_user_id,
+            decision="approved" if approved else "rejected",
+            feedback=feedback or None,
+        ))
+
         if not approved:
             current_step.status = "failed"
             current_step.error_detail = f"Rejected: {feedback}" if feedback else "Rejected by user"
@@ -225,7 +241,8 @@ class WorkflowEngine:
             return {"status": "cancelled", "error": "Workflow cancelled by user"}
 
         current_step.status = "completed"
-        current_step.output_data = {"approved": True, "feedback": feedback}
+        # Status marker only; approver/feedback audit lives in WorkflowApproval.
+        current_step.output_data = {"approved": True}
         current_step.completed_at = now_china()
 
         plan = workflow_run.plan_json
@@ -350,6 +367,7 @@ class WorkflowEngine:
                 enriched_def = dict(step_def)
                 enriched_def["input_data"] = db_step.input_data
                 context["step_outputs"] = state["step_outputs"]
+                context["step_index"] = db_step.step_index
 
                 output = handler(enriched_def, context)
 
@@ -390,6 +408,7 @@ class WorkflowEngine:
 
                 db_step.status = "completed"
                 db_step.output_data = {**output, "critic": verdict}
+                db_step.trace_id = output.get("trace_id")
                 db_step.completed_at = now_china()
                 session.commit()
 

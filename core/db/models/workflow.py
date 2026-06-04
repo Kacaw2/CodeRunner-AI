@@ -104,6 +104,10 @@ class WorkflowStep(Base):
     output_data = Column(JSON, nullable=True)
     error_detail: Mapped[str | None] = Column(Text, nullable=True)
 
+    # Logical reference to agent_trace_runs.trace_id of this step's agent run.
+    # No FK: avoids cross-ORM/cross-db coupling with the plain-SQLAlchemy trace tables.
+    trace_id: Mapped[str | None] = Column(String(64), nullable=True, index=True)
+
     attempt: Mapped[int] = Column(Integer, default=0)
     max_attempts: Mapped[int] = Column(Integer, default=2)
 
@@ -131,6 +135,7 @@ class WorkflowStep(Base):
             "input_data": self.input_data,
             "output_data": self.output_data,
             "error_detail": self.error_detail,
+            "trace_id": self.trace_id,
             "attempt": self.attempt,
             "tokens_used": self.tokens_used,
             "latency_ms": self.latency_ms,

@@ -85,6 +85,10 @@ class WorkflowStep(db.Model):
     output_data = db.Column(db.JSON, nullable=True)
     error_detail = db.Column(db.Text, nullable=True)
 
+    # Logical reference to agent_trace_runs.trace_id of this step's agent run.
+    # No FK: avoids cross-ORM/cross-db coupling with the plain-SQLAlchemy trace tables.
+    trace_id = db.Column(db.String(64), nullable=True, index=True)
+
     attempt = db.Column(db.Integer, default=0)
     max_attempts = db.Column(db.Integer, default=2)
 
@@ -112,10 +116,46 @@ class WorkflowStep(db.Model):
             "input_data": self.input_data,
             "output_data": self.output_data,
             "error_detail": self.error_detail,
+            "trace_id": self.trace_id,
             "attempt": self.attempt,
             "tokens_used": self.tokens_used,
             "latency_ms": self.latency_ms,
             "depends_on": self.depends_on,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+class WorkflowApproval(db.Model):
+    """Immutable audit record of a human-gate decision on a workflow step.
+
+    Replaces stashing approval feedback inside ``WorkflowStep.output_data``: the
+    approver identity, decision and feedback are recorded as a standalone,
+    append-only trail (rejections are recorded too). Distinct from
+    ``mcp_tool_approvals`` which is tool-call specific (NOT NULL tool_name/args).
+    """
+    __tablename__ = "workflow_approvals"
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workflow_run_id = db.Column(
+        db.String(36), db.ForeignKey("workflow_runs.id"), nullable=False, index=True
+    )
+    step_index = db.Column(db.Integer, nullable=False)
+
+    # Operator who decided — sourced from the request actor, never from LLM/state.
+    approver_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    decision = db.Column(db.String(20), nullable=False)  # approved | rejected
+    feedback = db.Column(db.Text, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=now_china)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "workflow_run_id": self.workflow_run_id,
+            "step_index": self.step_index,
+            "approver_user_id": self.approver_user_id,
+            "decision": self.decision,
+            "feedback": self.feedback,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }

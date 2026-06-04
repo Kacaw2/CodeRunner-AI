@@ -18,7 +18,7 @@ from .generated_question_draft import GeneratedQuestionDraft
 from .student_profile import StudentProfile, TeacherPreference
 from .eval_run import EvalRun
 from .chat_task import ChatTask
-from .workflow import WorkflowRun, WorkflowStep
+from .workflow import WorkflowApproval, WorkflowRun, WorkflowStep
 
 QuizQuestion = QuizProblem
 
@@ -68,4 +68,5 @@ __all__ = [
     # Workflow (Phase 2)
     'WorkflowRun',
     'WorkflowStep',
+    'WorkflowApproval',
 ]
