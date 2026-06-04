@@ -36,3 +36,35 @@ def test_prompt_ref_resolves_to_an_importable_constant():
         module_path, attr = defn.prompt_ref.rsplit(".", 1)
         module = importlib.import_module(module_path)
         assert hasattr(module, attr), defn.prompt_ref
+
+
+def test_allowed_tools_exist_in_the_tool_catalog():
+    """Every tool an agent can call must be a registered ToolRuntime descriptor.
+
+    Bootstrap the gateway so the runtime holds the live catalog (a bare app does
+    not register tools), then assert against what the runtime actually exposes."""
+    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from tools.protocol.runtime import get_tool_runtime, set_tool_runtime, reset_tool_runtime
+
+    previous = get_tool_runtime()
+    try:
+        bootstrap_tool_runtime()
+        catalog = {d.name for d in get_tool_runtime().list_tools()}
+    finally:
+        reset_tool_runtime()
+        set_tool_runtime(previous)
+
+    assert catalog, "tool catalog is empty after bootstrap"
+    for name, defn in AGENT_DEFINITIONS.items():
+        missing = set(defn.allowed_tools) - catalog
+        assert not missing, f"{name} references unknown tools: {missing}"
+
+
+def test_output_schema_names_resolve():
+    from core import schemas as schema_mod
+
+    for name, defn in AGENT_DEFINITIONS.items():
+        if defn.output_format != "json_schema":
+            continue
+        assert defn.output_schema_name, f"{name} is json_schema but names no schema"
+        assert hasattr(schema_mod, defn.output_schema_name), defn.output_schema_name
