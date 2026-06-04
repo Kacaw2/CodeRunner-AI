@@ -1,6 +1,6 @@
 # MCP Runtime Architecture
 
-> 最后更新: 2026-05-30
+> 最后更新: 2026-06-04
 
 CodeRunner-AI has **one** production tool-call boundary. Both internal agents
 and external API-key clients reach tools the same way: across MCP transport,
@@ -16,6 +16,39 @@ Internal agents must **not** call `ToolRuntime` directly in production. They use
 an MCP client adapter (`mcp_gateway/client.py`) and cross MCP transport before
 any tool executes. `bootstrap_tool_runtime()` runs inside the MCP server
 process, not on the agent production call path.
+
+---
+
+## 0. Boundary roles & responsibilities
+
+The canonical one-page map of who-does-what across the boundary. Each role's
+"may NOT" column is enforced structurally, not by convention.
+
+| Role | Is | May do | May NOT do |
+|---|---|---|---|
+| Flask app (`app/`) | Main business app | Serve UI/API, originate user requests | Execute tools directly |
+| FastAPI Agent Host (`workers/__main__.py`) | Agent runtime / scheduling service | Run agents, mint internal capability tokens | Bypass `ToolRuntime` policy |
+| Agents (`agents/`) | Internal business logic, MCP *clients* | Call tools via `MCPToolClient` | Import tool implementations or `ToolRuntime` |
+| DeepSeek | External LLM provider | Produce tool-call requests | Control identity/scopes (args are sanitized) |
+| `mcp_gateway` | External transport boundary | Auth, rate-limit, transport | Tool policy (delegated to `ToolRuntime`) |
+| `ToolRuntime` (`tools/protocol/`) | The single policy core | schema, RBAC/scope/risk, human-gate, sanitize, audit, trace | — |
+
+Two invariants pin the boundary against drift:
+
+- **Equal semantics across paths.** For the same tool and same effective
+  identity, the in-process agent path and the gateway external path reach the
+  same guard verdict and emit the same envelope shape — pinned by
+  `tests/test_mcp_boundary_consistency.py`.
+- **Two-layer allowlist is agent-path only.** The per-agent allowlist hook
+  (`BEFORE_TOOL_CALL`) gates *which tools this agent may use*; RBAC gates *which
+  tools this role may use*. External API-key callers have no agent, so they get
+  RBAC + scope only — pinned by
+  `tests/test_mcp_gateway_external_rbac.py::test_external_path_has_no_agent_allowlist_layer`
+  (details in §3).
+
+See also `agent-runtime-core.md` (agent execution kernel) and
+`tools-mcp-rag.md` (tool/RAG surface), which defer to this section for boundary
+semantics rather than restating them.
 
 ---
 
@@ -119,8 +152,10 @@ key cannot reach `get_student_summary` on scope alone — that returns
 internal `agent_host` callers (`external_client` has `agent_type=""`, so that
 branch is skipped). Tools with no role override are therefore gated by scope
 alone — this is a **deliberate, tested** choice (see
-`tests/test_mcp_gateway_external_rbac.py`), acceptable because external access is
-scoped per API key.
+`tests/test_mcp_gateway_external_rbac.py`, in particular
+`test_external_path_has_no_agent_allowlist_layer`, which fails if the agent
+allowlist hook is ever wired into the external path), acceptable because external
+access is scoped per API key.
 
 ---
 

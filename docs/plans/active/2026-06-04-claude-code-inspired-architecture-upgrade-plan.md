@@ -87,12 +87,16 @@
 - 工具 schema、RBAC/scope/risk guard、human gate、identity sanitize、audit、trace link 下沉到 ToolRuntime。
 - 内部 in-process path 和外部 streamable-http path 保持同等权限语义。
 
-验收标准：
+验收标准（状态：已满足，2026-06-04 收口）：
 
-- agent 不直接 import 工具实现。
-- 外部 MCP 与内部 agent 工具调用返回一致 envelope。
-- 工具调用都能关联 user、role、agent、conversation、task、trace。
-- high-risk / write 工具继续经过 human gate。
+- [x] agent 不直接 import 工具实现 — `tests/test_agent_mcp_client_boundary.py`。
+- [x] 外部 MCP 与内部 agent 工具调用返回一致 envelope — `tests/test_mcp_boundary_consistency.py`（同一工具+身份，两路径同 guard 判定 + 同 envelope 形状）。
+- [x] 工具调用都能关联 user、role、agent、conversation、task、trace — `CallerContext` + `emit_audit`（`tools/protocol/runtime.py`）。
+- [x] high-risk / write 工具继续经过 human gate — `tests/test_mcp_gateway_human_gate.py`。
+
+> 收口范围与剩余加固见 `docs/plans/active/2026-06-04-phase3-unified-tool-mcp-boundary-closeout-plan.md`。
+> 延后到 Phase 3.5 / Phase 6 的企业级加固：output_schema 由 warn-only 转 enforce、
+> per-tool/per-user 配额、写工具幂等、多租户隔离、per-tool 熔断、live-HTTP 集成测试。
 
 ### Phase 4: Planning and Task Execution System
 
