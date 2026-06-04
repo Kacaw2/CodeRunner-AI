@@ -122,16 +122,6 @@ def empty_mysql_url():
     yield from _provision_empty_database()
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Migration chain has no baseline that creates the core ORM tables; "
-        "upgrade head only applies incremental deltas on top of a create_all() "
-        "baseline. Gate turns green once the chain builds the full schema, after "
-        "which create_all() is removed from conftest/startup. Tracked in the "
-        "MySQL-test-DB backlog."
-    ),
-    strict=False,
-)
 def test_alembic_upgrade_head_builds_complete_core_schema(empty_mysql_url):
     expected = _expected_core_tables()
 
