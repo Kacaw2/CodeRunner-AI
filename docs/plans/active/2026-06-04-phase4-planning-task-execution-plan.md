@@ -1,6 +1,6 @@
 # Phase 4: Planning and Task Execution System — 可执行任务清单
 
-> 状态：Active
+> 状态：Done（T1–T6 全部落地，2026-06-05）
 > 日期：2026-06-04
 > 上位计划：`docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`（Phase 4 节）
 > 范围：`graph/`、`app/models/workflow.py`、`core/db/models/workflow.py`、`core/db/models/agent_trace.py`、`core/db/models/mcp_approval.py`、`migrations/`、`tools/protocol/`
@@ -108,7 +108,9 @@ regex 文本通道与 tool 通道并存只会留下一个绕过 RBAC 的后门�
 
 **验收**：agent 通过调用 `delegate` 工具触发 handoff；非法 target / 越权 role 在工具边界被拒并 audit；`graph/runner.py` handoff 路由与 `workers/chat.py` 流式 handoff 行为不回退；regex 通道彻底移除，无残留绕过路径。**（已完成，416 个相关测试全绿。）**
 
-### T4 — 统一多步任务入口
+### T4 — 统一多步任务入口 ✅ Done
+
+> 落地：按「对话轮次形态」定边界——单轮对话（含 ≤`MAX_HANDOFFS` 轮内委派）留在流式/同步 agent 路径，只有显式多步 plan 进 `WorkflowEngine`。判定收敛到单一函数 `graph/supervisor.py:should_use_workflow()`（旧 `_should_use_workflow` 静态方法改为薄 shim 委派）；三份复制的有界 handoff 循环（`graph/runner.py` 图边的 `MAX_HANDOFFS` 常量、`evals/harness/agent_harness.py`、`app/api/v1/ai.py` SSE `generate()`）收敛——`MAX_HANDOFFS` 单一来源移到 `graph/handoff.py`，新增共享 `stream_with_handoffs()` 驱动 harness 与 SSE 两条流式路径（SSE 随之改用 `apply_handoff` 紧凑上下文，与 harness 对齐）。验收测试 `tests/test_workflow_entry_selection.py` 绿。**流式 handoff 暂不进 engine** 的下一阶段设计追求已记入上位计划 Phase 4 执行偏差段。
 
 **目标**：让 `WorkflowEngine` 成为多步 agentic 任务的唯一执行路径，消除“部分场景才用 workflow”。
 

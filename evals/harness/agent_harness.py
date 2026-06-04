@@ -10,9 +10,9 @@ stream and aggregates a final ``AgentResult``.
 from dataclasses import dataclass, field
 
 from agents.base import _trace_links_from_state
-from agents.registry import AGENT_CLASSES, get_agent_instance
-from graph.handoff import apply_handoff
-from graph.runner import MAX_HANDOFFS, _classify_intent
+from agents.registry import get_agent_instance
+from graph.handoff import stream_with_handoffs
+from graph.runner import _classify_intent
 
 
 @dataclass
@@ -81,42 +81,20 @@ class AgentHarness:
         trace.input_message = message
         trace.input_context = context
 
+        def _stream_agent(agent_type, run_state):
+            agent = get_agent_instance(agent_type, default="tutor")
+            yield from agent.stream(run_state)
+
         final_response = ""
         with use_current_trace(trace):
-            agent = get_agent_instance(resolved, default="tutor")
-            for event in agent.stream(state):
-                if event.get("type") == "token":
+            for event in stream_with_handoffs(state, stream_fn=_stream_agent):
+                if event.get("type") == "handoff_start":
+                    final_response = ""
+                elif event.get("type") == "token":
                     final_response += event.get("content", "")
                 yield event
 
-            handoff_count = 0
-            previous_agents = [resolved]
-            while (
-                state.get("handoff_to")
-                and handoff_count < MAX_HANDOFFS
-                and state["handoff_to"] in AGENT_CLASSES
-                and state["handoff_to"] not in previous_agents
-            ):
-                target_type = state["handoff_to"]
-                yield {
-                    "type": "handoff_start",
-                    "target": target_type,
-                    "reason": state.get("handoff_reason", ""),
-                }
-
-                apply_handoff(state, use_reducer=False)
-
-                target_agent = get_agent_instance(target_type, default="tutor")
-                final_response = ""
-                for event in target_agent.stream(state):
-                    if event.get("type") == "token":
-                        final_response += event.get("content", "")
-                    yield event
-
-                previous_agents.append(target_type)
-                resolved = target_type
-                handoff_count += 1
-
+            resolved = state.get("agent_type", resolved)
             if not final_response:
                 final_response = state.get("final_response", "")
 

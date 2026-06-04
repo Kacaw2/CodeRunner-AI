@@ -436,8 +436,8 @@ def chat_stream():
 
     def generate():
         from langchain_core.messages import HumanMessage
-        from agents.registry import AGENT_CLASSES, get_agent_instance
-        from graph.runner import MAX_HANDOFFS
+        from agents.registry import get_agent_instance
+        from graph.handoff import stream_with_handoffs
 
         # Phase 3: the concrete agent was already resolved (and rate-limited)
         # before the response started streaming.
@@ -458,14 +458,22 @@ def chat_stream():
         if resolved_agent_type != agent_type:
             yield f"data: {json.dumps({'type': 'route', 'agent_type': resolved_agent_type})}\n\n"
 
-        agent = get_agent_instance(resolved_agent_type, default="tutor")
         full_response = ""
         last_event_time = time.monotonic()
-        handoff_count = 0
-        previous_agents = []
+
+        def _stream_agent(agent_type, run_state):
+            agent = get_agent_instance(agent_type, default="tutor")
+            yield from agent.stream(run_state)
+
         try:
-            for event in agent.stream(state):
-                if event["type"] == "token":
+            # Single agent plus bounded intra-turn delegation, driven by the
+            # shared streaming-handoff loop (see graph.handoff.stream_with_handoffs).
+            # Reset the token buffer on each handoff_start: every delegated agent
+            # produces a fresh response.
+            for event in stream_with_handoffs(state, stream_fn=_stream_agent):
+                if event.get("type") == "handoff_start":
+                    full_response = ""
+                elif event["type"] == "token":
                     full_response += event["content"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 now = time.monotonic()
@@ -473,39 +481,7 @@ def chat_stream():
                     yield ": heartbeat\n\n"
                 last_event_time = now
 
-            # ── Handle handoff: invoke the target agent if requested ──
-            previous_agents.append(resolved_agent_type)
-            while (state.get("handoff_to")
-                   and handoff_count < MAX_HANDOFFS
-                   and state["handoff_to"] in AGENT_CLASSES
-                   and state["handoff_to"] not in previous_agents):
-
-                target_type = state["handoff_to"]
-                handoff_reason = state.get("handoff_reason", "")
-                state["handoff_to"] = None
-                state["handoff_reason"] = None
-                state["agent_type"] = target_type
-
-                # Notify frontend of the handoff
-                yield f"data: {json.dumps({'type': 'handoff_start', 'target': target_type, 'reason': handoff_reason})}\n\n"
-
-                target_agent = get_agent_instance(target_type, default="tutor")
-
-                # Continue with accumulated messages from the previous agent
-                full_response = ""
-                for event in target_agent.stream(state):
-                    if event["type"] == "token":
-                        full_response += event["content"]
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                    now = time.monotonic()
-                    if now - last_event_time > 10:
-                        yield ": heartbeat\n\n"
-                    last_event_time = now
-
-                previous_agents.append(target_type)
-                resolved_agent_type = target_type
-                handoff_count += 1
-
+            resolved_agent_type = state.get("agent_type", resolved_agent_type)
             if not full_response:
                 full_response = state.get("final_response", "")
 

@@ -22,6 +22,10 @@ VALID_HANDOFF_TARGETS = frozenset().union(
 # Conclusion summary handed to the next agent is truncated to avoid context bloat.
 HANDOFF_SUMMARY_LIMIT = 1500
 
+# Bounded intra-turn delegation: a single conversational turn may bounce to at
+# most this many specialist agents before the chain is forced to conclude.
+MAX_HANDOFFS = 2
+
 HANDOFF_PROMPT_ADDENDUM = """
 ## Agent Handoff
 If the user's request would clearly be handled better by a different agent, call
@@ -88,6 +92,49 @@ def rebuild_handoff_messages(messages, source_agent, summary):
 
     removals = [RemoveMessage(id=m.id) for m in messages if getattr(m, "id", None)]
     return removals, rebuilt
+
+
+def stream_with_handoffs(state: AgentState, *, stream_fn, max_handoffs: int = MAX_HANDOFFS):
+    """Run the resolved agent then follow bounded intra-turn delegations.
+
+    This is the single streaming-orchestration loop shared by the chat worker
+    (``AgentHarness``) and the SSE endpoint, replacing two copies of the same
+    bounded-handoff loop. ``state['agent_type']`` must already hold the resolved
+    starting agent.
+
+    Yields the underlying agent stream events. Before each delegation it yields a
+    ``handoff_start`` event and rebuilds a compact context via ``apply_handoff``.
+    The chain stops after ``max_handoffs`` switches, on an unknown or
+    already-visited target, or when no delegation is pending.
+
+    ``stream_fn(agent_type, state)`` yields one agent's events. On return,
+    ``state['agent_type']`` holds the final resolved agent. Consumers that
+    accumulate token text should reset their buffer when they see a
+    ``handoff_start`` event (each delegated agent produces a fresh response).
+    """
+    from agents.registry import AGENT_CLASSES
+
+    current = state.get("agent_type")
+    yield from stream_fn(current, state)
+
+    previous_agents = [current]
+    handoff_count = 0
+    while (
+        state.get("handoff_to")
+        and handoff_count < max_handoffs
+        and state["handoff_to"] in AGENT_CLASSES
+        and state["handoff_to"] not in previous_agents
+    ):
+        target = state["handoff_to"]
+        yield {
+            "type": "handoff_start",
+            "target": target,
+            "reason": state.get("handoff_reason", ""),
+        }
+        apply_handoff(state, use_reducer=False)
+        yield from stream_fn(target, state)
+        previous_agents.append(target)
+        handoff_count += 1
 
 
 def apply_handoff(state: AgentState, *, use_reducer: bool = True) -> AgentState:

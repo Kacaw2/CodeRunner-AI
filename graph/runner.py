@@ -8,14 +8,13 @@ from core.definitions import AGENT_DEFINITIONS, can_route_to
 from core.exceptions import AIError
 from core.state import AgentState
 from agents.registry import AGENT_CLASSES, get_agent_instance
+from graph.handoff import MAX_HANDOFFS
 
 logger = logging.getLogger(__name__)
 
 _AGENTS = {name: get_agent_instance(name) for name in AGENT_CLASSES}
 
 VALID_AGENT_TYPES = set(_AGENTS.keys())
-
-MAX_HANDOFFS = 2
 
 
 def _build_intent_prompt() -> str:

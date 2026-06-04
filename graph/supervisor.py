@@ -20,6 +20,54 @@ from graph.state import WorkflowState
 logger = logging.getLogger(__name__)
 
 
+# ── Entry-point boundary (T4) ──────────────────────────────────
+#
+# The single decision for "multi-step task -> WorkflowEngine" vs
+# "single conversational turn -> orchestrator/harness". This is the one place
+# that classifies a chat message, so the boundary lives in code, not scattered
+# heuristics.
+#
+# Boundary rule:
+#   * A single conversational turn (one user message -> one answer, allowing the
+#     bounded <= MAX_HANDOFFS intra-turn specialist delegation) stays on the
+#     streaming/sync agent path (AgentOrchestrator / AgentHarness). Intra-turn
+#     handoff is delegation, NOT a multi-step workflow.
+#   * Only an explicit multi-step task (teacher problem generation pipeline,
+#     "generate then review", batch/multi operations, or anything requiring a
+#     human gate) escalates to WorkflowEngine, where it gains trace/approval/
+#     resume coverage.
+#
+# Interactive request/response endpoints (/ai/chat, /ai/chat/stream) deliberately
+# do NOT escalate to workflow: a multi-step plan would block the request. Only
+# the async chat worker consults this function and may escalate.
+
+_GENERATION_TRIGGERS = (
+    "生成", "出题", "创建题目", "generate", "create problem",
+    "create a problem", "出一道", "新题",
+)
+
+_MULTI_STEP_TRIGGERS = (
+    "然后", "接着", "之后", "and then", "followed by",
+    "批量", "batch", "多个", "multiple",
+)
+
+
+def should_use_workflow(message: str, user_role: str) -> bool:
+    """Classify whether a chat message warrants a multi-step workflow.
+
+    Returns True for messages that should escalate to ``WorkflowEngine``
+    (teacher generation requests, explicit multi-step phrasing, batch ops);
+    False for single conversational turns that the orchestrator/harness handles
+    (including bounded intra-turn handoff). See the module boundary note above.
+    """
+    msg_lower = message.lower()
+
+    if user_role == "teacher" and any(t in msg_lower for t in _GENERATION_TRIGGERS):
+        return True
+
+    return any(t in msg_lower for t in _MULTI_STEP_TRIGGERS)
+
+
 class SupervisorAgent:
     """Orchestrates multi-step workflows by planning then executing."""
 
@@ -161,28 +209,5 @@ class SupervisorAgent:
 
     @staticmethod
     def _should_use_workflow(message: str, user_role: str) -> bool:
-        """Heuristic: decide if a message needs multi-step workflow vs single agent.
-
-        Workflows are triggered for:
-        - Teacher problem generation requests (already has a pipeline)
-        - Explicit multi-step requests ("generate and review", "analyze then...")
-        - Batch operations
-        """
-        msg_lower = message.lower()
-
-        if user_role == "teacher":
-            generation_triggers = [
-                "生成", "出题", "创建题目", "generate", "create problem",
-                "create a problem", "出一道", "新题",
-            ]
-            if any(t in msg_lower for t in generation_triggers):
-                return True
-
-        multi_step_triggers = [
-            "然后", "接着", "之后", "and then", "followed by",
-            "批量", "batch", "多个", "multiple",
-        ]
-        if any(t in msg_lower for t in multi_step_triggers):
-            return True
-
-        return False
+        """Back-compat shim — delegates to the module-level boundary function."""
+        return should_use_workflow(message, user_role)

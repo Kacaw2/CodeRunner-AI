@@ -101,7 +101,9 @@
 > 仍延后到 Phase 6 的企业级加固：per-tool/per-user 配额、写工具幂等、多租户隔离、per-tool 熔断、
 > live-HTTP 集成测试（均为 YAGNI / 运维质量门禁范畴，待真实需求落地再做）。
 
-### Phase 4: Planning and Task Execution System
+### Phase 4: Planning and Task Execution System ✅ Done（2026-06-05）
+
+> T1–T6 全部落地，详见 `docs/plans/active/2026-06-04-phase4-planning-task-execution-plan.md`。
 
 目标：把 supervisor/workflow 从“部分场景使用”升级为多步 agentic 任务的核心。
 
@@ -117,6 +119,10 @@
 - 多步任务可暂停、审批、恢复、失败重试，并可从最近完成的 step 继续执行（断点续跑）。完整的任意-step 状态回放依赖 step 幂等，推迟到 Phase 6 配合幂等/配额一起做（见 Phase 4 任务清单 T6）。
 - workflow step 的输入输出可以被 trace/eval 关联。
 - handoff 不再传递完整工具残留，只传递摘要和结构化上下文。
+
+> **执行偏差（T4 落地，2026-06-05）**：T4 按「对话轮次形态」而非「是否发生 handoff」定边界——单轮对话（1 条用户消息 → 1 条回答，允许 ≤2 次专家 handoff 的*轮内委派*）仍走流式/同步路径，只有显式多步 plan（generation/review pipeline、validation、human_gate、batch）进 `WorkflowEngine`。原因：流式路径逐 token 实时流，`WorkflowEngine` 为批式（收集 events、无 token 流），把流式 handoff 强搬进 engine 会破坏流式 UX（违反「延迟不退化」）或要求新建 streaming-workflow 设施（本阶段过度工程）。T4 实际收敛为：判定边界统一到单一决策函数 + 三份复制的有界 handoff 循环（runner 图边 / harness / SSE）抽成共享 helper + 入口选择回归测试。
+>
+> **下一阶段设计追求（延后）**：待 `WorkflowEngine` 具备 streaming 能力（token 级事件流 + 增量持久化）后，把流式 handoff（轮内委派）也收敛进 engine，使「单 agent 轮内委派」与「多步 workflow」共用同一执行内核与 trace/审计/恢复语义，彻底消除 runner / harness / SSE 三处编排的存在。前置条件：engine 支持 streaming step 执行；与 Phase 5（handoff 上下文结构化）协同。**触发条件**：当出现「需要对轮内 handoff 做审批 / 恢复 / trace 关联」的真实需求时再做，避免无收益重构。
 
 ### Phase 5: Context and Memory Architecture
 
