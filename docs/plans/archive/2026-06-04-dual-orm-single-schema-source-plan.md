@@ -1,5 +1,7 @@
 # Dual-ORM → Single Schema Source Implementation Plan
 
+> 状态：Archived / Done（数据库/schema 基础设施方案，已从 active 归档）
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Alembic the single source of truth for the DB schema by giving `migrations/env.py` a combined view of both ORM registries and squashing the chain into one baseline that builds the complete schema from an empty MySQL, then retiring `db.create_all()` from the production startup path.
@@ -131,7 +133,7 @@ non-colliding view, the Flask definition is authoritative for any shared table
 name; only core-exclusive tables are copied in on top.
 
 This is a transitional bridge, not a merge of the two ORMs — see
-docs/plans/active/2026-06-04-dual-orm-single-schema-source-plan.md.
+docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md.
 """
 
 import importlib

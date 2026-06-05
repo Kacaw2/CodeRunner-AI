@@ -1,5 +1,7 @@
 # Phase 2: Declarative Agent Registry Implementation Plan
 
+> 状态：Archived / Done（代码侧已落地，保留为执行记录）
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `core/definitions.py` the single source of truth for agent configuration, so every runtime path (API, worker, orchestrator, eval harness, hooks) reads capabilities — tools, roles, model tier, output schema, per-agent budget, handoff targets, rate limit — from one registry, and adding a new agent stops requiring edits in many places.

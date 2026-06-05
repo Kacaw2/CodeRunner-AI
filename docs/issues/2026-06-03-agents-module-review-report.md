@@ -1,74 +1,72 @@
-# Agents 项目 12 模块审查结果报告（2026-06-03 更新版）
+# Agents 项目模块审查结果报告
 
-**审查日期:** 2026-06-03
-**基线:** `2026-05-30-agents-module-review-report.md`（含 2026-05-31 交叉验证）
-**本次范围:** 在 Phase 8（Trace + Eval + CI 交付，提交 `e46175b → b10a81f`）落地后，逐条核验到 file:line 的当前状态
+**原始审查日期:** 2026-06-03
+**更新日期:** 2026-06-05
 **范围模块:** Agent Core、Planner、Tool/Action Layer、Memory/Context、Knowledge/RAG、Executor、Workflow Orchestrator、Safety/Governance、Observability、Evaluation Harness、API/UI、Deployment/Ops
 
-> 本报告是对 2026-05-31 交叉验证的增量更新。结论以**当前代码核验**为准，不再复述未变更模块的历史细节。
+> 本报告已按 2026-06-05 的 agent platform 完成状态刷新。原 2026-06-03 版本中多项“仍在”的问题已经由 Phase 1-4 / Phase 3.5 的实现关闭；当前未解决项只保留真实残余。
 
 ---
 
-## 🟢 自 2026-05-31 以来的最大变化：Phase 8 落地
+## 自 2026-06-03 以来的关键变化
 
-提交 `e46175b → b10a81f` 交付了一整套 **Trace + Eval + CI** 基础设施，实质性升级了报告里两个中等模块（Observability、Evaluation）：
-
-- **完整 trace 体系**：`core/observability/trace_schema.py` + `trace_store.py`（runtime-neutral）、`app/api/v1/agents/traces.py` 完整 trace API/UI、`scripts/backfill_agent_traces.py` 历史回填。
-- **EvalHarness**：`evals/harness/eval_harness.py` 把数据集用例绑定到单条 trace；4 类 grader（`deterministic` / `llm_judge` / `static_checks` / `unit_tests`）、`evals/datasets/store.py`、`evals/judges/`、`evals/reports/`（含 regression 生成器）。
-- **CI 门禁**：`evals.yml`（DB-backed harness gate，低于基线即 fail）+ `tests.yml`（每 PR 跑 pytest）。
-- **测试规模**：从基线时的 ~30 个测试文件增至 **54 个**，新增大量 trace/eval 契约测试。
-
-> 重要边界：EvalHarness 引入了 token/cost/timeout 的 **soft budget**（`eval_harness.py` 文档串明示「never interrupting the agent loop」），但它**只在 eval 离线跑时事后检查**，既不中断 agent 循环，也不作用于生产运行时。它不构成下方缺陷 #2/#5 的护栏。
+- **Agent Core 收束**: `agents/session.py`、`agents/runtime.py`、`agents/llm_runner.py` 已落地,`BaseAgent` 通过 `AgentRuntime` 执行,工具 identity/trace 从 `AgentSession` 传递。
+- **声明式 registry 完整化**: `core/definitions.py` 已承载 `max_tool_iterations`、`rate_limit`、`handoff_targets`、`prompt_ref`;`agents/registry.py` 是 name -> class 的单一入口。
+- **Tool/MCP boundary 收口**: 内部 agent path 与外部 MCP path 共享 `ToolRuntime`;`coderunner.agent.delegate` 取代 regex handoff。
+- **Workflow execution 增强**: `WorkflowEngine` 已支持 step trace 绑定、approval audit、全局墙钟超时、显式断点续跑、step context 裁剪;启动时会安全处理 orphaned workflows。
+- **Planner fallback 已补**: `graph/planner.py` 在 LLM 规划失败时回退 general template。
+- **Memory summary replay 已补**: `memory/service.py` 会读取 `AIConversation.summary`,并有回归测试。
+- **Eval/trace 基础继续保留**: trace-bound eval、grader、report、production failure promotion 基础存在;后续重点转向 EvalOps 产品化。
 
 ---
 
-## 更新后总览评分
+## 当前总览评分
 
-| 模块 | 2026-05-31 | 2026-06-03 | 关键变化 / 残留风险 |
+| 模块 | 当前状态 | 关键变化 / 残留风险 |
+|---|---|---|
+| Agent Core | 🟢 已显著收束 | `AgentSession`/`AgentRuntime`/`LLMRunner`;`MAX_LLM_CALLS_PER_TRACE` 生产侧护栏已接入 |
+| Planner | 🟢 已补关键兜底 | LLM planner 失败时回退 general template |
+| Tool/Action Layer | 🟢 强 | ToolRuntime policy core、retry_policy、output schema enforce toggle、delegate tool |
+| Memory/Context | 🟡 部分完成 | 会回放会话摘要;完整 context/memory 分层仍是后续提升 |
+| Knowledge/RAG | 🟡 部分修复 | 问题检索已有基础出处;知识点检索仍缺通用 `doc_id/source/url` |
+| Executor | 🟡 部分修复 | 容器隔离已有基础;seccomp/更完整运行时安全仍可加强 |
+| Workflow Orchestrator | 🟢 已显著增强 | orphan recovery、timeout、trace binding、approval audit、resume、context crop 已有;任意 step replay 仍后续 |
+| Safety/Governance | 🟢 强 | platform-enforced tool permission + human gate + audit |
+| Observability | 🟢 强 | trace schema/store/API/UI 与 workflow trace 绑定 |
+| Evaluation Harness | 🟡 基础强,产品化未完成 | trace-bound eval 已有;fast/full eval、版本绑定、生产失败回灌仍后续 |
+| API/UI | 🟡 可用但需拆分 | `app/api/v1/ai.py` 仍过大;用户质量反馈闭环仍缺 |
+| Deployment/Ops | 🟡 部分修复 | CI/health/metrics 基础存在;备份/告警/回滚/runbook 仍缺 |
+
+---
+
+## 原 8 条硬缺陷的当前状态
+
+| # | 缺陷 | 原级别 | 当前状态 |
 |---|---|---|---|
-| Agent Core | 🔴 基本不变 | 🔴 不变 | 生产运行时仍无跨 agent LLM 调用总量护栏（仅 per-loop 上限） |
-| Planner | 🔴 不变 | 🔴 不变 | `create_plan` 为「模板→LLM」单向；general 类 LLM 失败返回 `None` 无模板兜底 |
-| Tool/Action Layer | ✅ 增强 | ✅ 不变 | 维持护城河，本轮无回归 |
-| Memory/Context | 🟡 微改 | 🟡 不变 | `get_memory_context` 仍只读静态画像，不回读 `AIConversation.summary` |
-| Knowledge/RAG | 🟡 部分修复 | 🟡 微改 | `search_similar_problems` 带 `problem_id/title`，但 `search_knowledge` 等仍无通用 `doc_id/source` |
-| Executor | 🟡 部分修复 | 🟡 不变 | `pids_limit` + 内网隔离已挡 fork bomb/外联；seccomp 仍缺 |
-| Workflow Orchestrator | 🔴 仍存在 | 🔴 不变 | `recovery.py` 仍不恢复 `WorkflowRun`；无 per-workflow 全局超时 |
-| Safety/Governance | ✅ 增强 | ✅ 不变 | 维持，本轮无回归 |
-| Observability | ✅ 已修复 | 🟢 **再升级** | 在 `/metrics` + 成本换算之上，新增完整 trace schema/store/API/UI + 回填 |
-| Evaluation Harness | ✅ 已修复 | 🟢 **再升级** | 在 CI 门禁之上，新增 trace 绑定的 EvalHarness + 4 类 grader + 回归报告 |
-| API/UI | 🟡 部分修复 | 🟡 不变 | 后台线程池 + SSE 超时已就位；用户反馈/评分闭环仍缺 |
-| Deployment/Ops | 🟡 部分修复 | 🟡 不变 | CI/`/metrics`/healthcheck 已就位；备份/告警/自动回滚仍缺 |
+| 1 | WorkflowRun 孤儿不可恢复 | P0 | ✅ 已关闭。`graph/recovery.py:41` `recover_orphaned_workflows()` 会将崩溃中断的 workflow 安全标 failed,`app/__init__.py` 启动调用;`tests/test_graph_engine.py` 覆盖 |
+| 2 | 无 per-workflow 全局墙钟超时 | P0 | ✅ 已关闭。`graph/engine.py` 使用 `DEFAULT_TIMEOUT_SECONDS` 检查 elapsed;`tests/test_graph_engine.py::test_workflow_aborts_when_wall_clock_timeout_exceeded` 覆盖 |
+| 3 | Planner 无降级 | P1 | ✅ 已关闭。`graph/planner.py` 新增 `plan_general_fallback()`;`create_plan()` 在 LLM 失败时回退 |
+| 4 | Memory 摘要不回放 | P1 | ✅ 已关闭。`memory/service.py` 读取 `AIConversation.summary`;`tests/test_agents.py::test_get_memory_context_replays_recent_summaries` 覆盖 |
+| 5 | Agent Core 无调用总量护栏 | P1 | ✅ 已关闭。`agents/runtime.py` 检查 `MAX_LLM_CALLS_PER_TRACE`;超限进入 `limit_exceeded` |
+| 6 | RAG 无来源追踪 | P2 | 🟡 部分。问题检索已有 `problem_id/title`;知识点检索仍缺通用 `doc_id/source/url` |
+| 7 | 运维欠账 | P2 | 🔴 仍在。备份/恢复、日志聚合、告警、自动回滚、容量指引、trace/eval 排障 runbook 仍缺 |
+| 8 | 无用户反馈闭环 | P2 | 🔴 仍在。`feedback` 主要是 human-gate 审批语义,仍缺面向 agent 输出质量的 rating/feedback 端点 |
 
 ---
 
-## 报告 8 条硬缺陷的当前状态（已核验到 file:line）
+## 当前一句话结论
 
-| # | 缺陷 | 级别 | 当前状态 |
-|---|---|---|---|
-| 1 | WorkflowRun 孤儿不可恢复 | 🔴 P0 | **仍在**。`graph/recovery.py:13` `recover_orphaned_tasks()` 仍只查 `AgentTask.status in [executing, validating, planning]`，完全不碰 `WorkflowRun` |
-| 2 | 无 per-workflow 全局墙钟超时 | 🔴 P0 | **仍在**。`DEFAULT_TIMEOUT_SECONDS=300` 仍只在 `graph/engine.py:22` 声明一处、零处比较；`engine.py:137` 的 `start_time` 只用于事后算 `total_latency_ms`，主循环仅限 `MAX_WORKFLOW_STEPS=10` |
-| 3 | Planner 无降级 | 🔴 P1 | **仍在**。`graph/planner.py:171` `plan_with_llm()` 失败返回 `None`，general 类无模板兜底，`supervisor` 见 `None` 即终止 |
-| 4 | Memory 摘要不回放 | 🟡 P1 | **仍在**。`memory/service.py:74` `get_memory_context()` 仍只拼 `StudentProfile` 静态字段，从不读回会话摘要 |
-| 5 | Agent Core 无调用总量护栏 | 🔴 P1 | **仍在**。生产运行时无跨 agent 聚合计数器（eval 的 soft budget 不作用于线上） |
-| 6 | RAG 无来源追踪 | 🟡 P2 | **部分**。问题检索已带 `problem_id/title`；知识点检索仍无通用 `doc_id/source/url` 出处字段 |
-| 7 | 运维欠账 | 🟡 P2 | **仍在**。CI + `/metrics` 已就位；备份/恢复、应用内告警规则、自动回滚仍缺 |
-| 8 | 无用户反馈闭环 | 🟡 P2 | **仍在**。`app/api` 里的 `feedback` 全是 human-gate 审批语义，无 agent 产出的 rating/feedback 端点 |
+Agentic 主干已经从“功能堆叠”推进到较完整的平台内核:runtime kernel、declarative registry、ToolRuntime boundary、tool-based delegation、workflow trace/approval/resume、planner fallback、memory summary replay 都已落地。
 
----
+当前剩余短板不再是原来的 P0 编排基础缺口,而是产品化和运维成熟度:EvalOps/replay 质量门禁、context/memory 治理、RAG 来源追踪、用户反馈闭环、`app/api/v1/ai.py` 拆分、备份告警回滚 runbook。
 
-## 一句话结论
-
-Phase 8 把**「可观测 → 可评测」**这条线彻底补齐：完整 trace、trace 绑定的 EvalHarness、4 类 grader、CI 回归门禁、历史回填都已就位，评测/观测从「能调试」推进到「能持续回归」。
-
-但**编排健壮性的两个 P0（WorkflowRun 崩溃不可恢复、无全局墙钟超时）、Planner 无降级、Memory 仍只写不回放、Agent Core 生产侧无调用总量护栏——这 5 项一条都没动**，正是 Phase 8（聚焦评测面）未覆盖的部分，仍是 agentic 主干的可靠性短板。
-
-## 下一轮优先级建议（按性价比）
+## 下一轮优先级建议
 
 | 优先级 | 动作 | 解决模块 | 备注 |
 |---|---|---|---|
-| P0 | `recovery.py` 增加 `WorkflowRun` 孤儿恢复 | Orchestrator | 改动小、闭环风险高 |
-| P0 | engine 主循环把已有 `start_time` 接到 `DEFAULT_TIMEOUT_SECONDS` 做中止 | Orchestrator | 常量已声明，只差引用 |
-| P1 | Planner 加 LLM→模板兜底 | Planner | `plan_with_llm` 返回 `None` 时回退 general 模板 |
-| P1 | Memory 打通摘要回放（`get_memory_context` 读回 `AIConversation.summary`）+ 补测试 | Memory | |
-| P1 | Agent Core 加生产侧跨 agent 调用总量护栏 | Agent Core | 可复用 eval soft budget 的计数思路 |
-| P2 | RAG 知识点检索补 `source/doc_id`；监控告警 + 备份 + 反馈端点 | RAG, Ops, API | |
+| P1 | RAG 知识点检索补 `source/doc_id/url` | RAG | 让 AI 回答可追溯 |
+| P1 | 增加 agent 输出质量 feedback/rating 端点 | API/UI, Eval | 为生产失败回灌和质量趋势提供入口 |
+| P2 | Context and Memory Architecture 专项 | Memory/Context | 见 active remaining-improvements plan |
+| P2 | EvalOps/replay 产品化 | Evaluation | fast/full eval、版本绑定、生产失败回灌 |
+| P2 | Ops runbook + backup/alert/rollback | Deployment/Ops | 上线成熟度 |
+| P2 | 拆分 `app/api/v1/ai.py` | API | 降低维护风险 |

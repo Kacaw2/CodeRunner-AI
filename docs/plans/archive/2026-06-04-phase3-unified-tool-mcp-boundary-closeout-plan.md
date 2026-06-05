@@ -1,5 +1,7 @@
 # Phase 3: Unified Tool / MCP Boundary — Closeout Plan
 
+> 状态：Archived / Done（Phase 3 已由一致性测试、边界文档和上位计划验收记录收口）
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The upgrade plan's Phase 3 ("internal agent tool calls and external MCP client calls share one platform boundary") is *substantively already built*. `ToolRuntime.call()` is the sole policy core, and both the in-process path ([client.py:91](../../mcp_gateway/client.py)) and the external streamable-http path ([middleware/core.py:182](../../mcp_gateway/middleware/core.py)) converge on `get_tool_runtime().call_sync`. This plan does **not** re-architect anything. It closes the three remaining gaps that keep Phase 3 from being *verifiably* done: (1) no test asserts the two paths produce the same guard verdict + envelope for the same tool/identity; (2) the two-layer allowlist (agent-allowlist hook vs runtime RBAC) is an intentional design that is only implicitly documented; (3) the boundary's role glossary is spread across several docs with no single authority.
@@ -37,7 +39,7 @@ Verified by reading the boundary code. Treat this as the baseline; do not "fix" 
 | `tests/test_mcp_boundary_consistency.py` | Same tool + same identity → same guard verdict + same envelope shape across in-process client and gateway wrapper | Create |
 | `tests/test_mcp_gateway_external_rbac.py` | Add an explicit assertion naming the two-layer allowlist invariant (agent hook absent on external path) | Modify |
 | `docs/architecture/mcp-runtime.md` | Add the canonical "Boundary roles & responsibilities" glossary + the two-layer allowlist invariant | Modify |
-| `docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md` | Mark Phase 3 acceptance criteria as met with references | Modify |
+| `docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md` | Mark Phase 3 acceptance criteria as met with references | Modify |
 
 ## Constraints (do not violate)
 
@@ -208,7 +210,7 @@ git commit -m "test(mcp): pin two-layer allowlist invariant (agent hook is agent
 
 **Files:**
 - Modify: `docs/architecture/mcp-runtime.md`
-- Modify: `docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`
+- Modify: `docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`
 
 Give the boundary one authoritative description and record Phase 3 as met.
 
@@ -233,12 +235,12 @@ Then add the **two-layer allowlist invariant** (from Task 2) and the **equal-sem
 
 - [ ] **Step 3: Record Phase 3 acceptance in the upgrade plan**
 
-In `docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`, under the Phase 3 验收标准, annotate each criterion as met with a reference (the consistency test, the boundary code, the glossary). Note the deferred hardening items (output-schema enforce, quotas, idempotency, multi-tenant) as explicitly out of Phase 3 and tracked for Phase 3.5 / Phase 6.
+In `docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`, under the Phase 3 验收标准, annotate each criterion as met with a reference (the consistency test, the boundary code, the glossary). Note the deferred hardening items (output-schema enforce, quotas, idempotency, multi-tenant) as explicitly out of Phase 3 and tracked for Phase 3.5 / Phase 6.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/architecture/mcp-runtime.md docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md
+git add docs/architecture/mcp-runtime.md docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md
 git commit -m "docs(mcp): canonical boundary glossary and Phase 3 acceptance record"
 ```
 

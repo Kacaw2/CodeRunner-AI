@@ -34,7 +34,29 @@ _LEGACY_FUNCTION_RE = re.compile(
     r"<function(?:\s+name=['\"]?([A-Za-z0-9_.-]+)['\"]?)?\s*>(.*?)</function>",
     re.DOTALL | re.IGNORECASE,
 )
+_LEGACY_TOOL_TAG_RE = re.compile(
+    r"<([A-Za-z0-9_.-]+)\s*>(.*?)</\1>",
+    re.DOTALL | re.IGNORECASE,
+)
 _FUNCTION_MARKER = "<function"
+
+
+def _legacy_tag_names(allowed_tools: list[str] | None) -> tuple[str, ...]:
+    """Tag base-names whose ``<name>`` / ``</name>`` markup the stream splitter
+    must hold back: the ``function`` marker plus every allowlist tool under both
+    its canonical name and any external (gateway) alias the model might emit."""
+    names = {"function"}
+    for canonical in allowed_tools or ():
+        names.add(canonical)
+    try:
+        from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+        allowed = set(allowed_tools or ())
+        for external, canonical in EXTERNAL_TOOL_MAP.items():
+            if canonical in allowed:
+                names.add(external)
+    except Exception:
+        pass
+    return tuple(names)
 
 
 def _parse_legacy_function_text(content: str, allowed_tools: list[str]) -> dict | None:
@@ -49,11 +71,18 @@ def _parse_legacy_function_text(content: str, allowed_tools: list[str]) -> dict 
         return None
 
     match = _LEGACY_FUNCTION_RE.search(content)
+    tool_tag_match = None
     if not match:
+        tool_tag_match = _LEGACY_TOOL_TAG_RE.search(content)
+    if not match and not tool_tag_match:
         return None
 
-    name = (match.group(1) or "").strip()
-    body = (match.group(2) or "").strip()
+    if tool_tag_match is not None:
+        name = (tool_tag_match.group(1) or "").strip()
+        body = (tool_tag_match.group(2) or "").strip()
+    else:
+        name = (match.group(1) or "").strip()
+        body = (match.group(2) or "").strip()
     args_text = body
 
     if not name:
@@ -94,19 +123,41 @@ def _usage_number(metadata, key: str) -> int:
     return value if isinstance(value, int) else 0
 
 
-def _split_safe_stream_content(buffer: str) -> tuple[str, str]:
-    """Return text safe to stream now and text that might be function markup."""
+def _split_safe_stream_content(
+    buffer: str, tag_names: tuple[str, ...] = ("function",)
+) -> tuple[str, str]:
+    """Return text safe to stream now and text that might be tool markup.
+
+    Holds back any ``<name>`` / ``</name>`` (complete or still streaming) whose
+    *name* is a recognized tool tag, so legacy text-form tool calls never leak
+    to the client. Unrelated angle brackets — code like ``vector<int>`` or
+    ``a < b`` — stream through untouched because their names are not tool tags.
+    """
     lower = buffer.lower()
-    marker_pos = lower.find(_FUNCTION_MARKER)
-    if marker_pos >= 0:
-        return buffer[:marker_pos], buffer[marker_pos:]
+    markers = []
+    for name in tag_names:
+        markers.append("<" + name.lower())
+        markers.append("</" + name.lower())
 
-    max_suffix = min(len(_FUNCTION_MARKER) - 1, len(buffer))
-    for length in range(max_suffix, 0, -1):
-        if _FUNCTION_MARKER.startswith(lower[-length:]):
-            return buffer[:-length], buffer[-length:]
+    # A complete (or just-opened) marker anywhere in the buffer: hold from it on.
+    best = -1
+    for marker in markers:
+        pos = lower.find(marker)
+        if pos >= 0 and (best < 0 or pos < best):
+            best = pos
+    if best >= 0:
+        return buffer[:best], buffer[best:]
 
-    return buffer, ""
+    # No full marker yet: hold back a trailing prefix that could still grow into
+    # one (e.g. buffer ends with "<get" while "<get_problem_detail" is pending).
+    cut = len(buffer)
+    for marker in markers:
+        max_len = min(len(marker) - 1, len(buffer))
+        for length in range(max_len, 0, -1):
+            if marker.startswith(lower[-length:]):
+                cut = min(cut, len(buffer) - length)
+                break
+    return buffer[:cut], buffer[cut:]
 
 
 class _DefinitionAttr:

@@ -116,8 +116,7 @@
     const tabs = [
       ['timeline', 'Timeline'],
       ['messages', 'Messages'],
-      ['tools', 'Tools'],
-      ['mcp', 'MCP'],
+      ['tools', 'Tools / MCP'],
       ['artifacts', `Artifacts (${(data.artifacts || []).length})`],
       ['cost', 'Cost'],
       ['eval', 'Eval'],
@@ -166,12 +165,17 @@
 
     if (tab === 'timeline') return renderTimeline(spans, run);
     if (tab === 'messages') return renderMessages(run);
-    if (tab === 'tools') return renderSpanTable(spans.filter(s => s.span_type === 'tool'), 'No tool spans.');
-    if (tab === 'mcp') return renderSpanTable(spans.filter(s => s.span_type === 'mcp'), 'No MCP spans.');
+    if (tab === 'tools') return renderSpanTable(spans.filter(isMcpOrToolSpan), 'No tool/MCP spans.');
     if (tab === 'artifacts') return renderArtifacts(data.artifacts || []);
     if (tab === 'cost') return renderCost(run);
     if (tab === 'eval') return renderEval(run, data.links || []);
     return '';
+  }
+
+  // Every agent tool call crosses the MCP client boundary, so tool and mcp
+  // spans are the same surface — one tab covers both.
+  function isMcpOrToolSpan(s) {
+    return s.span_type === 'mcp' || s.span_type === 'tool';
   }
 
   function renderTimeline(spans, run) {

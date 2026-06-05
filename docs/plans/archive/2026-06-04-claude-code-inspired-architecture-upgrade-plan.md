@@ -1,8 +1,10 @@
 # Claude Code-Inspired Architecture Upgrade Plan
 
-> 状态：Active  
+> 状态：Archived（主体完成，剩余真实提升项已转入 `../active/2026-06-05-agent-platform-remaining-improvements-plan.md`）  
 > 日期：2026-06-04  
 > 范围：`agents/`、`graph/`、`workers/`、`mcp_gateway/`、`tools/protocol/`、`core/definitions.py`、`core/observability/`、`evals/`
+
+> 归档说明：Phase 1、Phase 2、Phase 3、Phase 3.5、Phase 4 均已有对应实现和执行方案。本文保留为路线基线；后续不再从本文直接派发任务，未实现的真实提升需求以 active 文档 `2026-06-05-agent-platform-remaining-improvements-plan.md` 为准。
 
 ## 目标
 
@@ -94,7 +96,7 @@
 - [x] 工具调用都能关联 user、role、agent、conversation、task、trace — `CallerContext` + `emit_audit`（`tools/protocol/runtime.py`）。
 - [x] high-risk / write 工具继续经过 human gate — `tests/test_mcp_gateway_human_gate.py`。
 
-> 收口范围与剩余加固见 `docs/plans/active/2026-06-04-phase3-unified-tool-mcp-boundary-closeout-plan.md`。
+> 收口范围与剩余加固见 `docs/plans/archive/2026-06-04-phase3-unified-tool-mcp-boundary-closeout-plan.md`。
 > Phase 3.5（已完成，见 `2026-06-04-phase3.5-toolruntime-hardening-plan.md`）落地了 boundary 内部加固：
 > `retry_policy` 真正生效（仅 retryable 错误、`max_attempts=0` 行为不变）、output_schema 补全为真实
 > schema 并加 `MCP_OUTPUT_SCHEMA_ENFORCE` 开关（默认 warn-only，可一键转 enforce）。
@@ -103,7 +105,7 @@
 
 ### Phase 4: Planning and Task Execution System ✅ Done（2026-06-05）
 
-> T1–T6 全部落地，详见 `docs/plans/active/2026-06-04-phase4-planning-task-execution-plan.md`。
+> T1–T6 全部落地，详见 `docs/plans/archive/2026-06-04-phase4-planning-task-execution-plan.md`。
 
 目标：把 supervisor/workflow 从“部分场景使用”升级为多步 agentic 任务的核心。
 

@@ -2,7 +2,7 @@
 
 > 状态：Done（T1–T6 全部落地，2026-06-05）
 > 日期：2026-06-04
-> 上位计划：`docs/plans/active/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`（Phase 4 节）
+> 上位计划：`docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md`（Phase 4 节）
 > 范围：`graph/`、`app/models/workflow.py`、`core/db/models/workflow.py`、`core/db/models/agent_trace.py`、`core/db/models/mcp_approval.py`、`migrations/`、`tools/protocol/`
 
 ## 背景：代码现状（落任务前的事实基线）

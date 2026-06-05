@@ -13,6 +13,14 @@ def test_tests_workflow_runs_pytest_and_js_syntax_checks():
     assert "node --check app/static/js/evals.js" in workflow
 
 
+def test_traces_mcp_tab_renders_current_tool_spans():
+    traces_js = Path("app/static/js/traces.js").read_text(encoding="utf-8")
+
+    assert "isMcpOrToolSpan" in traces_js
+    assert "s.span_type === 'tool'" in traces_js
+    assert "s.span_type === 'mcp'" in traces_js
+
+
 def test_evals_workflow_uploads_full_report_artifacts():
     workflow = Path(".github/workflows/evals.yml").read_text(encoding="utf-8")
 

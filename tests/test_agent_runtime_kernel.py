@@ -191,3 +191,230 @@ def test_runtime_blocks_undeclared_tool():
     tc = {"name": "coderunner.problem.save_generated", "args": {}, "id": "tc"}
     msg = ToolCallExecutor().run(tc, state, "tutor", session=session)
     assert "TOOL_NOT_ALLOWED" in msg.content
+
+
+def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
+    monkeypatch, app, db_session, teacher_user,
+):
+    """Provider-emitted <get_problem_detail> tags are tool calls, not final text."""
+    from agents.runtime import AgentRuntime
+    from agents.session import AgentSession
+    import agents.runtime as runtime_mod
+
+    class _Chunk:
+        def __init__(self, content="", tool_call_chunks=None, usage_metadata=None):
+            self.content = content
+            self.tool_call_chunks = tool_call_chunks or []
+            self.usage_metadata = usage_metadata or {}
+
+    class _XmlThenDoneLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def bind_tools(self, _schemas):
+            return self
+
+        def stream(self, _messages):
+            self.calls += 1
+            if self.calls == 1:
+                return [_Chunk(
+                    "Let me inspect it.\n\n<get_problem_detail>\n</get_problem_detail>"
+                )]
+            return [_Chunk("Check the boundary case.", usage_metadata={
+                "input_tokens": 2,
+                "output_tokens": 3,
+            })]
+
+    monkeypatch.setattr(
+        runtime_mod.AIConfig,
+        "get_llm",
+        staticmethod(lambda tier=None: _XmlThenDoneLLM()),
+    )
+
+    from mcp_gateway import client as client_mod
+    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+
+    captured = {}
+
+    class _FakeClient:
+        def call_tool(self, name, args, identity, tool_call_id=""):
+            captured["name"] = name
+            captured["args"] = args
+            captured["trace_id"] = identity.trace_id
+            return {"ok": True, "data": {"problem_id": 42, "title": "Two Sum"}}
+
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    client_mod.set_mcp_tool_client(_FakeClient())
+    try:
+        state = {
+            "messages": [HumanMessage(content="Why WA?")],
+            "agent_type": "tutor",
+            "user_id": teacher_user.id,
+            "user_role": "teacher",
+            "context": {"conversation_id": 5678, "question_id": 42},
+            "tool_results": [],
+            "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        events = list(AgentRuntime().stream(
+            session,
+            tool_names=["coderunner.problem.get_detail"],
+            system_ctx="SYS",
+        ))
+    finally:
+        reset_tool_runtime()
+        client_mod.set_mcp_tool_client(None)
+
+    token_text = "".join(e.get("content", "") for e in events if e["type"] == "token")
+    assert "<get_problem_detail>" not in token_text
+    assert any(e["type"] == "tool_call" for e in events)
+    assert captured["name"] == "coderunner.problem.get_detail"
+    assert captured["args"] == {"problem_id": 42}
+    assert captured["trace_id"]
+    assert session.final_response == "Check the boundary case."
+
+    from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+    from core.db.session import db_session as core_db_session
+
+    with core_db_session() as session_db:
+        run = (
+            session_db.query(AgentTraceRun)
+            .filter_by(
+                agent_type="tutor",
+                user_id=teacher_user.id,
+                conversation_id=5678,
+            )
+            .one()
+        )
+        tool_span = (
+            session_db.query(AgentTraceSpan)
+            .filter_by(trace_id=run.trace_id, span_type="tool")
+            .one()
+        )
+        assert "Two Sum" in tool_span.output_preview
+
+
+def test_worker_context_restores_question_id_from_conversation():
+    from workers.task_runner import _chat_context_from_conversation
+
+    conv = type("Conversation", (), {
+        "id": 10,
+        "context_type": "question",
+        "context_id": 42,
+    })()
+
+    context = _chat_context_from_conversation(conv)
+
+    assert context == {"conversation_id": 10, "question_id": 42}
+
+
+def test_split_holds_tool_tag_streamed_token_by_token():
+    """A tool tag arriving across chunks must never leak as visible text, while
+    unrelated angle brackets (code) stream through untouched."""
+    from agents.base import _split_safe_stream_content, _legacy_tag_names
+
+    tags = _legacy_tag_names(["coderunner.problem.get_detail"])
+
+    buf, visible = "", ""
+    for tok in ["Let me look.\n", "<get", "_problem", "_detail>", "</get_problem_detail>"]:
+        buf += tok
+        safe, buf = _split_safe_stream_content(buf, tags)
+        visible += safe
+    # The opening/closing tag must stay held (consumed later by the parser),
+    # never emitted as a visible token mid-stream.
+    assert "<get_problem_detail>" not in visible
+    assert "</get_problem_detail>" not in visible
+    assert visible == "Let me look.\n"
+
+    # Code with angle brackets is not a tool tag → streams normally.
+    buf, visible = "", ""
+    for tok in ["Use ", "vector", "<int>", " when ", "a < b"]:
+        buf += tok
+        safe, buf = _split_safe_stream_content(buf, tags)
+        visible += safe
+    visible += buf
+    assert visible == "Use vector<int> when a < b"
+
+
+def test_runtime_stream_records_artifact_for_generated_problem(
+    monkeypatch, app, db_session, teacher_user,
+):
+    """save_generated tool output is persisted as a trace artifact."""
+    from agents.runtime import AgentRuntime
+    from agents.session import AgentSession
+    import agents.runtime as runtime_mod
+
+    class _Chunk:
+        def __init__(self, content="", tool_call_chunks=None, usage_metadata=None):
+            self.content = content
+            self.tool_call_chunks = tool_call_chunks or []
+            self.usage_metadata = usage_metadata or {}
+
+    class _XmlThenDoneLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def bind_tools(self, _schemas):
+            return self
+
+        def stream(self, _messages):
+            self.calls += 1
+            if self.calls == 1:
+                return [_Chunk("Saving it.\n<save_generated_problem></save_generated_problem>")]
+            return [_Chunk("Done.")]
+
+    monkeypatch.setattr(
+        runtime_mod.AIConfig,
+        "get_llm",
+        staticmethod(lambda tier=None: _XmlThenDoneLLM()),
+    )
+
+    from mcp_gateway import client as client_mod
+    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+
+    class _FakeClient:
+        def call_tool(self, name, args, identity, tool_call_id=""):
+            return {"ok": True, "data": {"title": "Two Sum", "verified": True}}
+
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    client_mod.set_mcp_tool_client(_FakeClient())
+    try:
+        state = {
+            "messages": [HumanMessage(content="Make a problem")],
+            "agent_type": "generator",
+            "user_id": teacher_user.id,
+            "user_role": "teacher",
+            "context": {"conversation_id": 9090},
+            "tool_results": [],
+            "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="generator")
+        list(AgentRuntime().stream(
+            session,
+            tool_names=["coderunner.problem.save_generated"],
+            system_ctx="SYS",
+        ))
+    finally:
+        reset_tool_runtime()
+        client_mod.set_mcp_tool_client(None)
+
+    from core.db.models.agent_trace import AgentTraceRun, AgentTraceArtifact
+    from core.db.session import db_session as core_db_session
+
+    with core_db_session() as session_db:
+        run = (
+            session_db.query(AgentTraceRun)
+            .filter_by(agent_type="generator", conversation_id=9090)
+            .one()
+        )
+        artifact = (
+            session_db.query(AgentTraceArtifact)
+            .filter_by(trace_id=run.trace_id, artifact_type="generated_problem")
+            .one()
+        )
+        assert "Two Sum" in artifact.preview_text
+        assert artifact.payload_json["verified"] is True

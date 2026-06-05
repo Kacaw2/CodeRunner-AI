@@ -13,6 +13,20 @@ def _make_llm_response(content="test response", tool_calls=None):
 
 
 class TestBaseAgent:
+    def test_legacy_tool_name_xml_tag_parses_to_canonical_tool(self):
+        from agents.base import _parse_legacy_function_text
+
+        call = _parse_legacy_function_text(
+            "Let me inspect it.\n\n<get_problem_detail>\n</get_problem_detail>",
+            ["coderunner.problem.get_detail"],
+        )
+
+        assert call == {
+            "name": "coderunner.problem.get_detail",
+            "args": {},
+            "id": "legacy_coderunner_problem_get_detail",
+        }
+
     def test_sanitize_args_strips_identity(self):
         from tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext

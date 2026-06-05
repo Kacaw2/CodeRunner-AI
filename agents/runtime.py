@@ -14,6 +14,7 @@ from agents.config import AIConfig, MAX_LLM_CALLS_PER_TRACE, MAX_TOOL_ITERATIONS
 from agents.executor import ToolCallExecutor
 from agents.llm_runner import LLMRunner
 from agents.base import (
+    _legacy_tag_names,
     _parse_legacy_function_text,
     _split_safe_stream_content,
     _trace_links_from_state,
@@ -27,6 +28,52 @@ _HANDOFF_KEYS = (
     "handoff_to", "handoff_reason", "handoff_summary",
     "handoff_source", "previous_agents",
 )
+
+# Tool calls whose result is a durable run output worth surfacing on the trace
+# Artifacts tab: (artifact_type, display name).
+_ARTIFACT_TOOLS = {
+    "coderunner.code.execute": ("code_execution", "Code execution result"),
+    "coderunner.code.execute_internal": ("code_execution", "Code execution result"),
+    "coderunner.problem.save_generated": ("generated_problem", "Generated problem"),
+}
+
+
+def _record_tool_artifact(trace, tool_name: str, content) -> None:
+    """Persist an artifact for artifact-worthy tools. Best-effort: never raises."""
+    meta = _ARTIFACT_TOOLS.get(tool_name)
+    if not meta:
+        return
+    artifact_type, name = meta
+    payload = None
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+            payload = parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+    elif isinstance(content, dict):
+        payload = content
+    trace.add_artifact(
+        artifact_type=artifact_type,
+        name=name,
+        preview_text=content if isinstance(content, str) else None,
+        payload_json=payload,
+    )
+
+
+def _hydrate_legacy_tool_args(tool_call: dict, session) -> dict:
+    """Fill arguments that legacy text tags omitted but page context provides."""
+    if tool_call.get("name") != "coderunner.problem.get_detail":
+        return tool_call
+    args = dict(tool_call.get("args") or {})
+    if args.get("problem_id"):
+        return tool_call
+    problem_id = session.context.get("problem_id") or session.context.get("question_id")
+    if not problem_id:
+        return tool_call
+    hydrated = dict(tool_call)
+    hydrated["args"] = {**args, "problem_id": problem_id}
+    return hydrated
 
 
 class AgentRuntime:
@@ -125,16 +172,22 @@ class AgentRuntime:
                 messages.append(response)
                 legacy = _parse_legacy_function_text(getattr(response, "content", ""), tool_names)
                 if legacy and not response.tool_calls:
-                    response = AIMessage(content="", tool_calls=[legacy])
+                    response = AIMessage(
+                        content="",
+                        tool_calls=[_hydrate_legacy_tool_args(legacy, session)],
+                    )
                     messages[-1] = response
 
                 if not response.tool_calls:
                     break
 
                 for tc in response.tool_calls:
-                    with trace.trace_tool_call(tc["name"], tc["args"]):
+                    tc = _hydrate_legacy_tool_args(tc, session)
+                    with trace.trace_tool_call(tc["name"], tc["args"]) as tool_step:
                         tool_msg = self._executor.run(tc, state, session.agent_name, session=session)
+                        tool_step["tool_output"] = tool_msg.content
                         messages.append(tool_msg)
+                    _record_tool_artifact(trace, tc["name"], tool_msg.content)
             else:
                 limit_exceeded = bool(response and response.tool_calls)
 
@@ -162,6 +215,7 @@ class AgentRuntime:
         trace, owns_trace, llm_with_tools, messages = self._acquire(
             session, system_ctx, tool_names)
         state = session.to_state()
+        tag_names = _legacy_tag_names(tool_names)
 
         trace_saved = False
         limit_exceeded = False
@@ -180,7 +234,7 @@ class AgentRuntime:
                             if chunk.content:
                                 collected_content += chunk.content
                                 pending_content += chunk.content
-                                safe, pending_content = _split_safe_stream_content(pending_content)
+                                safe, pending_content = _split_safe_stream_content(pending_content, tag_names)
                                 if safe:
                                     yield {"type": "token", "content": safe}
                             if chunk.tool_call_chunks:
@@ -211,7 +265,7 @@ class AgentRuntime:
 
                 legacy = _parse_legacy_function_text(collected_content, tool_names)
                 if legacy and not tool_calls:
-                    tool_calls = [legacy]
+                    tool_calls = [_hydrate_legacy_tool_args(legacy, session)]
                     collected_content = ""
 
                 if not tool_calls:
@@ -231,14 +285,19 @@ class AgentRuntime:
                             args = json.loads(args)
                         except json.JSONDecodeError:
                             args = {}
-                    parsed_calls.append({"name": tc["name"], "args": args, "id": tc["id"]})
+                    parsed_calls.append(_hydrate_legacy_tool_args(
+                        {"name": tc["name"], "args": args, "id": tc["id"]},
+                        session,
+                    ))
 
                 messages.append(AIMessage(content=collected_content, tool_calls=parsed_calls))
                 for tc in parsed_calls:
                     yield {"type": "tool_call", "tool": tc["name"], "input": str(tc["args"])}
-                    with trace.trace_tool_call(tc["name"], tc["args"]):
+                    with trace.trace_tool_call(tc["name"], tc["args"]) as tool_step:
                         tool_msg = self._executor.run(tc, state, session.agent_name, session=session)
+                        tool_step["tool_output"] = tool_msg.content
                         messages.append(tool_msg)
+                    _record_tool_artifact(trace, tc["name"], tool_msg.content)
                     yield {"type": "tool_result", "tool": tc["name"],
                            "summary": f"Fetched {tc['name']} result"}
             else:
