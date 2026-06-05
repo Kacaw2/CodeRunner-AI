@@ -7,24 +7,10 @@ class Config:
     DEBUG = False
     TESTING = False
 
-    _db_url = os.environ.get("DATABASE_URL")
-    if _db_url:
-        if _db_url.startswith("postgres://"):
-            _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-        SQLALCHEMY_DATABASE_URI = _db_url
-    else:
-        MYSQL_USER = os.environ.get('MYSQL_USER') or os.environ.get('DB_USER') or 'root'
-        MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD') or os.environ.get('DB_PASSWORD') or ''
-        MYSQL_HOST = os.environ.get('MYSQL_HOST') or os.environ.get('DB_HOST') or 'localhost'
-        MYSQL_PORT = os.environ.get('MYSQL_PORT') or os.environ.get('DB_PORT') or '3306'
-        MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE') or os.environ.get('DB_NAME') or 'coderunner'
-    
-        # MySQL connection string format: mysql+pymysql://username:password@host:port/database
-        SQLALCHEMY_DATABASE_URI = (
-            f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@"
-            f"{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
-            f"?charset=utf8mb4"
-        )
+    # Single source of truth for the DB URL — core builds it once
+    # (DATABASE_URL → MYSQL_* → DB_* precedence lives in core/config.py).
+    from core.config import get_settings as _get_core_settings
+    SQLALCHEMY_DATABASE_URI = _get_core_settings().DB_URL
 
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
