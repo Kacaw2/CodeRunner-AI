@@ -44,16 +44,6 @@ def get_engine():
     return _engine
 
 
-def set_engine(engine) -> None:
-    """Adopt an externally-created engine (e.g. Flask-SQLAlchemy's) so that
-    in-process neutral sessions share ONE pool with the web layer. Only the
-    Flask process calls this; worker/gateway processes keep their own engine.
-    Idempotent."""
-    global _engine, _SessionLocal
-    _engine = engine
-    _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
-
-
 def get_session_factory():
     global _SessionLocal
     if _SessionLocal is None:

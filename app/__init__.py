@@ -36,11 +36,8 @@ def create_app(config_name=None):
     # 4. Register blueprints
     register_blueprints(app)
 
-    # 5. Adopt one engine for the whole Flask process, then verify schema
+    # 5. Ensure all model tables exist (idempotent, safe with migrations)
     with app.app_context():
-        from app.core.extensions import db
-        from core.db import session as core_session
-        core_session.set_engine(db.engine)
         _ensure_tables(app)
 
     # 6. Startup tasks
