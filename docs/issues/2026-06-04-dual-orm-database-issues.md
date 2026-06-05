@@ -1,7 +1,7 @@
 # 双层 ORM 数据模型问题报告
 
 **识别日期:** 2026-06-04
-**状态:** 部分解决(2026-06-05 更新:迁移基线、Alembic 全量 metadata、生产 `create_all()` 兜底已关闭;双 engine/双事务/重复映射仍保留为后续架构债)
+**状态:** 部分解决(2026-06-06 更新:迁移基线、Alembic 全量 metadata、生产 `create_all()` 兜底已关闭;URL 已单源化、重复映射已加漂移护栏;进程内双 engine 暂缓、重复 mapped class 仍为后续架构债)
 **范围:** 数据持久层 —— Flask-SQLAlchemy 与 runtime-neutral SQLAlchemy 并存
 **核验:** 已按当前代码和 `docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md` 更新
 
@@ -114,9 +114,12 @@ Flask 引擎和 core 引擎是两个连接池、两套事务。一次业务流�
    **✅ 已完成**(`docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md`):合并 metadata 后 autogenerate 出单条基线 `migrations/versions/e21895a59f7d_baseline_full_schema.py`(`down_revision=None`,完整 schema,空库 `upgrade head` 通过),`tests/test_migration_full_schema.py` 由 xfail 转为常态 PASS,`app/__init__.py` 启动期 `db.create_all()` 兜底已撤除。
    遗留:`evals/ci.py` 与测试 fixture 的 `create_all()` 属测试/CI 临时库构造;若后续要彻底统一测试 schema,另开专项。
 2. **统一引擎/URL**:让 core 复用 Flask 同一个 engine 和同一份 URL 配置(或反之),消除双池双事务。
-   **⏸ 暂缓**:与架构升级路线图(runtime/Agent Host 要脱离 Flask 独立)方向相反,需先有路线决策再动 code。
+   **🔶 部分完成**(Phase 0,`docs/plans/active/2026-06-06-dual-orm-convergence-plan.md`):
+   - **URL 已统一**:`app/core/config.py` 不再自建 URL,改为 `Config.SQLALCHEMY_DATABASE_URI = get_settings().DB_URL`,与 core 同源(commit `9041a81`,`tests/test_db_single_url.py` 守住)。一边改、另一边静默指向别的库的风险已消除。
+   - **引擎统一暂缓**:让 Flask 进程独占一个 engine 的尝试(commit `b074214`)因引入"每次 `create_app()` 覆写进程级全局 engine"被回滚(`1b1a801`)——多 app 测试/headless 进程会互相踩。改进路线见计划 Task 2:用 `flask.has_app_context()` 让 `get_engine()` 上下文感知,或用 scoped handle + conftest fixture。其余双 engine 属正常的跨进程(worker/gateway/Agent Host),非进程内双池。
 3. **消除重复表定义**:每张表只保留一个 mapped class,另一层通过 repository/service 访问。
    **⏸ 暂缓**:与当前过渡态(Phase 4 计划硬性要求"加列两份模型同步改")冲突,属后续独立工作。
+   过渡期已加机器护栏:`tests/test_dual_mapping_consistency.py`(commit `82ba29d`)断言 7 张共享表满足 `core 列 ⊆ Flask 列` 且共享列类型兼容,防止两份定义危险漂移。已记录的合法投影差异(非漂移):`ACCEPTED_TYPE_MISMATCH = {("users", "role")}`(Flask `Enum(UserRole)` vs core `String`,core `User` 是只读投影)。
 4. **归位 mcp 模型**:要么真正用 core `Base`,要么挪回 `app/models`,别在 core 下用 Flask db。
    **⏸ 暂缓**:与 Phase 4 T2(计划复用/扩展 `core/db/models/mcp_approval.py`)耦合,到那里一并决策。
 5. **让 Alembic 看见全部 metadata**:`env.py` 的 target_metadata 合并两套(或统一后只剩一套)。
@@ -127,7 +130,8 @@ Flask 引擎和 core 引擎是两个连接池、两套事务。一次业务流�
 ## 六、证据索引(file:line)
 
 - 两个引擎:`core/db/session.py`(自建 `create_engine`)vs Flask app engine
-- 两套 URL:`core/config.py` `_build_database_url()` vs `app/core/config.py` `SQLALCHEMY_DATABASE_URI`
+- URL 单源化(Phase 0):`app/core/config.py` `SQLALCHEMY_DATABASE_URI = get_settings().DB_URL`(commit `9041a81`),`tests/test_db_single_url.py`
+- 重复映射漂移护栏(Phase 0):`tests/test_dual_mapping_consistency.py`(commit `82ba29d`)
 - Alembic 全量 metadata:`migrations/env.py` `get_metadata()` → `core/db/metadata.py` `build_target_metadata()`
 - 重复表定义:见第二节 P2 表格
 - 边界 blur:`core/db/models/{mcp_api_key,mcp_approval,mcp_audit_log}.py` 用 Flask `db`
