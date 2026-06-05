@@ -20,9 +20,18 @@ def init_rate_limiter(redis_url: str):
         logger.warning("Rate limiter disabled (Redis unavailable): %s", e)
 
 
-def check_rate_limit(api_key_id: str, rpm_limit: int) -> bool:
-    """Return True if the request is within limits, False if rate limited."""
-    if _redis_client is None or rpm_limit <= 0:
+def check_rate_limit(api_key_id: str, rpm_limit: int, *, high_risk: bool = False) -> bool:
+    """Return True if the request is within limits, False if rate limited.
+
+    When Redis is unavailable (down at init or erroring mid-call) the limiter
+    cannot enforce throttling. For ordinary tools we fail **open** so a Redis
+    outage does not take down normal traffic. For ``high_risk`` tools we fail
+    **closed** — an unthrottled, unbounded stream of high-risk calls is a worse
+    outcome than a temporary denial, so those are rejected until Redis recovers.
+    """
+    if _redis_client is None:
+        return not high_risk
+    if rpm_limit <= 0:
         return True
 
     key = f"mcp_rate:{api_key_id}"
@@ -36,8 +45,8 @@ def check_rate_limit(api_key_id: str, rpm_limit: int) -> bool:
             _redis_client.expire(key, 60)
         return count <= rpm_limit
     except Exception as e:
-        logger.warning("Rate limit check failed (allowing): %s", e)
-        return True
+        logger.warning("Rate limit check failed (high_risk=%s): %s", high_risk, e)
+        return not high_risk
 
 
 def claim_jti(jti: str, ttl_seconds: int) -> bool:

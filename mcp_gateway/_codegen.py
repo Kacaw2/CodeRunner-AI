@@ -121,14 +121,14 @@ def _render_tool(external_name: str, canonical_name: str) -> str:
             f"                {canonical_name!r},",
             f"                {args_dict},",
             "            )",
-            "        return _guarded(_call)",
+            f"        return _guarded(_call, canonical_tool={canonical_name!r})",
         ]
     else:
         lines += [
             "        return _guarded(lambda: call_via_runtime(",
             f"            {canonical_name!r},",
             f"            {args_dict},",
-            "        ))",
+            f"        ), canonical_tool={canonical_name!r})",
         ]
     return "\n".join(lines)
 

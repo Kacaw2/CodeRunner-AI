@@ -324,6 +324,59 @@ class TestRateLimiter:
         with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
             assert check_rate_limit("k1", 30) is True
 
+    def test_no_redis_fails_closed_for_high_risk(self):
+        # Redis down → cannot throttle. High-risk tools must be denied rather
+        # than allowed to flood unbounded.
+        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+            assert check_rate_limit("k1", 30, high_risk=True) is False
+            assert check_rate_limit("k1", 30, high_risk=False) is True
+
+    def test_redis_error_fails_closed_for_high_risk(self):
+        mock_redis = MagicMock()
+        mock_redis.incr.side_effect = RuntimeError("connection reset")
+        with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
+            assert check_rate_limit("k1", 30, high_risk=True) is False
+            assert check_rate_limit("k1", 30, high_risk=False) is True
+
+
+class TestGuardedFailClosed:
+    """_guarded must fail closed for high-risk tools when Redis is unavailable."""
+
+    def _set_caller(self):
+        set_caller_info({
+            "api_key_id": "k1", "user_id": 1,
+            "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
+        })
+
+    def _ensure_registered(self, *canonical_names):
+        from tools.protocol.registry import get_registry
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        reg = get_registry()
+        for name in canonical_names:
+            reg.register(TOOL_CATALOG[name])
+
+    def test_high_risk_denied_when_redis_down(self):
+        self._set_caller()
+        self._ensure_registered("coderunner.code.execute")
+        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+            result = _guarded(
+                lambda: json.dumps({"ok": True}),
+                canonical_tool="coderunner.code.execute",
+            )
+        data = json.loads(result)
+        assert data["error"]["code"] == "MCP_RATE_LIMITED"
+
+    def test_low_risk_allowed_when_redis_down(self):
+        self._set_caller()
+        self._ensure_registered("coderunner.knowledge.search")
+        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+            result = _guarded(
+                lambda: json.dumps({"ok": True}),
+                canonical_tool="coderunner.knowledge.search",
+            )
+        data = json.loads(result)
+        assert data["ok"] is True
+
 
 # ── Permission matrix ──
 

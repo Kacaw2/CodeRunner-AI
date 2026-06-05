@@ -379,6 +379,40 @@ class TestToolRuntime:
         assert result.ok is False
         assert "PERMISSION_DENIED" in (result.error or {}).get("code", "")
 
+    def test_unexpected_exception_text_not_leaked_in_envelope(self):
+        from tools.protocol.runtime import ToolRuntime, ToolCallContext
+        from tools.protocol.registry import ToolRegistry
+        from tools.protocol.transports.inproc import LocalTransport
+        from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+        from core.auth.context import CallerContext
+
+        secret = "secret-db-password-leak /etc/internal/path"
+
+        reg = ToolRegistry()
+        transport = LocalTransport()
+        reg.register(ToolDescriptor(
+            name="coderunner.problem.get_detail", version="1.0.0",
+            description="", input_schema={}, output_schema={},
+            risk_level=RiskLevel.LOW,
+        ))
+
+        def _boom(**kw):
+            raise RuntimeError(secret)
+
+        transport.register_handler("coderunner.problem.get_detail", _boom)
+
+        runtime = ToolRuntime(registry=reg, transport=transport)
+        ctx = ToolCallContext(
+            caller=CallerContext(user_id=1, role="student", agent_type="tutor"),
+        )
+        result = runtime.call_sync("coderunner.problem.get_detail", {"problem_id": 1}, ctx)
+
+        assert result.ok is False
+        message = (result.error or {}).get("message", "")
+        assert message == "internal tool error"
+        assert secret not in message
+        assert (result.error or {}).get("code") == "MCP_INTERNAL_ERROR"
+
     def test_sanitize_args_strips_identity(self):
         from tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext

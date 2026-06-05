@@ -175,8 +175,11 @@ class ToolRuntime:
                        status="error", error_code=exc.code.value, args=args)
             return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
         except Exception as exc:
-            logger.exception("tool=%s unexpected error", tool_name)
-            mcp_err = MCPInternalError(str(exc), trace_id=trace_id)
+            # Never surface raw exception text to the caller — it can leak stack
+            # internals, paths, or secrets. The full detail (with traceback) goes
+            # to the log/audit stream above; the envelope gets a generic message.
+            logger.exception("tool=%s unexpected error: %s", tool_name, exc)
+            mcp_err = MCPInternalError("internal tool error", trace_id=trace_id)
             self._emit(descriptor, caller, tool_call_id, start,
                        status="error", error_code=mcp_err.code.value, args=args)
             return self._error_result(tool_name, mcp_err, tool_call_id=tool_call_id)

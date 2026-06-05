@@ -136,7 +136,27 @@ def resolve_caller_from_bearer(token: str) -> dict | None:
     return verify_api_key(token)
 
 
-def _guarded(fn):
+def _is_high_risk_tool(canonical_tool: str | None) -> bool:
+    """Whether the canonical tool is declared HIGH risk in the registry.
+
+    Used to decide fail-closed rate limiting when Redis is unavailable. Unknown
+    or unresolved tools default to not-high-risk so a registry lookup glitch can
+    never silently block ordinary traffic (the guard in ToolRuntime is the
+    authoritative gate; this only governs throttle fail-mode).
+    """
+    if not canonical_tool:
+        return False
+    try:
+        from tools.protocol.registry import get_registry
+        from tools.protocol.schemas.descriptors import RiskLevel
+        descriptor = get_registry().get(canonical_tool)
+        return descriptor is not None and descriptor.risk_level == RiskLevel.HIGH
+    except Exception:
+        logger.warning("risk lookup failed for tool=%s", canonical_tool, exc_info=True)
+        return False
+
+
+def _guarded(fn, *, canonical_tool: str | None = None):
     # Per-request identity (production) takes precedence over any startup
     # dev-mode fallback and is isolated to this single call via a finally clear.
     request_caller = _resolve_request_caller()
@@ -151,7 +171,8 @@ def _guarded(fn):
 
         api_key_id = caller["api_key_id"]
         rpm_limit = caller.get("rate_limit_rpm", 30)
-        if not check_rate_limit(api_key_id, rpm_limit):
+        high_risk = _is_high_risk_tool(canonical_tool)
+        if not check_rate_limit(api_key_id, rpm_limit, high_risk=high_risk):
             return _error_envelope("MCP_RATE_LIMITED", "Rate limit exceeded")
 
         return fn()

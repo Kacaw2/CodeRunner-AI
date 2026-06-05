@@ -30,7 +30,7 @@ def test_guarded_resolves_per_request_identity_and_clears(monkeypatch):
     from mcp_gateway.middleware import core
 
     core.set_caller_info(None)
-    monkeypatch.setattr(core, "check_rate_limit", lambda *_: True)
+    monkeypatch.setattr(core, "check_rate_limit", lambda *_, **__: True)
     monkeypatch.setattr(
         core,
         "_resolve_request_caller",
@@ -62,7 +62,7 @@ def test_per_request_identity_overrides_stale_fallback(monkeypatch):
     from mcp_gateway.middleware import core
 
     core.set_caller_info({"api_key_id": "stale", "user_id": 99, "role": "student"})
-    monkeypatch.setattr(core, "check_rate_limit", lambda *_: True)
+    monkeypatch.setattr(core, "check_rate_limit", lambda *_, **__: True)
     monkeypatch.setattr(
         core,
         "_resolve_request_caller",
