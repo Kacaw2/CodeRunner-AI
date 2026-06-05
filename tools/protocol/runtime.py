@@ -21,7 +21,7 @@ from tools.protocol.errors import (
     MCPArgumentInvalid,
     MCPSchemaInvalid,
 )
-from core.observability.audit import AuditEntry, emit_audit
+from core.observability.audit import AuditEntry, emit_audit, log_tool_call
 from tools.protocol.policies.guard import run_guard
 from tools.protocol.registry import ToolRegistry, get_registry
 from tools.protocol.schemas.descriptors import ToolDescriptor
@@ -130,13 +130,14 @@ class ToolRuntime:
             self._validate_input(descriptor, args, trace_id)
         except MCPError as exc:
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="error", error_code=exc.code.value)
+                       status="error", error_code=exc.code.value, args=args)
             return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
 
         guard = run_guard(descriptor, caller, granted_scopes=context.granted_scopes)
         if guard.rejected:
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="rejected", error_code=guard.error.code.value if guard.error else "")
+                       status="rejected", error_code=guard.error.code.value if guard.error else "",
+                       args=args)
             if isinstance(guard.error, MCPApprovalRequired):
                 approval_id = guard.error.approval_id
                 if self._approval_store is not None:
@@ -158,7 +159,7 @@ class ToolRuntime:
             elapsed = self._elapsed(start)
 
             self._validate_output(descriptor, raw, trace_id)
-            self._emit(descriptor, caller, tool_call_id, start, status="success")
+            self._emit(descriptor, caller, tool_call_id, start, status="success", args=args)
 
             return ToolResult(
                 ok=True,
@@ -171,13 +172,13 @@ class ToolRuntime:
 
         except MCPError as exc:
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="error", error_code=exc.code.value)
+                       status="error", error_code=exc.code.value, args=args)
             return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
         except Exception as exc:
             logger.exception("tool=%s unexpected error", tool_name)
             mcp_err = MCPInternalError(str(exc), trace_id=trace_id)
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="error", error_code=mcp_err.code.value)
+                       status="error", error_code=mcp_err.code.value, args=args)
             return self._error_result(tool_name, mcp_err, tool_call_id=tool_call_id)
 
     def call_sync(
@@ -306,7 +307,9 @@ class ToolRuntime:
         *,
         status: str = "success",
         error_code: str = "",
+        args: dict[str, Any] | None = None,
     ) -> None:
+        latency_ms = self._elapsed(start)
         emit_audit(AuditEntry(
             trace_id=caller.trace_id,
             task_id=caller.task_id or "",
@@ -318,9 +321,27 @@ class ToolRuntime:
             user_id=caller.user_id,
             role=caller.role,
             status=status,
-            latency_ms=self._elapsed(start),
+            latency_ms=latency_ms,
             error_code=error_code,
         ))
+        # Persist to the McpAuditLog table so audit survives beyond the log
+        # stream. Best-effort: log_tool_call swallows and rolls back on failure,
+        # so a tool result is never blocked by an audit write.
+        log_tool_call(
+            api_key_id=getattr(caller, "api_key_id", None),
+            user_id=caller.user_id,
+            tool_name=tool.name,
+            tool_args=self._audit_args(args),
+            status=status,
+            latency_ms=latency_ms,
+        )
+
+    @staticmethod
+    def _audit_args(args: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Drop injected caller-identity fields before persisting tool args."""
+        if not args:
+            return None
+        return {k: v for k, v in args.items() if not k.startswith("_caller_")}
 
     @staticmethod
     def _elapsed(start: float) -> int:

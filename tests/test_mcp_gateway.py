@@ -302,16 +302,23 @@ class TestMiddleware:
 class TestRateLimiter:
     def test_allows_under_limit(self):
         mock_redis = MagicMock()
-        mock_redis.get.return_value = "5"
-        mock_redis.pipeline.return_value = MagicMock()
+        # incr returns the post-increment count for this window
+        mock_redis.incr.return_value = 5
         with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
             assert check_rate_limit("k1", 30) is True
 
     def test_blocks_over_limit(self):
         mock_redis = MagicMock()
-        mock_redis.get.return_value = "30"
+        mock_redis.incr.return_value = 31
         with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
             assert check_rate_limit("k1", 30) is False
+
+    def test_sets_expiry_only_on_first_hit(self):
+        mock_redis = MagicMock()
+        mock_redis.incr.return_value = 1
+        with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
+            assert check_rate_limit("k1", 30) is True
+        mock_redis.expire.assert_called_once_with("mcp_rate:k1", 60)
 
     def test_no_redis_allows_all(self):
         with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
@@ -404,3 +411,35 @@ class TestAuditLog:
         assert logs[0].tool_name == "search_knowledge"
         assert logs[0].status == "success"
         assert logs[0].latency_ms == 42
+
+
+# ── Capability-token replay protection ──
+
+class TestTokenReplay:
+    def test_claim_jti_first_use_then_replay(self):
+        from mcp_gateway.middleware import rate_limit
+
+        mock_redis = MagicMock()
+        # Redis SET NX returns True on first claim, None when the key exists.
+        mock_redis.set.side_effect = [True, None]
+        with patch.object(rate_limit, "_redis_client", mock_redis):
+            assert rate_limit.claim_jti("jti-1", 120) is True
+            assert rate_limit.claim_jti("jti-1", 120) is False
+
+    def test_claim_jti_fail_open_without_redis(self):
+        from mcp_gateway.middleware import rate_limit
+
+        with patch.object(rate_limit, "_redis_client", None):
+            assert rate_limit.claim_jti("jti-x", 120) is True
+
+    def test_resolve_caller_rejects_replayed_token(self):
+        from mcp_gateway.middleware import core
+
+        claims = {"sub": "1", "role": "student", "agent_type": "tutor",
+                  "scopes": [], "jti": "abc", "exp": 9999999999}
+        # verify_*/load_* are imported inside the function, so patch them at
+        # their source module; claim_jti is bound on core at import time.
+        with patch("mcp_gateway.internal_auth.load_verify_key_from_env", return_value="k"), \
+             patch("mcp_gateway.internal_auth.verify_internal_token", return_value=claims), \
+             patch.object(core, "claim_jti", return_value=False):
+            assert core.resolve_caller_from_bearer("token") is None

@@ -8,9 +8,10 @@ import contextvars
 import json
 import logging
 import os
+import time
 import uuid
 
-from mcp_gateway.middleware.rate_limit import check_rate_limit
+from mcp_gateway.middleware.rate_limit import check_rate_limit, claim_jti
 from tools.protocol import get_tool_runtime, ToolCallContext
 from core.auth.context import CallerContext
 
@@ -120,6 +121,15 @@ def resolve_caller_from_bearer(token: str) -> dict | None:
     if verify_key:
         claims = verify_internal_token(token, verify_key=verify_key)
         if claims is not None:
+            # Single-use enforcement: reject a token whose jti was already seen
+            # within its lifetime, closing the replay window on intercepted
+            # capability tokens. TTL = remaining token lifetime.
+            jti = claims.get("jti")
+            exp = claims.get("exp")
+            ttl = max(1, int(exp) - int(time.time())) if exp else 0
+            if not claim_jti(jti, ttl):
+                logger.warning("Rejected replayed internal token jti=%s", jti)
+                return None
             return _internal_caller_from_claims(claims)
 
     from mcp_gateway.middleware.auth import verify_api_key
