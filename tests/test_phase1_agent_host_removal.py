@@ -103,9 +103,11 @@ def _iter_scan_files():
 def test_forbidden_tokens_absent_from_runtime_source():
     offenders: list[str] = []
     for path in _iter_scan_files():
+        # Never silently skip a file: a guard that swallows read errors could
+        # miss reappearing residue. Decode leniently so content is still scanned.
         try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
             continue
         for token in FORBIDDEN:
             if token in text:
@@ -123,7 +125,7 @@ def test_old_agents_package_has_no_source():
     agents_dir = REPO_ROOT / "app" / "api" / "v1" / "agents"
     if not agents_dir.exists():
         return
-    py_sources = [p for p in agents_dir.rglob("*.py")]
+    py_sources = list(agents_dir.rglob("*.py"))
     rels = [p.relative_to(REPO_ROOT).as_posix() for p in py_sources]
     assert not py_sources, (
         "app/api/v1/agents/ still contains Python source files: " + ", ".join(rels)
