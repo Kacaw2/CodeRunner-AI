@@ -12,10 +12,12 @@ class MemoryService:
     @staticmethod
     def generate_conversation_summary(conversation_id: int) -> str:
         """After a conversation ends, generate a summary for mid-term memory."""
-        from app.models.ai_conversation import AIMessage
+        from app.core.extensions import db
         from agents.config import AIConfig
+        from domain.repositories.chat import SyncChatRepository
 
-        messages = AIMessage.query.filter_by(conversation_id=conversation_id).all()
+        repo = SyncChatRepository(db.session)
+        messages = repo.get_messages_ordered(conversation_id)
         if len(messages) < 4:
             return ""
 
@@ -80,17 +82,13 @@ class MemoryService:
         and persisted to AIConversation.summary. The current conversation is
         excluded so the agent does not echo its own in-progress session back.
         """
-        from app.models.ai_conversation import AIConversation
+        from app.core.extensions import db
+        from domain.repositories.chat import SyncChatRepository
 
-        query = (
-            AIConversation.query
-            .filter(AIConversation.user_id == user_id)
-            .filter(AIConversation.summary.isnot(None))
+        repo = SyncChatRepository(db.session)
+        rows = repo.get_recent_summarized_conversations(
+            user_id, exclude_conversation_id=exclude_conversation_id, limit=limit
         )
-        if exclude_conversation_id is not None:
-            query = query.filter(AIConversation.id != exclude_conversation_id)
-
-        rows = query.order_by(AIConversation.updated_at.desc()).limit(limit).all()
         return [c.summary.strip() for c in rows if c.summary and c.summary.strip()]
 
     @staticmethod

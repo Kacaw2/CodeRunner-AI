@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context, cu
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
 from app.models.ai_conversation import AIConversation, AIMessage
+from domain.repositories.chat import SyncChatRepository
 from core.definitions import get_definition
 from core.exceptions import AIError, RateLimitError, ConfigError
 from core.security import detect_injection, sanitize_user_input, filter_output
@@ -155,8 +156,9 @@ def _maybe_index_problem(problem):
 def _maybe_generate_summary(conv_id: int):
     """Trigger async conversation summary when message count >= 10 and no summary exists."""
     try:
-        msg_count = AIMessage.query.filter_by(conversation_id=conv_id).count()
-        conv = AIConversation.query.get(conv_id)
+        repo = SyncChatRepository(db.session)
+        msg_count = repo.count_messages(conv_id)
+        conv = repo.get_conversation(conv_id)
         if msg_count >= 10 and conv and not conv.summary:
             app = current_app._get_current_object()
 
@@ -166,7 +168,7 @@ def _maybe_generate_summary(conv_id: int):
                         from memory.service import MemoryService
                         summary = MemoryService.generate_conversation_summary(cid)
                         if summary:
-                            c = AIConversation.query.get(cid)
+                            c = SyncChatRepository(db.session).get_conversation(cid)
                             if c:
                                 c.summary = summary
                                 db.session.commit()
@@ -191,24 +193,24 @@ def _build_context(data: dict) -> dict:
 
 
 def _get_or_create_conversation(user_id, agent_type, conversation_id, context):
+    repo = SyncChatRepository(db.session)
     if conversation_id:
-        conv = AIConversation.query.filter_by(id=conversation_id, user_id=user_id).first()
+        conv = repo.get_conversation_for_user(conversation_id, user_id)
         if conv:
             return conv
-    conv = AIConversation(
+    conv = repo.create_conversation(
         user_id=user_id,
         agent_type=agent_type,
         context_type="question" if context.get("question_id") else None,
         context_id=context.get("question_id"),
     )
-    db.session.add(conv)
     db.session.flush()
     return conv
 
 
 def _load_history(conversation_id: int) -> list:
     from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
-    rows = AIMessage.query.filter_by(conversation_id=conversation_id).order_by(AIMessage.id).all()
+    rows = SyncChatRepository(db.session).get_messages_ordered(conversation_id)
     msgs = []
     for r in rows:
         if r.role == "user":
@@ -332,8 +334,8 @@ def chat():
         context["conversation_id"] = conv.id
         history = _load_history(conv.id) if data.get("conversation_id") else []
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=message)
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
@@ -353,8 +355,7 @@ def chat():
         resolved_agent_type = state.get("agent_type", resolved_agent_type)
         response_text = filter_output(state.get("final_response", ""), resolved_agent_type, user_role)
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(conv.id, role="assistant", content=response_text)
         conv.title = conv.title or message[:80]
         conv.agent_type = resolved_agent_type
         db.session.commit()
@@ -421,8 +422,8 @@ def chat_stream():
         conv = _get_or_create_conversation(user.id, agent_type, data.get("conversation_id"), context)
         history = _load_history(conv.id) if data.get("conversation_id") else []
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
-        db.session.add(user_msg)
+        user_msg = SyncChatRepository(db.session).add_message(
+            conv.id, role="user", content=message)
         db.session.flush()
         db.session.commit()
     except Exception as e:
@@ -486,9 +487,10 @@ def chat_stream():
                 full_response = state.get("final_response", "")
 
             filtered_response = filter_output(full_response, resolved_agent_type, user_role)
-            assistant_msg = AIMessage(conversation_id=conv_id, role="assistant", content=filtered_response)
-            db.session.add(assistant_msg)
-            _conv = AIConversation.query.get(conv_id)
+            _repo = SyncChatRepository(db.session)
+            assistant_msg = _repo.add_message(
+                conv_id, role="assistant", content=filtered_response)
+            _conv = _repo.get_conversation(conv_id)
             if _conv and not _conv.title:
                 _conv.title = message[:80]
             if _conv:
@@ -584,12 +586,11 @@ def chat_async():
         conv = _get_or_create_conversation(
             user.id, agent_type, data.get("conversation_id"), context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=message)
         db.session.flush()
 
-        from app.models.chat_task import ChatTask
-        task = ChatTask(
+        task = repo.create_task(
             conversation_id=conv.id,
             user_id=user.id,
             user_message_id=user_msg.id,
@@ -597,7 +598,6 @@ def chat_async():
             routed_agent=resolved_agent_type,
             status="pending",
         )
-        db.session.add(task)
         db.session.flush()
         db.session.commit()
 
@@ -628,8 +628,7 @@ def chat_task_stream(task_id):
     """SSE stream for an async chat task. Supports catch-up via ?last_event=N."""
     user = get_current_user_or_401()
 
-    from app.models.chat_task import ChatTask
-    task = ChatTask.query.filter_by(id=task_id, user_id=user.id).first()
+    task = SyncChatRepository(db.session).get_task_for_user(task_id, user.id)
     if not task:
         return _error_response("not_found", "Task not found", 404)
 
@@ -697,8 +696,8 @@ def chat_task_status(task_id):
     """Poll the status of an async chat task."""
     user = get_current_user_or_401()
 
-    from app.models.chat_task import ChatTask
-    task = ChatTask.query.filter_by(id=task_id, user_id=user.id).first()
+    repo = SyncChatRepository(db.session)
+    task = repo.get_task_for_user(task_id, user.id)
     if not task:
         return _error_response("not_found", "Task not found", 404)
 
@@ -706,7 +705,7 @@ def chat_task_status(task_id):
 
     # Include the final response content if completed
     if task.status == "completed" and task.result_message_id:
-        result_msg = AIMessage.query.get(task.result_message_id)
+        result_msg = repo.get_message(task.result_message_id)
         if result_msg:
             result["response"] = result_msg.content
 
@@ -723,15 +722,14 @@ def list_conversations():
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
 
-    query = AIConversation.query.filter_by(user_id=user.id)
-    if agent_type:
-        query = query.filter_by(agent_type=agent_type)
-    total = query.count()
-    convs = query.order_by(AIConversation.updated_at.desc()).offset(offset).limit(limit).all()
+    repo = SyncChatRepository(db.session)
+    total = repo.count_conversations_for_user(user.id, agent_type=agent_type)
+    convs = repo.list_conversations_for_user(
+        user.id, agent_type=agent_type, offset=offset, limit=limit)
 
     items = []
     for c in convs:
-        msg_count = AIMessage.query.filter_by(conversation_id=c.id).count()
+        msg_count = repo.count_messages(c.id)
         items.append({
             "id": c.id,
             "agent_type": c.agent_type,
@@ -751,11 +749,12 @@ def list_conversations():
 @require_auth
 def get_conversation(conv_id):
     user = get_current_user_or_401()
-    conv = AIConversation.query.filter_by(id=conv_id, user_id=user.id).first()
+    repo = SyncChatRepository(db.session)
+    conv = repo.get_conversation_for_user(conv_id, user.id)
     if not conv:
         return _error_response("not_found", "Conversation not found", 404)
 
-    msgs = AIMessage.query.filter_by(conversation_id=conv.id).order_by(AIMessage.id).all()
+    msgs = repo.get_messages_ordered(conv.id)
     return jsonify({
         "id": conv.id,
         "agent_type": conv.agent_type,
@@ -777,7 +776,7 @@ def get_conversation(conv_id):
 @require_auth
 def delete_conversation(conv_id):
     user = get_current_user_or_401()
-    conv = AIConversation.query.filter_by(id=conv_id, user_id=user.id).first()
+    conv = SyncChatRepository(db.session).get_conversation_for_user(conv_id, user.id)
     if not conv:
         return _error_response("not_found", "Conversation not found", 404)
     db.session.delete(conv)
@@ -811,9 +810,10 @@ def review_code():
     try:
         conv = _get_or_create_conversation(user.id, "reviewer", None, context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user",
-                             content=f"Please review this code:\n```\n{code}\n```")
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(
+            conv.id, role="user",
+            content=f"Please review this code:\n```\n{code}\n```")
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
@@ -832,8 +832,8 @@ def review_code():
         state = agent.invoke(state)
         response_text = state.get("final_response", "")
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(
+            conv.id, role="assistant", content=response_text)
         conv.title = conv.title or "Code Review"
         db.session.commit()
 
@@ -888,8 +888,8 @@ def generate_question():
     try:
         conv = _get_or_create_conversation(user.id, "generator", None, context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=prompt)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=prompt)
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
@@ -908,8 +908,8 @@ def generate_question():
         state = agent.invoke(state)
         response_text = state.get("final_response", "")
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(
+            conv.id, role="assistant", content=response_text)
         conv.title = conv.title or f"AI Generate: {prompt[:60]}"
         db.session.commit()
 
@@ -966,14 +966,12 @@ def save_generated_question():
     if not conv_id:
         return _error_response("invalid_request", "conversation_id is required", 400)
 
-    conv = AIConversation.query.filter_by(id=conv_id, user_id=user.id, agent_type="generator").first()
+    repo = SyncChatRepository(db.session)
+    conv = repo.get_conversation_for_user(conv_id, user.id, agent_type="generator")
     if not conv:
         return _error_response("not_found", "Generator conversation not found", 404)
 
-    last_assistant = (AIMessage.query
-                      .filter_by(conversation_id=conv.id, role="assistant")
-                      .order_by(AIMessage.id.desc())
-                      .first())
+    last_assistant = repo.get_last_message_by_role(conv.id, "assistant")
     if not last_assistant:
         return _error_response("not_found", "No generated question found", 404)
 
@@ -1475,8 +1473,8 @@ def analytics_report(student_id):
     try:
         conv = _get_or_create_conversation(user.id, "analytics", None, context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=prompt)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=prompt)
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
@@ -1495,8 +1493,8 @@ def analytics_report(student_id):
         state = agent.invoke(state)
         response_text = state.get("final_response", "")
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(
+            conv.id, role="assistant", content=response_text)
         conv.title = conv.title or f"Analytics: Student {student_id}"
         db.session.commit()
 

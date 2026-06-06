@@ -17,7 +17,6 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 from app.core.extensions import db, redis_client
-from app.core.timezone import now_china
 
 logger = logging.getLogger(__name__)
 
@@ -112,25 +111,32 @@ def _push_event(task_id: str, event: dict):
 def _run_chat_task(task_id: str, app):
     """Execute the chat task in a background thread."""
     with app.app_context():
-        from app.models.chat_task import ChatTask
-        from app.models.ai_conversation import AIConversation, AIMessage
         from core.security import filter_output
         from core.exceptions import AIError
+        from domain.repositories.chat import SyncChatRepository
 
-        task = ChatTask.query.get(task_id)
+        repo = SyncChatRepository(db.session)
+
+        task = repo.get_task(task_id)
         if not task:
             logger.error("ChatTask %s not found", task_id)
             return
 
-        # ── Mark processing ──
-        task.status = "processing"
-        task.started_at = now_china()
+        # ── Mark processing (compare-and-set: only the worker that wins the
+        # pending -> processing transition proceeds) ──
+        if not repo.mark_processing(task_id, expected_status="pending"):
+            logger.warning(
+                "ChatTask %s already claimed (status=%s); skipping",
+                task_id, task.status,
+            )
+            return
         db.session.commit()
+        db.session.refresh(task)
         _set_redis(task_id, "processing")
 
         try:
-            conv = AIConversation.query.get(task.conversation_id)
-            user_msg = (AIMessage.query.get(task.user_message_id)
+            conv = repo.get_conversation(task.conversation_id)
+            user_msg = (repo.get_message(task.user_message_id)
                         if task.user_message_id else None)
             message = user_msg.content if user_msg else ""
 
@@ -143,9 +149,7 @@ def _run_chat_task(task_id: str, app):
             from langchain_core.messages import (
                 HumanMessage, AIMessage as LCAIMessage,
             )
-            rows = (AIMessage.query
-                    .filter_by(conversation_id=task.conversation_id)
-                    .order_by(AIMessage.id).all())
+            rows = repo.get_messages_ordered(task.conversation_id)
             history = []
             current_msg_id = user_msg.id if user_msg else None
             for r in rows:
@@ -254,19 +258,20 @@ def _run_chat_task(task_id: str, app):
             filtered = filter_output(full_response, resolved_agent_type, user_role)
 
             # ── Save assistant message ──
-            assistant_msg = AIMessage(
-                conversation_id=task.conversation_id,
+            assistant_msg = repo.add_message(
+                task.conversation_id,
                 role="assistant",
                 content=filtered,
             )
-            db.session.add(assistant_msg)
             if conv and not conv.title:
                 conv.title = message[:80]
             db.session.flush()
 
-            task.result_message_id = assistant_msg.id
-            task.status = "completed"
-            task.completed_at = now_china()
+            repo.mark_completed(
+                task_id,
+                expected_status="processing",
+                result_message_id=assistant_msg.id,
+            )
             db.session.commit()
 
             # ── Done event ──
@@ -310,11 +315,7 @@ def _run_chat_task(task_id: str, app):
             error_msg = (e.user_message if isinstance(e, AIError)
                          else "An unexpected error occurred.")
 
-            task = ChatTask.query.get(task_id)
-            if task:
-                task.status = "failed"
-                task.error_detail = str(e)[:500]
-                task.completed_at = now_china()
+            if repo.mark_failed(task_id, error_detail=str(e)[:500]):
                 db.session.commit()
 
             _push_event(task_id, {"type": "error", "message": error_msg})
@@ -339,8 +340,9 @@ def _try_extract_json(text: str):
 def _maybe_generate_summary(conv_id: int, conv):
     """Generate conversation summary when message count is high enough."""
     try:
-        from app.models.ai_conversation import AIMessage
-        msg_count = AIMessage.query.filter_by(conversation_id=conv_id).count()
+        from domain.repositories.chat import SyncChatRepository
+        repo = SyncChatRepository(db.session)
+        msg_count = repo.count_messages(conv_id)
         if msg_count >= 10 and conv and not conv.summary:
             from memory.service import MemoryService
             summary = MemoryService.generate_conversation_summary(conv_id)
