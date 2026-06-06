@@ -54,12 +54,15 @@ def _try_get_user_from_sources():
     2. Authorization header (Bearer token)
     3. Cookie (auth_token)
     """
-    from app.models import User
-    
+    from app.core.extensions import db
+    from domain.repositories.users import SyncUserRepository
+
+    user_repo = SyncUserRepository(db.session)
+
     # Method 1: Get from session
     user_id = session.get('user_id')
     if user_id:
-        user = User.query.get(user_id)
+        user = user_repo.get_by_id(user_id)
         if user:
             return user
     

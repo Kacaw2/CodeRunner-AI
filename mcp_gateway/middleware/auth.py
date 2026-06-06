@@ -15,17 +15,20 @@ def hash_api_key(raw_key: str) -> str:
 
 def verify_api_key(raw_key: str) -> dict | None:
     """Verify an API key and return caller info, or None if invalid."""
+    from sqlalchemy import select
+
     from core.db.models.mcp_api_key import McpApiKey
     from app.core.timezone import now_china
 
     key_hash = hash_api_key(raw_key)
     session = get_session()
     try:
-        key = (
-            session.query(McpApiKey)
-            .filter_by(key_hash=key_hash, revoked_at=None)
-            .first()
-        )
+        key = session.execute(
+            select(McpApiKey).where(
+                McpApiKey.key_hash == key_hash,
+                McpApiKey.revoked_at.is_(None),
+            )
+        ).scalar_one_or_none()
         if not key:
             return None
         key.last_used_at = now_china()

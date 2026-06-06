@@ -71,14 +71,15 @@ def verify_auth_token(token):
     try:
         secret_key = current_app.config.get('SECRET_KEY')
         payload = jwt.decode(token, secret_key, algorithms=['HS256'])
-        
-        from app.models import User
+
         user_id = payload.get('user_id')
         if not user_id:
             return None
-        
-        user = User.query.get(user_id)
-        return user
+
+        from app.core.extensions import db
+        from domain.repositories.users import SyncUserRepository
+
+        return SyncUserRepository(db.session).get_by_id(user_id)
     except jwt.ExpiredSignatureError:
         # Token has expired
         return None
