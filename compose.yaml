@@ -108,6 +108,14 @@ services:
       CHROMA_PORT: "8000"
       CHROMA_SSL: "False"
       CHROMA_ANONYMIZED_TELEMETRY: "False"
+
+      # Agent runtime command path. Default stays embedded so web behavior is
+      # unchanged; flip AGENT_RUNTIME_MODE to shadow/remote to use the runtime.
+      AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-embedded}
+      AGENT_RUNTIME_URL: http://agent_runtime:8100
+      SERVICE_TOKEN_AUDIENCE: ${SERVICE_TOKEN_AUDIENCE:-agent-runtime-internal}
+      SERVICE_TOKEN_ISSUER: ${SERVICE_TOKEN_ISSUER:-coderunner-web}
+      SERVICE_TOKEN_TTL: ${SERVICE_TOKEN_TTL:-60}
     volumes:
       - ./app:/app/app:ro
       - ./core:/app/core:ro
@@ -226,6 +234,70 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    networks:
+      - educode_network
+    env_file:
+      - .env
+
+  agent_runtime:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.workers
+    container_name: educode_agent_runtime
+    restart: unless-stopped
+    entrypoint: ["uvicorn", "agent_runtime.main:app", "--host", "0.0.0.0", "--port", "8100"]
+    environment:
+      TZ: Asia/Shanghai
+      DEBUG: ${DEBUG:-False}
+      SECRET_KEY: ${SECRET_KEY}
+
+      MYSQL_USER: ${MYSQL_USER:-educode}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
+      DATABASE_ASYNC_URL: mysql+asyncmy://${MYSQL_USER:-educode}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE}?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2048}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+
+      # Internal command auth: dedicated-audience signed service tokens.
+      SERVICE_TOKEN_AUDIENCE: ${SERVICE_TOKEN_AUDIENCE:-agent-runtime-internal}
+      SERVICE_TOKEN_ISSUER: ${SERVICE_TOKEN_ISSUER:-coderunner-web}
+      SERVICE_TOKEN_TTL: ${SERVICE_TOKEN_TTL:-60}
+
+      # MCP gateway (agents are MCP clients; the tool path keeps its token).
+      MCP_HOST: mcp_gateway
+      MCP_PORT: "8200"
+      MCP_API_KEY: ${MCP_API_KEY:-}
+
+      HF_HOME: /app/.hf_cache
+      CHROMA_MODE: http
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      CHROMA_SSL: "False"
+      CHROMA_ANONYMIZED_TELEMETRY: "False"
+    ports:
+      - "${AGENT_RUNTIME_PORT:-8100}:8100"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/health/live',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - hf_cache:/app/.hf_cache
     networks:
       - educode_network
     env_file:

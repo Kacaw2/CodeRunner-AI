@@ -124,6 +124,31 @@ class Settings:
     MCP_PORT: int = int(os.environ.get("MCP_PORT", "8200"))
     MCP_API_KEY: str = os.environ.get("MCP_API_KEY", "")
 
+    # ── FastAPI Agent Runtime (Task 5) ──────────────────────────
+    # Execution mode for the chat command path. The dispatcher reads this:
+    #   "embedded" (default) -> current Flask thread-pool worker, unchanged
+    #   "shadow"             -> embedded executes; remote readiness is verified
+    #   "remote"             -> the FastAPI runtime claims & executes the task
+    AGENT_RUNTIME_MODE: str = os.environ.get("AGENT_RUNTIME_MODE", "embedded")
+    # Base URL the Flask dispatcher uses to reach the runtime's internal command
+    # API (e.g. http://agent_runtime:8100).
+    AGENT_RUNTIME_URL: str = os.environ.get(
+        "AGENT_RUNTIME_URL", "http://localhost:8100"
+    )
+    # HTTP timeout (seconds) for the dispatcher's internal command calls.
+    AGENT_RUNTIME_TIMEOUT: float = float(
+        os.environ.get("AGENT_RUNTIME_TIMEOUT", "10")
+    )
+    # Dedicated audience + TTL for the short-lived internal service JWT. This is
+    # NOT the user JWT audience; the runtime rejects any token without it.
+    SERVICE_TOKEN_AUDIENCE: str = os.environ.get(
+        "SERVICE_TOKEN_AUDIENCE", "agent-runtime-internal"
+    )
+    SERVICE_TOKEN_ISSUER: str = os.environ.get(
+        "SERVICE_TOKEN_ISSUER", "coderunner-web"
+    )
+    SERVICE_TOKEN_TTL: int = int(os.environ.get("SERVICE_TOKEN_TTL", "60"))
+
     @property
     def database_url(self) -> str:
         return self.DB_URL

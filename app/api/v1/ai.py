@@ -601,9 +601,11 @@ def chat_async():
         db.session.flush()
         db.session.commit()
 
-        # Submit to background worker
-        from workers.chat import submit_chat_task
-        submit_chat_task(task.id, current_app._get_current_object())
+        # Route through the 3-state dispatcher. In the default embedded mode
+        # this calls workers.chat.submit_chat_task exactly as before; shadow and
+        # remote modes are opt-in via Settings.AGENT_RUNTIME_MODE.
+        from app.services.agent_runtime_dispatcher import dispatch_chat_task
+        dispatch_chat_task(task.id, current_app._get_current_object())
 
         resp = jsonify({
             "task_id": task.id,
