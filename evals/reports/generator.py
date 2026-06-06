@@ -1,24 +1,21 @@
 """Eval report generator (Phase 7, Task 8).
 
 Reads persisted eval rows (``EvalRun`` / ``EvalCaseRun`` / ``EvalCaseGraderResult``)
-through the runtime-neutral ``core.db.session`` and assembles a structured
+through ``core.db.session`` and assembles a structured
 :class:`EvalReport` covering quality, cost, latency, token distribution, failure
 types, top failed cases, grader pass rates and — when a comparison run is given —
 case-level regressions.
 
-The report has no Flask dependency so it can run from CI (``evals/ci.py``) or be
-shaped into an API payload by the web layer.
+The report can run from CI (``evals/ci.py``) or be shaped into an API payload by
+the web layer.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.db.models.agent_trace import (
-    EvalRun,
-    EvalCaseRun,
-    EvalCaseGraderResult,
-)
+from app.models.eval_run import EvalRun
+from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
 from core.db.session import db_session
 from evals.reports.regression import detect_new_failures, detect_regressions
 

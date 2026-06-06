@@ -125,7 +125,10 @@ def test_gateway_registered_tool_invokes_runtime_pipeline(monkeypatch):
         "scopes": ["search_knowledge"],
         "rate_limit_rpm": 30,
     })
-    monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
+    monkeypatch.setattr(
+        "mcp_gateway.middleware.core.check_rate_limit",
+        lambda *_, **__: True,
+    )
     monkeypatch.setattr("mcp_gateway.middleware.core.get_tool_runtime", lambda: FakeRuntime())
 
     tool = create_mcp_server()._tool_manager._tools["search_knowledge"]

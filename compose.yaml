@@ -98,8 +98,6 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20}
       REDIS_URL: redis://redis:6379/0
-      AGENT_HOST_URL: http://workers:8100
-      USE_AGENT_HOST_PROXY: ${USE_AGENT_HOST_PROXY:-true}
 
       MAX_CONTENT_LENGTH: 16777216
       UPLOAD_FOLDER: /app/uploads
@@ -181,72 +179,6 @@ services:
       start_period: 15s
     networks:
       - executor_network
-
-  workers:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.workers
-    container_name: educode_workers
-    restart: unless-stopped
-    environment:
-      TZ: Asia/Shanghai
-      SECRET_KEY: ${SECRET_KEY}
-      MYSQL_USER: ${MYSQL_USER:-educode}
-      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
-      MYSQL_HOST: db
-      MYSQL_PORT: 3306
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      REDIS_URL: redis://redis:6379/0
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      AI_MODEL: ${AI_MODEL:-deepseek-chat}
-      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2048}
-      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
-      FLASK_BASE_URL: http://web:9900
-      AGENT_HOST_PORT: 8100
-      # Agent tool-call transport. "streamable-http" (default) routes agent tool
-      # calls across MCP transport to the mcp_gateway server. The agent host mints
-      # a short-lived EdDSA-signed capability token per call (see MCP_INTERNAL_SIGNING_KEY);
-      # the gateway verifies it with the public key. Set "inproc" for local/dev to
-      # run tools in-process without a running gateway.
-      MCP_AGENT_TRANSPORT: ${MCP_AGENT_TRANSPORT:-streamable-http}
-      MCP_GATEWAY_URL: ${MCP_GATEWAY_URL:-http://mcp_gateway:8200/mcp}
-      # Ed25519 PRIVATE key (PEM, newlines as \n). The agent host signs identity
-      # claims (user_id/role/agent_type/scopes) the gateway cannot forge. Generate:
-      #   openssl genpkey -algorithm ed25519 | awk '{printf "%s\\n", $0}'
-      MCP_INTERNAL_SIGNING_KEY: ${MCP_INTERNAL_SIGNING_KEY}
-      DEBUG: ${DEBUG:-False}
-      HF_HOME: /app/.hf_cache
-
-      CHROMA_MODE: http
-      CHROMA_HOST: chroma
-      CHROMA_PORT: "8000"
-      CHROMA_SSL: "False"
-      CHROMA_ANONYMIZED_TELEMETRY: "False"
-    volumes:
-      - hf_cache:/app/.hf_cache
-    ports:
-      - "${AGENT_HOST_PORT:-8100}:8100"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      web:
-        condition: service_healthy
-      mcp_gateway:
-        condition: service_healthy
-      chroma:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8100/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    networks:
-      - educode_network
-    env_file:
-      - .env
 
   mcp_gateway:
     build:

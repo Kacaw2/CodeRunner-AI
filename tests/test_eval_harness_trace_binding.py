@@ -71,7 +71,8 @@ class _FakeAgentHarness:
 
 def test_eval_harness_creates_case_runs_with_trace_ids(app, db_session):
     from evals.harness.eval_harness import EvalHarness
-    from core.db.models.agent_trace import EvalRun, EvalCaseRun, EvalCaseGraderResult
+    from app.models.eval_run import EvalRun
+    from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
 
     with app.app_context():
         report = EvalHarness(agent_harness=_FakeAgentHarness()).run(

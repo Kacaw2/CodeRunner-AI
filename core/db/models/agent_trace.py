@@ -1,7 +1,7 @@
 """Runtime-neutral trace/eval ORM models (plain SQLAlchemy).
 
 These are the single canonical mapping for the complete trace tree and eval
-case tables. Workers, the MCP gateway, the eval harness and the trace store
+case detail tables. Workers, the MCP gateway, the eval harness and the trace store
 write through these models on ``core.db.session.Base`` so they never trigger
 Flask-SQLAlchemy mapper configuration (the root cause of the historical
 ``TRACE_SAVE_FAIL`` issue). The Flask service layer reads the same physical
@@ -136,28 +136,6 @@ class AgentTraceLink(Base):
     target_id = Column(String(120), nullable=False)
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, default=_now_china)
-
-
-class EvalRun(Base):
-    """Runtime-neutral mirror of ``eval_runs`` (Flask model in app.models).
-
-    The eval harness owns eval-run persistence and must never depend on a Flask
-    app context, so it writes through this plain-SQLAlchemy mapping. Columns mirror
-    the Alembic-owned ``eval_runs`` table; the Flask ``app.models.eval_run.EvalRun``
-    stays the read model for the web layer.
-    """
-
-    __tablename__ = "eval_runs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    suite_name = Column(String(50), nullable=False)
-    run_at = Column(DateTime, nullable=True, default=_now_china)
-    model_name = Column(String(50), nullable=True)
-    total_cases = Column(Integer, nullable=True)
-    passed_cases = Column(Integer, nullable=True)
-    pass_rate = Column(Float, nullable=True)
-    results_json = Column(JSON, nullable=True)
-    duration_seconds = Column(Float, nullable=True)
 
 
 class EvalCaseRun(Base):

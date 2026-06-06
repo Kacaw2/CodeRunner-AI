@@ -297,7 +297,7 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
 
 
 def test_worker_context_restores_question_id_from_conversation():
-    from workers.task_runner import _chat_context_from_conversation
+    from workers.chat import _chat_context_from_conversation
 
     conv = type("Conversation", (), {
         "id": 10,

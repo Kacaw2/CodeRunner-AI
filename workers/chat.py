@@ -78,6 +78,13 @@ def get_task_status_from_redis(task_id: str) -> dict:
 
 # ── Redis helpers ────────────────────────────────────────────
 
+def _chat_context_from_conversation(conv) -> dict:
+    context = {"conversation_id": conv.id if conv else None}
+    if conv and conv.context_type == "question" and conv.context_id is not None:
+        context["question_id"] = conv.context_id
+    return context
+
+
 def _set_redis(task_id: str, status: str, agent: str = None):
     if not redis_client:
         return
@@ -149,7 +156,7 @@ def _run_chat_task(task_id: str, app):
                 elif r.role == "assistant":
                     history.append(LCAIMessage(content=r.content))
 
-            context = {"conversation_id": task.conversation_id}
+            context = _chat_context_from_conversation(conv)
 
             # ── Agent factory ──
             from agents.registry import AGENT_CLASSES, get_agent_instance

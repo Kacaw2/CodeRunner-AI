@@ -1,6 +1,7 @@
 # Dual-ORM Collapse onto Flask `db.Model` — Delete the FastAPI Agent Host
 
 **Status:** active
+**Phase 1:** completed 2026-06-06
 **Created:** 2026-06-06
 **Owner:** (assign)
 
@@ -742,6 +743,14 @@ Expected: all green. Investigate any `DetachedInstanceError` or `Mapper failed t
 **Commit:** `test: repoint suite off deleted dual-mapped core classes`
 
 ### Phase 1 acceptance criteria
+
+**Completion evidence (2026-06-06):** Phase 1 implementation is complete. The
+runtime-code/config/test grep for deleted Agent Host, proxy and dual-mapped core
+symbols is clean; `tests/test_workflow_worker.py`, `tests/test_workflow_routes.py`,
+`tests/test_combined_metadata.py` and the full suite are green. No migration file
+was added or modified (`git diff --name-only -- migrations` is empty). A local
+`flask db check` was attempted but the testing SQLite target database was not
+upgraded, so it stopped with `Target database is not up to date`.
 
 - [ ] `workers/workflow.py` exists; `tests/test_workflow_worker.py` green.
 - [ ] `POST/GET /api/v1/ai/workflows[...]` routes serve create/list/get/stream; `tests/test_workflow_routes.py` green.

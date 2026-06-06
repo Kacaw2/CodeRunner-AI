@@ -552,8 +552,6 @@ def chat_async():
 
     The frontend should subscribe to /chat/task/<task_id>/stream for SSE events.
     """
-    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_create
-
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
@@ -581,14 +579,6 @@ def chat_async():
 
     context = _build_context(data)
     rl_headers = _rate_limit_headers(rl_info)
-
-    if is_proxy_enabled():
-        proxied_payload = dict(data)
-        proxied_payload["message"] = message
-        # Pass the already-resolved agent so the remote host skips re-routing
-        # (and can't bypass the per-agent limit we just enforced).
-        proxied_payload["agent_type"] = resolved_agent_type
-        return proxy_chat_create(proxied_payload, extra_headers=rl_headers)
 
     try:
         conv = _get_or_create_conversation(
@@ -636,10 +626,6 @@ def chat_async():
 @require_auth
 def chat_task_stream(task_id):
     """SSE stream for an async chat task. Supports catch-up via ?last_event=N."""
-    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_stream
-    if is_proxy_enabled():
-        return proxy_chat_stream(task_id)
-
     user = get_current_user_or_401()
 
     from app.models.chat_task import ChatTask
@@ -709,10 +695,6 @@ def chat_task_stream(task_id):
 @require_auth
 def chat_task_status(task_id):
     """Poll the status of an async chat task."""
-    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_status
-    if is_proxy_enabled():
-        return proxy_chat_status(task_id)
-
     user = get_current_user_or_401()
 
     from app.models.chat_task import ChatTask
@@ -2070,15 +2052,13 @@ def promote_regression():
 @bp.route("/workflows", methods=["POST"])
 @require_auth
 def create_workflow():
-    """Create and execute a multi-step workflow via the Supervisor agent."""
+    """Create a workflow run and submit it for background execution."""
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
     goal = (data.get("goal") or data.get("message") or "").strip()
     if not goal:
         return _error_response("invalid_request", "goal is required", 400)
-
-    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
 
     try:
         rl_info = _rate_limit_or_abort(user.id, "generator")
@@ -2094,29 +2074,65 @@ def create_workflow():
     context["prompt"] = goal
 
     conversation_id = data.get("conversation_id")
+    workflow_type = data.get("workflow_type", "general")
+    steps = data.get("steps") or []
 
     try:
-        from graph import SupervisorAgent
+        from app.models.workflow import WorkflowRun, WorkflowStep
+        from workers.workflow import submit_workflow
 
-        supervisor = SupervisorAgent()
-        state = supervisor.run_workflow(
+        run = WorkflowRun(
             user_id=user.id,
-            user_role=user_role,
-            goal=goal,
-            context=context,
             conversation_id=conversation_id,
+            goal=goal,
+            workflow_type=workflow_type,
+            status="planning",
+            max_steps=int(data.get("max_steps", 10)),
+            timeout_seconds=int(data.get("timeout_seconds", 300)),
+            total_steps=len(steps),
         )
+        db.session.add(run)
+        db.session.flush()
+
+        plan_steps = []
+        for idx, step_input in enumerate(steps):
+            step = WorkflowStep(
+                workflow_run_id=run.id,
+                step_index=idx,
+                step_type=step_input.get("step_type", "agent_call"),
+                agent_type=step_input.get("agent_type"),
+                instruction=step_input.get("instruction", ""),
+                risk_level=step_input.get("risk_level", "low"),
+                requires_approval=bool(step_input.get("requires_approval", False)),
+                depends_on=step_input.get("depends_on"),
+                status="pending",
+            )
+            db.session.add(step)
+            plan_steps.append({
+                "step_index": idx,
+                "step_type": step.step_type,
+                "agent_type": step.agent_type,
+                "instruction": step.instruction,
+                "risk_level": step.risk_level,
+                "requires_approval": step.requires_approval,
+                "depends_on": step.depends_on,
+            })
+
+        run.plan_json = {
+            "goal": goal,
+            "workflow_type": workflow_type,
+            "steps": plan_steps,
+        }
+        db.session.commit()
+
+        submit_workflow(run.id, current_app._get_current_object(), goal, context)
 
         rl_headers = _rate_limit_headers(rl_info)
         resp = jsonify({
-            "workflow_run_id": state.get("workflow_run_id"),
-            "status": state.get("status"),
-            "workflow_type": state.get("workflow_type"),
-            "result": state.get("final_result"),
-            "error": state.get("error"),
-            "events": state.get("_events", []),
+            "workflow_id": run.id,
+            "status": run.status,
         })
-        resp.status_code = 201 if state.get("status") != "failed" else 500
+        resp.status_code = 202
         for k, v in rl_headers.items():
             resp.headers[k] = v
         return resp
@@ -2163,21 +2179,85 @@ def list_workflows():
 def get_workflow(workflow_run_id):
     """Get detailed status of a workflow run including all steps."""
     user = get_current_user_or_401()
-    from graph import SupervisorAgent
+    from app.models.workflow import WorkflowRun
 
-    supervisor = SupervisorAgent()
-    result = supervisor.get_workflow_status(workflow_run_id)
-
-    if result.get("error"):
-        return _error_response("not_found", result["error"], 404)
-
-    run_data = result.get("run", {})
-    if run_data.get("user_id") != user.id:
+    run = db.session.get(WorkflowRun, workflow_run_id)
+    if not run:
+        return _error_response("not_found", "Workflow not found", 404)
+    if run.user_id != user.id:
         user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
         if user_role not in ("teacher", "admin"):
             return _error_response("forbidden", "Access denied", 403)
 
-    return jsonify(result)
+    return jsonify({
+        "run": run.to_dict(),
+        "steps": [step.to_dict() for step in run.steps.all()],
+    })
+
+
+@bp.route("/workflows/<workflow_run_id>/stream", methods=["GET"])
+@require_auth
+def stream_workflow(workflow_run_id):
+    """SSE stream for workflow events. Supports catch-up via ?last_event=N."""
+    user = get_current_user_or_401()
+    from app.models.workflow import WorkflowRun
+
+    run = db.session.get(WorkflowRun, workflow_run_id)
+    if not run:
+        return _error_response("not_found", "Workflow not found", 404)
+    if run.user_id != user.id:
+        user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        if user_role not in ("teacher", "admin"):
+            return _error_response("forbidden", "Access denied", 403)
+
+    last_event = request.args.get("last_event", 0, type=int)
+
+    def generate():
+        from workers import redis_buffer
+
+        cursor = last_event
+        idle_count = 0
+        max_idle = 300
+
+        while idle_count < max_idle:
+            events = redis_buffer.wf_get_events(workflow_run_id, start=cursor)
+
+            if events:
+                idle_count = 0
+                for evt in events:
+                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    cursor += 1
+
+                    if evt.get("type") in ("workflow_done", "workflow_error"):
+                        yield "data: [DONE]\n\n"
+                        return
+            else:
+                workflow_status = redis_buffer.wf_get_status(workflow_run_id)
+                if workflow_status in ("completed", "failed") or run.status in (
+                    "completed",
+                    "failed",
+                    "cancelled",
+                ):
+                    for evt in redis_buffer.wf_get_events(workflow_run_id, start=cursor):
+                        yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                yield ": heartbeat\n\n"
+                idle_count += 1
+                time.sleep(0.5)
+
+        yield "data: [DONE]\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @bp.route("/workflows/<workflow_run_id>/approve", methods=["POST"])

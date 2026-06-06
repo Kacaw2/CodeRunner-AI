@@ -7,11 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from core.db.models.agent_trace import (
-    EvalRun,
-    EvalCaseRun,
-    EvalCaseGraderResult,
-)
+from app.models.eval_run import EvalRun
+from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
 from core.db.session import db_session
 
 

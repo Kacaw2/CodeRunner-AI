@@ -110,8 +110,8 @@ def main():
         )
 
     # Knowledge base loads lazily on first knowledge tool call. Pre-warming here
-    # would block the embedding-model download before uvicorn binds its port,
-    # leaving the gateway unhealthy and stalling dependents (workers).
+    # would block the embedding-model download before the gateway binds its
+    # port, leaving the service unhealthy and stalling dependents.
 
     # ── Create & run server ──
     from mcp_gateway.server import create_mcp_server

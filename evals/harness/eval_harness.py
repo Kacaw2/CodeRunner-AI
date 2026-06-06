@@ -11,8 +11,9 @@ Responsibilities:
   never interrupting the agent loop — see plan DP-A);
 - run graders and persist ``EvalCaseGraderResult`` rows.
 
-All persistence goes through the runtime-neutral ``core.db.session`` so the
-harness never depends on a Flask app context.
+Persistence still uses ``core.db.session`` until Phase 2. ``EvalRun`` is now
+the Flask mapping for the shared ``eval_runs`` table; case/grader trace rows
+remain runtime-neutral until the trace stack is ported.
 """
 
 from __future__ import annotations
@@ -22,12 +23,8 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from core.db.models.agent_trace import (
-    AgentTraceRun,
-    EvalRun,
-    EvalCaseRun,
-    EvalCaseGraderResult,
-)
+from app.models.eval_run import EvalRun
+from core.db.models.agent_trace import AgentTraceRun, EvalCaseRun, EvalCaseGraderResult
 from core.db.session import db_session
 from evals.datasets.store import DatasetStore
 from evals.graders.base import run_grader
