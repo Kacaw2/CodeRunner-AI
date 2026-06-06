@@ -22,24 +22,24 @@ def app():
 def _setup_db(app):
     """Create all tables once for the session.
 
-    Trace/eval tables are the runtime-neutral source of truth declared on
-    ``core.db.session.Base`` (plain SQLAlchemy), not Flask metadata. We point
-    the core session at the Flask test engine and mirror its metadata onto the
-    same in-memory DB so worker-style writes and Flask reads hit one database.
-    Production schema for these tables is owned by the Alembic migration.
+    Every model (Flask ``db.Model`` and the trace/eval tables on the
+    ``core.db.session.Base`` alias) now lives on the single ``DomainBase``
+    metadata, so a single ``db.create_all()`` builds the whole schema. We still
+    point the core session factory at the Flask test engine so worker-style
+    writes and Flask reads hit the same in-memory database.
+    Production schema is owned by the Alembic migration.
     """
     with app.app_context():
-        _db.create_all()
-
         import core.db.session as core_session
-        import core.db.models.agent_trace  # noqa: F401  register tables on Base
+        import core.db.models.agent_trace  # noqa: F401  register trace tables
         from sqlalchemy.orm import sessionmaker
+
+        _db.create_all()
 
         core_session._engine = _db.engine
         core_session._SessionLocal = sessionmaker(
             bind=_db.engine, expire_on_commit=False
         )
-        core_session.Base.metadata.create_all(bind=_db.engine)
 
         yield
         _db.drop_all()
@@ -51,13 +51,10 @@ def db_session(app, _setup_db):
     with app.app_context():
         yield _db.session
         _db.session.rollback()
-        import core.db.session as core_session
 
-        # Trace/eval tables live on core Base, not Flask metadata. Clear them too
-        # so autoincrement eval_run_id values from one test don't collide with
-        # leftover child rows (eval_case_runs, grader results) from another.
-        for table in reversed(core_session.Base.metadata.sorted_tables):
-            _db.session.execute(table.delete())
+        # All tables (including trace/eval) live on the single DomainBase
+        # metadata, so one pass clears them. Deleting child rows before parents
+        # keeps autoincrement ids from colliding across tests.
         for table in reversed(_db.metadata.sorted_tables):
             _db.session.execute(table.delete())
         _db.session.commit()

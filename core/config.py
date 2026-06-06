@@ -24,11 +24,34 @@ def _build_database_url() -> str:
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4"
 
 
+def _build_async_database_url(sync_url: str) -> str:
+    """Derive the async SQLAlchemy URL.
+
+    Computed LAZILY (only when the async engine is actually requested) so that
+    importing config on the Flask/SQLite test path never raises. An explicit
+    ``DATABASE_ASYNC_URL`` wins; otherwise only ``mysql+pymysql://`` -> asyncmy
+    conversion is supported. Any other dialect requires an explicit async URL.
+    """
+    explicit = os.environ.get("DATABASE_ASYNC_URL", "").strip()
+    if explicit:
+        return explicit
+    if sync_url.startswith("mysql+pymysql://"):
+        return sync_url.replace("mysql+pymysql://", "mysql+asyncmy://", 1)
+    raise RuntimeError(
+        "DATABASE_ASYNC_URL is required for non-MySQL async database access"
+    )
+
+
 class Settings:
     # ── Database ────────────────────────────────────────────────
     DB_URL: str = _build_database_url()
     DB_POOL_SIZE: int = 5
     DB_POOL_RECYCLE: int = 3600
+
+    @property
+    def DB_ASYNC_URL(self) -> str:
+        """Lazily-derived async database URL (never built at import time)."""
+        return _build_async_database_url(self.DB_URL)
 
     # ── Redis ───────────────────────────────────────────────────
     REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")

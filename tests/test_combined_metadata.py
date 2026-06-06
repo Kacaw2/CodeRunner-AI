@@ -1,33 +1,41 @@
-"""The Alembic target metadata must see BOTH ORM registries without colliding
-on the 7 dual-mapped table names."""
+"""The Alembic target metadata is the single ``DomainBase.metadata`` and must
+expose the full schema (Flask-owned tables AND the trace/eval tables)."""
 
 
-def test_combined_metadata_includes_core_only_tables(app):
+def test_target_metadata_is_the_single_domain_metadata(app):
+    from core.db.metadata import build_target_metadata
+    from domain.base import DomainBase
+
+    # One registry, one metadata: build_target_metadata returns it directly.
+    assert build_target_metadata() is DomainBase.metadata
+
+
+def test_target_metadata_includes_trace_tables(app):
     from core.db.metadata import build_target_metadata
 
     md = build_target_metadata()
-    # Previously invisible to Flask-only autogenerate:
+    # Trace/eval tables register on the same metadata as the Flask models.
     assert "agent_trace_runs" in md.tables
     assert "agent_trace_spans" in md.tables
     assert "eval_case_runs" in md.tables
 
 
-def test_combined_metadata_dedupes_shared_tables(app):
+def test_target_metadata_includes_flask_tables(app):
     from core.db.metadata import build_target_metadata
 
     md = build_target_metadata()
-    # Shared names present exactly once (build did not raise on duplicates):
+    # Each shared/Flask table appears exactly once (no duplicate-name collision).
     for name in ("users", "ai_conversations", "ai_messages",
                  "chat_tasks", "workflow_runs", "workflow_steps", "eval_runs"):
         assert name in md.tables
 
 
-def test_combined_metadata_shared_table_is_flask_definition(app):
+def test_target_metadata_matches_flask_metadata(app):
     from core.db.metadata import build_target_metadata
     from app.core.extensions import db
 
     md = build_target_metadata()
-    # Flask's column set wins for a shared table.
+    # db.metadata IS DomainBase.metadata, so a shared table's columns match.
     flask_cols = set(db.metadata.tables["users"].columns.keys())
-    combined_cols = set(md.tables["users"].columns.keys())
-    assert combined_cols == flask_cols
+    target_cols = set(md.tables["users"].columns.keys())
+    assert target_cols == flask_cols

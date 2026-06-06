@@ -44,14 +44,12 @@ def _expected_core_tables() -> set[str]:
         importlib.import_module(f"app.models.{module.name}")
 
     from app.core.extensions import db
-    import core.db.session as core_session
     import core.db.models.agent_trace  # noqa: F401  register trace/eval tables
 
-    # .tables.keys() lists names without forcing FK resolution (avoids
-    # NoReferencedTableError when a target lives in another metadata).
-    flask_tables = set(db.metadata.tables.keys())
-    core_tables = set(core_session.Base.metadata.tables.keys())
-    return flask_tables | core_tables
+    # Every model now lives on the single DomainBase metadata (db.metadata),
+    # so a single read lists the complete schema. .tables.keys() avoids forcing
+    # FK resolution.
+    return set(db.metadata.tables.keys())
 
 
 def _docker_available() -> bool:

@@ -1,14 +1,16 @@
-"""Combined MetaData for Alembic autogenerate during ORM collapse.
+"""Alembic target metadata.
 
-Flask-SQLAlchemy now owns the former shared tables. The runtime-neutral core
-registry contributes only the remaining trace/eval case tables until Phase 2
-ports those models into Flask as well.
+Every mapped class lives on the single ``DomainBase`` registry, so the target
+metadata is just ``DomainBase.metadata`` once all model modules are imported.
+There is no longer a second metadata to merge.
 """
 
 import importlib
 import pkgutil
 
 from sqlalchemy import MetaData
+
+from domain.base import DomainBase
 
 
 def _import_all_submodules(package_name: str) -> None:
@@ -21,16 +23,9 @@ def _import_all_submodules(package_name: str) -> None:
 
 
 def build_target_metadata() -> MetaData:
+    # Importing the model modules registers every table on the single
+    # DomainBase metadata (shared by Flask's db.Model and the core Base alias).
     _import_all_submodules("app.models")
     _import_all_submodules("core.db.models")
 
-    from app.core.extensions import db
-    from core.db.session import Base
-
-    combined = MetaData()
-    for table in db.metadata.tables.values():
-        table.to_metadata(combined)
-    for name, table in Base.metadata.tables.items():
-        if name not in combined.tables:
-            table.to_metadata(combined)
-    return combined
+    return DomainBase.metadata

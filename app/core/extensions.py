@@ -10,11 +10,16 @@ from flask_login import LoginManager
 from flask_migrate import Migrate
 import redis as _redis
 
+from domain.base import DomainBase
+
 # Initialize Flask-Login
 login_manager = LoginManager()
 
 # Initialize database
-db = SQLAlchemy()
+# Bind Flask-SQLAlchemy to the single application-wide DeclarativeBase so that
+# ``db.Model.registry`` / ``db.Model.metadata`` are the same objects as
+# ``DomainBase.registry`` / ``DomainBase.metadata`` (one registry, one metadata).
+db = SQLAlchemy(model_class=DomainBase)
 
 # Initialize API (Flask-Smorest)
 api = Api()
