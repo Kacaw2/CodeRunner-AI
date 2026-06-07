@@ -5,7 +5,7 @@ from flask import Blueprint, g, jsonify, request
 from app.auth.decorators import require_teacher
 from app.core.extensions import db
 from app.core.timezone import now_china
-from core.db.models.mcp_approval import McpToolApproval
+from domain.repositories.mcp import SyncMcpRepository
 
 bp = Blueprint("mcp_approvals", __name__, url_prefix="/api/v1/mcp/approvals")
 
@@ -14,10 +14,10 @@ bp = Blueprint("mcp_approvals", __name__, url_prefix="/api/v1/mcp/approvals")
 @require_teacher
 def list_approvals():
     status_filter = request.args.get("status", "pending")
-    query = McpToolApproval.query.order_by(McpToolApproval.created_at.desc())
-    if status_filter != "all":
-        query = query.filter_by(status=status_filter)
-    approvals = query.limit(50).all()
+    approvals = SyncMcpRepository(db.session).list_approvals(
+        status=None if status_filter == "all" else status_filter,
+        limit=50,
+    )
     result = []
     for a in approvals:
         a.check_expiration()
@@ -29,7 +29,7 @@ def list_approvals():
 @bp.route("/<approval_id>", methods=["GET"])
 @require_teacher
 def get_approval(approval_id: str):
-    approval = db.session.get(McpToolApproval, approval_id)
+    approval = SyncMcpRepository(db.session).get_approval(approval_id)
     if not approval:
         return jsonify({"error": "Approval not found"}), 404
     approval.check_expiration()
@@ -40,7 +40,7 @@ def get_approval(approval_id: str):
 @bp.route("/<approval_id>/approve", methods=["POST"])
 @require_teacher
 def approve(approval_id: str):
-    approval = db.session.get(McpToolApproval, approval_id)
+    approval = SyncMcpRepository(db.session).get_approval(approval_id)
     if not approval:
         return jsonify({"error": "Approval not found"}), 404
 
@@ -61,7 +61,7 @@ def approve(approval_id: str):
 @bp.route("/<approval_id>/reject", methods=["POST"])
 @require_teacher
 def reject(approval_id: str):
-    approval = db.session.get(McpToolApproval, approval_id)
+    approval = SyncMcpRepository(db.session).get_approval(approval_id)
     if not approval:
         return jsonify({"error": "Approval not found"}), 404
 

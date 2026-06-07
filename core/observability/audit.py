@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass, field
 
 from core.db.session import get_session
+from domain.repositories.mcp import SyncMcpRepository
 
 logger = logging.getLogger("mcp.audit")
 
@@ -72,12 +73,11 @@ def log_tool_call(
     latency_ms: int | None = None,
 ):
     """Persist a tool-call entry to the McpAuditLog table."""
-    from core.db.models.mcp_audit_log import McpAuditLog
     from app.core.timezone import now_china
 
     session = get_session()
     try:
-        entry = McpAuditLog(
+        SyncMcpRepository(session).add_audit_log(
             api_key_id=api_key_id,
             user_id=user_id,
             tool_name=tool_name,
@@ -86,7 +86,6 @@ def log_tool_call(
             latency_ms=latency_ms,
             created_at=now_china(),
         )
-        session.add(entry)
         session.commit()
     except Exception:
         session.rollback()

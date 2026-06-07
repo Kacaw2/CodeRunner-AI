@@ -5,6 +5,8 @@ mapped-class registry shared with the remaining Flask ``db.Model`` classes.
 """
 
 from domain.models.user import User, UserRole
+from domain.models.chat import AIConversation, AIMessage, ChatTask
+from domain.models.mcp import McpApiKey, McpAuditLog, McpToolApproval
 from domain.models.workflow import WorkflowApproval, WorkflowRun, WorkflowStep
 from domain.models.observability import (
     AgentTraceArtifact,
@@ -20,6 +22,12 @@ from domain.models.observability import (
 __all__ = [
     "User",
     "UserRole",
+    "AIConversation",
+    "AIMessage",
+    "ChatTask",
+    "McpApiKey",
+    "McpAuditLog",
+    "McpToolApproval",
     "WorkflowRun",
     "WorkflowStep",
     "WorkflowApproval",

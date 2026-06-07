@@ -8,9 +8,10 @@ from flask import Blueprint, g, jsonify, request
 from app.auth.decorators import require_teacher
 from app.core.extensions import db
 from app.core.timezone import now_china
+from domain.models.mcp import McpApiKey
+from domain.repositories.mcp import SyncMcpRepository
 from mcp_gateway.middleware.auth import hash_api_key
 from mcp_gateway.scopes import normalize_scopes
-from core.db.models.mcp_api_key import McpApiKey
 
 bp = Blueprint("mcp_keys", __name__, url_prefix="/api/v1/mcp/keys")
 
@@ -41,7 +42,7 @@ def create_key():
         rate_limit_rpm=rate_limit_rpm,
         created_at=now_china(),
     )
-    db.session.add(record)
+    SyncMcpRepository(db.session).add_api_key(record)
     db.session.commit()
 
     return jsonify({
@@ -59,7 +60,7 @@ def create_key():
 @require_teacher
 def list_keys():
     user = g.current_user
-    keys = McpApiKey.query.filter_by(user_id=user.id).order_by(McpApiKey.created_at.desc()).all()
+    keys = SyncMcpRepository(db.session).list_api_keys_for_user(user.id)
     return jsonify([
         {
             "id": k.id,
@@ -79,7 +80,7 @@ def list_keys():
 @require_teacher
 def revoke_key(key_id: str):
     user = g.current_user
-    key = McpApiKey.query.filter_by(id=key_id, user_id=user.id).first()
+    key = SyncMcpRepository(db.session).get_api_key_for_user(key_id, user.id)
     if not key:
         return jsonify({"error": "Key not found"}), 404
     if key.revoked_at:

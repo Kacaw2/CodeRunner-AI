@@ -72,8 +72,11 @@ def init_extensions(app):
         from domain.models.observability import EvalRun  # noqa: F401
         from app.models.chat_task import ChatTask  # noqa: F401
         from app.models.workflow import WorkflowRun, WorkflowStep  # noqa: F401
-        from core.db.models.mcp_api_key import McpApiKey  # noqa: F401
-        from core.db.models.mcp_audit_log import McpAuditLog  # noqa: F401
+        from domain.models.mcp import (  # noqa: F401
+            McpApiKey,
+            McpAuditLog,
+            McpToolApproval,
+        )
 
     # Initialize Redis
     global redis_client

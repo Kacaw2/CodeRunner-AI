@@ -53,12 +53,14 @@ class _DbApprovalStore:
             return ""
 
         from app.core.timezone import now_china
-        from core.db.models.mcp_approval import McpToolApproval
+        from domain.models.mcp import McpToolApproval
+        from domain.repositories.mcp import SyncMcpRepository
 
         session = self._session_factory()
+        repository = SyncMcpRepository(session)
         approval_id = str(uuid.uuid4())
         try:
-            approval = McpToolApproval(
+            repository.create_approval(
                 id=approval_id,
                 api_key_id=caller.api_key_id,
                 user_id=caller.user_id,
@@ -69,7 +71,6 @@ class _DbApprovalStore:
                 expires_at=McpToolApproval.default_expiry(),
                 created_at=now_china(),
             )
-            session.add(approval)
             session.commit()
             return approval_id
         except Exception:
@@ -312,7 +313,7 @@ def _register_agent_handlers(transport: LocalTransport) -> None:
 
 def _register_approval_handlers(transport: LocalTransport, registry: ToolRegistry) -> None:
     from core.db.session import get_session
-    from core.db.models.mcp_approval import McpToolApproval
+    from domain.repositories.mcp import SyncMcpRepository
 
     def approval_check(approval_id: str, **_kw) -> dict:
         session = get_session()
@@ -320,7 +321,9 @@ def _register_approval_handlers(transport: LocalTransport, registry: ToolRegistr
             # Row lock so two concurrent checks cannot both see result is None
             # and execute the approved tool twice. On MySQL this is SELECT ...
             # FOR UPDATE held until commit/rollback; SQLite ignores it harmlessly.
-            approval = session.get(McpToolApproval, approval_id, with_for_update=True)
+            approval = SyncMcpRepository(session).get_approval(
+                approval_id, for_update=True
+            )
             if not approval:
                 return {"status": "not_found", "message": "Approval not found"}
 
