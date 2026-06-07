@@ -9,7 +9,7 @@
 >   headless process into a Flask application context, and do not delete the
 >   runtime-neutral session capability in favor of a Flask-only ORM.
 > - The replacement route is
->   [`2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md`](../active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md):
+>   [`2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md`](2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md):
 >   one shared SQLAlchemy 2.0 model graph, process-local sync/async sessions,
 >   and a newly designed FastAPI Agent Runtime.
 

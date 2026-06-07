@@ -1,5 +1,9 @@
 # 共享 SQLAlchemy 2.0 Domain 与 FastAPI Agent Runtime 迁移计划
 
+> **Status: archived / completed (2026-06-08).** 归档依据是 Task 10 的最终验证证据
+> 与文末“验收总表”；早期任务 checklist 保留执行计划原貌，不再作为当前 active
+> 状态跟踪入口。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
 > `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -635,6 +639,18 @@ git commit -m "feat(runtime)!: cut agent execution over to FastAPI runtime"
 
 ## Task 10: Schema、回归和文档收口
 
+**完成状态(2026-06-08):** 已完成并归档。收口时补充
+`d9a1f2c3b4e5_drop_legacy_quiz_questions.py`，处理既有 MySQL 环境中遗留
+`quiz_questions` 表导致的 `flask db check` diff，并用
+`test_alembic_upgrade_head_removes_legacy_quiz_questions` 固化回归。
+
+**最终验证证据(2026-06-08):**
+- `docker exec educode_web flask db upgrade head` PASS。
+- `docker exec educode_web flask db check` PASS: `No new upgrade operations detected.`
+- `python -m pytest tests/test_migration_full_schema.py tests/test_remote_runtime_cutover.py tests/test_single_domain_registry.py tests/test_combined_metadata.py -q` PASS: 12 passed。
+- `python -m pytest -q --tb=short` PASS: 661 passed。
+- Docker `web + agent_runtime + mcp_gateway + db + redis` 均为 healthy。
+
 **Files:**
 - Modify: `docs/architecture/ai-agents.md`
 - Modify: `docs/architecture/agent-runtime-core.md`
@@ -642,7 +658,7 @@ git commit -m "feat(runtime)!: cut agent execution over to FastAPI runtime"
 - Modify: `docs/plans/README.md`
 - Modify: `docs/issues/2026-06-04-dual-orm-database-issues.md`
 
-- [ ] **Step 1: Schema gates**
+- [x] **Step 1: Schema gates**
 
 ```powershell
 flask db check
@@ -651,7 +667,7 @@ python -m pytest tests/test_migration_full_schema.py -q
 
 Expected: 无 ORM-only migration diff；空 MySQL 可 `upgrade head`。
 
-- [ ] **Step 2: Full regression**
+- [x] **Step 2: Full regression**
 
 ```powershell
 python -m pytest -q
@@ -659,7 +675,7 @@ python -m pytest -q
 
 Expected: full PASS。Docker-only gate 被 skip 时必须单独记录。
 
-- [ ] **Step 3: Architecture residue gates**
+- [x] **Step 3: Architecture residue gates**
 
 ```powershell
 rg -n "declarative_base\(|class .*\(Base\)|class .*\(db\.Model\)" domain app core --glob "*.py"
@@ -669,34 +685,36 @@ rg -n "app\.api\.v1\.agents|ai_proxy|USE_AGENT_HOST_PROXY|workers\.task_runner" 
 Expected: 只有 `DomainBase` 创建 registry；每张已迁移表只有一个 mapped class；
 无旧 Host/proxy residue；`domain/` 不 import Flask/FastAPI。
 
-- [ ] **Step 4: 文档和 issue 状态**
+- [x] **Step 4: 文档和 issue 状态**
 
 关闭 dual-ORM issue，明确最终形态是“shared Domain + process-local sessions”，
 不是“所有进程共享 Flask context”。全部 gate 通过后归档本计划。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Version control handoff**
 
 ```powershell
 git add docs tests
 git commit -m "docs(arch): record shared domain and FastAPI runtime completion"
 ```
 
+本次按用户要求执行验收和归档，未创建 commit；改动保留在当前工作区。
+
 ## 验收总表
 
-- [ ] `db.Model.registry is DomainBase.registry`
-- [ ] `build_target_metadata() is DomainBase.metadata`
-- [ ] tests 不再创建两套 metadata
-- [ ] 每张迁移表只有一个 mapped class
-- [ ] sync/async repository 的 transaction ownership 明确
-- [ ] AsyncSession 路径无隐式 lazy-load `MissingGreenlet`
-- [ ] 新服务位于 `agent_runtime/`，没有恢复旧 Host/proxy
-- [ ] internal command 经过签名认证
-- [ ] Chat/Workflow SSE 与现有前端兼容
-- [ ] Web 只负责用户 API、任务创建和读取，不执行 Agent loop
-- [ ] `python -m pytest -q` PASS
-- [ ] `flask db check` 无 diff
-- [ ] empty MySQL `upgrade head` PASS
-- [ ] Docker `web + agent_runtime + mcp_gateway` health PASS
+- [x] `db.Model.registry is DomainBase.registry`
+- [x] `build_target_metadata() is DomainBase.metadata`
+- [x] tests 不再创建两套 metadata
+- [x] 每张迁移表只有一个 mapped class
+- [x] sync/async repository 的 transaction ownership 明确
+- [x] AsyncSession 路径无隐式 lazy-load `MissingGreenlet`
+- [x] 新服务位于 `agent_runtime/`，没有恢复旧 Host/proxy
+- [x] internal command 经过签名认证
+- [x] Chat/Workflow SSE 与现有前端兼容
+- [x] Web 只负责用户 API、任务创建和读取，不执行 Agent loop
+- [x] `python -m pytest -q` PASS
+- [x] `flask db check` 无 diff
+- [x] empty MySQL `upgrade head` PASS
+- [x] Docker `web + agent_runtime + mcp_gateway` health PASS
 
 ## 明确不做
 

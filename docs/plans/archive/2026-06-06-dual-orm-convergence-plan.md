@@ -3,7 +3,7 @@
 > **Status: archived (2026-06-06).** The URL single-source and drift-safety
 > work is historical baseline. The seven duplicate business mappings were
 > subsequently removed by commit `f1f0a9f`; the next active route is the
-> [shared SQLAlchemy 2.0 Domain and FastAPI Agent Runtime plan](../active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md).
+> [shared SQLAlchemy 2.0 Domain and FastAPI Agent Runtime plan](2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

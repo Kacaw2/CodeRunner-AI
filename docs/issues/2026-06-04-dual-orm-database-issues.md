@@ -5,7 +5,7 @@
 **范围:** 数据持久层 —— 原 Flask-SQLAlchemy 与 runtime-neutral SQLAlchemy 并存
 **核验:** 已按 `docs/plans/active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md`(Task 1-9)的实际代码状态更新
 
-> **收口说明(2026-06-07):** 下文第二节起的"两套并存"描述属**历史记录**,反映 2026-06-04~06 的中间态。当前已收敛:`app/models/{user,ai_conversation,chat_task,eval_run,workflow}.py`、`app/models/_query_compat.py` 与 `core/db/models/{agent_trace,mcp_api_key,mcp_approval,mcp_audit_log}.py` 均已删除,唯一 mapped class 落在 `domain/models/*`,sync/async 经 `domain/repositories/*` 访问。embedded worker(`workers/chat.py`/`workflow.py`)已移除,Agent 执行经 FastAPI Runtime(`agent_runtime/`)remote 路径(`AGENT_RUNTIME_MODE` 默认 `remote`)。仍待实跑验证:`python -m pytest -q` 全绿与 Docker `web + agent_runtime` smoke。
+> **收口说明(2026-06-07):** 下文第二节起的"两套并存"描述属**历史记录**,反映 2026-06-04~06 的中间态。当前已收敛:`app/models/{user,ai_conversation,chat_task,eval_run,workflow}.py`、`app/models/_query_compat.py` 与 `core/db/models/{agent_trace,mcp_api_key,mcp_approval,mcp_audit_log}.py` 均已删除,唯一 mapped class 落在 `domain/models/*`,sync/async 经 `domain/repositories/*` 访问。embedded worker(`workers/chat.py`/`workflow.py`)已移除,Agent 执行经 FastAPI Runtime(`agent_runtime/`)remote 路径(`AGENT_RUNTIME_MODE` 默认 `remote`)。2026-06-08 已实跑验证:`python -m pytest -q --tb=short` 661 passed,`flask db check` 无 diff,Docker `web + agent_runtime + mcp_gateway + db + redis` health PASS。
 
 ---
 

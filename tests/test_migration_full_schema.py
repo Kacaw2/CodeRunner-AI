@@ -62,7 +62,7 @@ def _docker_available() -> bool:
         return False
 
 
-def _upgrade_and_list_tables(database_url: str) -> set[str]:
+def _upgrade_and_list_tables(database_url: str, pre_upgrade=None) -> set[str]:
     """Build a bare Flask app bound to ``database_url``, run ``upgrade head``
     (NO ``create_all``), and return the resulting table names."""
     from flask import Flask
@@ -79,6 +79,8 @@ def _upgrade_and_list_tables(database_url: str) -> set[str]:
     migrate.init_app(flask_app, db)
 
     with flask_app.app_context():
+        if pre_upgrade is not None:
+            pre_upgrade(db.engine)
         upgrade()  # schema is built PURELY from the migration chain
         return set(inspect(db.engine).get_table_names())
 
@@ -127,3 +129,35 @@ def test_alembic_upgrade_head_builds_complete_core_schema(empty_mysql_url):
 
     missing = expected - actual
     assert not missing, f"Migrations did not create core tables: {sorted(missing)}"
+
+
+def test_alembic_upgrade_head_removes_legacy_quiz_questions(empty_mysql_url):
+    """Existing deployments may still have the pre-Problem association table.
+
+    The current schema source of truth is ``quiz_problems``. A migrated database
+    must not keep the legacy table, otherwise ``flask db check`` reports a diff.
+    """
+    from sqlalchemy import text
+
+    def create_legacy_table(engine):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TABLE quiz_questions ("
+                "id INTEGER PRIMARY KEY AUTO_INCREMENT, "
+                "quiz_id INTEGER NOT NULL, "
+                "question_id INTEGER NOT NULL, "
+                "`order` INTEGER NOT NULL, "
+                "points INTEGER, "
+                "added_at DATETIME"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX unique_quiz_question "
+                "ON quiz_questions (quiz_id, question_id)"
+            ))
+
+    actual = _upgrade_and_list_tables(
+        empty_mysql_url, pre_upgrade=create_legacy_table
+    )
+
+    assert "quiz_questions" not in actual
