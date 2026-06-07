@@ -11,9 +11,9 @@ Responsibilities:
   never interrupting the agent loop — see plan DP-A);
 - run graders and persist ``EvalCaseGraderResult`` rows.
 
-Persistence still uses ``core.db.session`` until Phase 2. ``EvalRun`` is now
-the Flask mapping for the shared ``eval_runs`` table; case/grader trace rows
-remain runtime-neutral until the trace stack is ported.
+Persistence uses the shared Domain mappings through trace/eval repositories.
+The harness receives a session scope so tests and non-Flask runtimes can bind
+the same repository contract to their own engine.
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from app.models.eval_run import EvalRun
-from core.db.models.agent_trace import AgentTraceRun, EvalCaseRun, EvalCaseGraderResult
 from core.db.session import db_session
+from domain.repositories.evals import SyncEvalRepository
+from domain.repositories.traces import SyncTraceRepository
 from evals.datasets.store import DatasetStore
 from evals.graders.base import run_grader
 
@@ -66,13 +66,19 @@ class EvalRunReport:
 class EvalHarness:
     """Run dataset cases through the agent harness and persist eval results."""
 
-    def __init__(self, agent_harness=None, dataset_store: DatasetStore | None = None):
+    def __init__(
+        self,
+        agent_harness=None,
+        dataset_store: DatasetStore | None = None,
+        session_scope=db_session,
+    ):
         if agent_harness is None:
             from evals.harness.agent_harness import AgentHarness
 
             agent_harness = AgentHarness()
         self.agent_harness = agent_harness
         self.dataset_store = dataset_store or DatasetStore()
+        self.session_scope = session_scope
 
     def run(
         self,
@@ -232,12 +238,8 @@ class EvalHarness:
     def _read_trace_metrics(self, trace_id: str):
         if not trace_id:
             return 0, 0, None, 0
-        with db_session() as session:
-            run = (
-                session.query(AgentTraceRun)
-                .filter_by(trace_id=trace_id)
-                .first()
-            )
+        with self.session_scope() as session:
+            run = SyncTraceRepository(session).get_run(trace_id)
             if run is None:
                 return 0, 0, None, 0
             return (
@@ -250,8 +252,9 @@ class EvalHarness:
     # ── Persistence ────────────────────────────────────────────
 
     def _create_eval_run(self, suite_name: str, model_name: str | None, total: int) -> int:
-        with db_session() as session:
-            run = EvalRun(
+        with self.session_scope() as session:
+            repo = SyncEvalRepository(session)
+            run = repo.create_run(
                 suite_name=suite_name,
                 model_name=model_name,
                 total_cases=total,
@@ -259,7 +262,6 @@ class EvalHarness:
                 pass_rate=0.0,
                 duration_seconds=0.0,
             )
-            session.add(run)
             session.flush()
             return run.id
 
@@ -272,24 +274,24 @@ class EvalHarness:
         case_results: list,
     ) -> None:
         duration_seconds = sum(c.duration_ms for c in case_results) / 1000.0
-        with db_session() as session:
-            run = session.query(EvalRun).filter_by(id=eval_run_id).first()
-            if run is None:
-                return
-            run.total_cases = total
-            run.passed_cases = passed
-            run.pass_rate = pass_rate
-            run.duration_seconds = round(duration_seconds, 3)
-            run.results_json = [
-                {
-                    "case_id": c.case_id,
-                    "status": c.status,
-                    "passed": c.passed,
-                    "failure_type": c.failure_type,
-                    "trace_id": c.trace_id,
-                }
-                for c in case_results
-            ]
+        with self.session_scope() as session:
+            SyncEvalRepository(session).finalize_run(
+                eval_run_id,
+                total_cases=total,
+                passed_cases=passed,
+                pass_rate=pass_rate,
+                duration_seconds=round(duration_seconds, 3),
+                results_json=[
+                    {
+                        "case_id": c.case_id,
+                        "status": c.status,
+                        "passed": c.passed,
+                        "failure_type": c.failure_type,
+                        "trace_id": c.trace_id,
+                    }
+                    for c in case_results
+                ],
+            )
 
     def _persist_case_run(
         self,
@@ -307,8 +309,9 @@ class EvalHarness:
         response: str,
         grader_results: list,
     ) -> str:
-        with db_session() as session:
-            case_run = EvalCaseRun(
+        with self.session_scope() as session:
+            repo = SyncEvalRepository(session)
+            case_run = repo.create_case_run(
                 eval_run_id=eval_run_id,
                 case_id=case.id,
                 case_type=case.case_type,
@@ -325,24 +328,21 @@ class EvalHarness:
                 cost_cny=cost,
                 duration_ms=duration_ms,
             )
-            session.add(case_run)
             session.flush()
             case_run_id = case_run.id
 
             for g in grader_results:
-                session.add(
-                    EvalCaseGraderResult(
-                        case_run_id=case_run_id,
-                        grader_type=g.grader_type,
-                        grader_name=g.grader_name,
-                        passed=g.passed,
-                        score=g.score,
-                        reason=g.reason,
-                        metadata_json=g.metadata or None,
-                        latency_ms=g.latency_ms,
-                        cost_cny=g.cost_cny,
-                        trace_id=g.trace_id,
-                    )
+                repo.create_grader_result(
+                    case_run_id=case_run_id,
+                    grader_type=g.grader_type,
+                    grader_name=g.grader_name,
+                    passed=g.passed,
+                    score=g.score,
+                    reason=g.reason,
+                    metadata_json=g.metadata or None,
+                    latency_ms=g.latency_ms,
+                    cost_cny=g.cost_cny,
+                    trace_id=g.trace_id,
                 )
             return case_run_id
 

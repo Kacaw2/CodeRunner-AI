@@ -144,14 +144,10 @@ class DatasetStore:
         writes a new case file under the matching ``case_type`` directory.
         """
         from core.db.session import db_session
-        from core.db.models.agent_trace import AgentTraceRun
+        from domain.repositories.traces import SyncTraceRepository
 
         with db_session() as session:
-            run = (
-                session.query(AgentTraceRun)
-                .filter_by(trace_id=trace_id)
-                .first()
-            )
+            run = SyncTraceRepository(session).get_run(trace_id)
             if run is None:
                 raise ValueError(f"trace {trace_id!r} not found")
             agent_type = run.agent_type or "tutor"

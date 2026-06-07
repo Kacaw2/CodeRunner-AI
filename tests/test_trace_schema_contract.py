@@ -1,9 +1,8 @@
 """Schema contract for the complete trace/eval tables.
 
-These tables are the runtime-neutral source of truth (declared on
-``core.db.session.Base``). The test inspects the Flask test engine because the
-conftest fixture mirrors the plain ``Base`` metadata onto it via
-``create_all`` (production schema source remains the Alembic migration).
+These tables are runtime-neutral mappings on ``DomainBase.metadata``. The test
+inspects the Flask test engine because Flask uses the same shared metadata
+(``create_all`` is test-only; production schema remains Alembic-owned).
 """
 
 

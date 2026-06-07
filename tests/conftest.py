@@ -22,9 +22,8 @@ def app():
 def _setup_db(app):
     """Create all tables once for the session.
 
-    Every model (Flask ``db.Model`` and the trace/eval tables on the
-    ``core.db.session.Base`` alias) now lives on the single ``DomainBase``
-    metadata, so a single ``db.create_all()`` builds the whole schema. We still
+    Every model now lives on the single ``DomainBase`` metadata, so a single
+    ``db.create_all()`` builds the whole schema. We still
     point the core session factory at the Flask test engine so worker-style
     writes and Flask reads hit the same in-memory database.
     Production schema is owned by the Alembic migration.

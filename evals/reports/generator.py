@@ -14,9 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.models.eval_run import EvalRun
-from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
 from core.db.session import db_session
+from domain.repositories.evals import SyncEvalRepository
 from evals.reports.regression import detect_new_failures, detect_regressions
 
 
@@ -88,6 +87,9 @@ class EvalReport:
 class ReportGenerator:
     """Build a structured :class:`EvalReport` from persisted eval rows."""
 
+    def __init__(self, session_scope=db_session) -> None:
+        self.session_scope = session_scope
+
     def build(self, *, eval_run_id: int, compare_to_eval_run_id: int = 0) -> EvalReport:
         run, cases = self._load_run(eval_run_id)
         case_dicts = [self._case_to_dict(c) for c in cases]
@@ -104,13 +106,9 @@ class ReportGenerator:
     # ── Loading ────────────────────────────────────────────────
 
     def _load_run(self, eval_run_id: int):
-        with db_session() as session:
-            run = session.query(EvalRun).filter_by(id=eval_run_id).first()
-            cases = (
-                session.query(EvalCaseRun)
-                .filter_by(eval_run_id=eval_run_id)
-                .order_by(EvalCaseRun.created_at)
-                .all()
+        with self.session_scope() as session:
+            run, cases = SyncEvalRepository(session).load_run_with_cases(
+                eval_run_id
             )
             session.expunge_all()
             return run, cases
@@ -119,12 +117,8 @@ class ReportGenerator:
         case_run_ids = [c["case_run_id"] for c in case_dicts if c.get("case_run_id")]
         if not case_run_ids:
             return []
-        with db_session() as session:
-            rows = (
-                session.query(EvalCaseGraderResult)
-                .filter(EvalCaseGraderResult.case_run_id.in_(case_run_ids))
-                .all()
-            )
+        with self.session_scope() as session:
+            rows = SyncEvalRepository(session).list_grader_results(case_run_ids)
             return [
                 {
                     "grader_type": r.grader_type,

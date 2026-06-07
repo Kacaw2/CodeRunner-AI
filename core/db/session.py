@@ -7,14 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from core.config import get_settings
-from domain.base import DomainBase
-
 logger = logging.getLogger(__name__)
-
-# Temporary import-compatibility alias. There is exactly ONE registry/metadata
-# in the app (``DomainBase``); ``Base`` is kept only so existing imports of
-# ``core.db.session.Base`` keep working. It is NOT a second registry.
-Base = DomainBase
 
 _engine = None
 _SessionLocal = None

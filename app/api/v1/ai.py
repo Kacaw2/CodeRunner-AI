@@ -1866,9 +1866,11 @@ def run_evals():
             results = [report_to_dict(report)]
 
         # Persist eval run results
-        from app.models.eval_run import EvalRun
+        from domain.repositories.evals import SyncEvalRepository
+
+        repo = SyncEvalRepository(db.session)
         for r in results:
-            run = EvalRun(
+            repo.create_run(
                 suite_name=r["suite_name"],
                 model_name=data.get("model_name", "deepseek"),
                 total_cases=r["total"],
@@ -1877,7 +1879,6 @@ def run_evals():
                 results_json=r["results"],
                 duration_seconds=r["duration_seconds"],
             )
-            db.session.add(run)
         db.session.commit()
 
         return jsonify({"reports": results})
@@ -1949,13 +1950,14 @@ def _eval_harness_report_to_dict(report) -> dict:
 @require_teacher
 def eval_history():
     """List past eval runs."""
-    from app.models.eval_run import EvalRun
+    from domain.repositories.evals import SyncEvalRepository
+
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
 
-    query = EvalRun.query.order_by(EvalRun.run_at.desc())
-    total = query.count()
-    runs = query.offset(offset).limit(limit).all()
+    repo = SyncEvalRepository(db.session)
+    total = repo.count_runs()
+    runs = repo.list_runs(offset=offset, limit=limit)
     return jsonify({"runs": [r.to_dict() for r in runs], "total": total})
 
 
@@ -1981,22 +1983,14 @@ def eval_run_report(run_id: int):
 def eval_case_by_trace(trace_id: str):
     """Eval case + grader results bound to a trace (for the trace Eval tab)."""
     from core.db.session import db_session
-    from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
+    from domain.repositories.evals import SyncEvalRepository
 
     with db_session() as session:
-        case = (
-            session.query(EvalCaseRun)
-            .filter_by(trace_id=trace_id)
-            .order_by(EvalCaseRun.created_at.desc())
-            .first()
-        )
+        repo = SyncEvalRepository(session)
+        case = repo.get_case_by_trace(trace_id)
         if case is None:
             return jsonify({"case": None})
-        graders = (
-            session.query(EvalCaseGraderResult)
-            .filter_by(case_run_id=case.id)
-            .all()
-        )
+        graders = repo.list_grader_results([case.id])
         payload = {
             "case_id": case.case_id,
             "case_type": case.case_type,
