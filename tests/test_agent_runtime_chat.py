@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import domain.models.chat  # noqa: F401
 import domain.models.user  # noqa: F401
-from agent_runtime.services.chat_runner import AsyncChatRunner
+from ai.agent_runtime.services.chat_runner import AsyncChatRunner
 from domain.base import DomainBase
 from domain.models.user import User, UserRole
 from domain.repositories.chat import AsyncChatRepository
@@ -103,7 +103,7 @@ def _stub_agent_stream(monkeypatch, tokens=("Hi", " there")):
     # Initialize graph.runner's process-wide agent cache before patching the
     # registry factory used only by the remote runner. Otherwise this stub can
     # leak into later tests that exercise the synchronous orchestrator.
-    import graph.runner  # noqa: F401
+    import ai.graph.runner  # noqa: F401
 
     class _StubAgent:
         def stream(self, state):
@@ -111,9 +111,9 @@ def _stub_agent_stream(monkeypatch, tokens=("Hi", " there")):
                 yield {"type": "token", "content": tok}
             state["final_response"] = "".join(tokens)
 
-    import agent_runtime.services.chat_runner as runner_mod
+    import ai.agent_runtime.services.chat_runner as runner_mod
 
-    # _run_agent_stream imports get_agent_instance from agents.registry locally.
+    # _run_agent_stream imports get_agent_instance from ai.agents.registry locally.
     monkeypatch.setattr(
         "agents.registry.get_agent_instance", lambda *a, **k: _StubAgent()
     )

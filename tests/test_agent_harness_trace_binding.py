@@ -27,13 +27,13 @@ def _mock_tutor_llm(text="Here is a hint to get you started."):
     return mock_llm
 
 
-@patch("agents.runtime.AIConfig")
+@patch("ai.agents.runtime.AIConfig")
 def test_agent_harness_binds_chat_task_to_trace(mock_config, app, db_session, teacher_user):
     with app.app_context():
-        from evals.harness.agent_harness import AgentHarness
+        from ai.evals.harness.agent_harness import AgentHarness
         from domain.models.observability import AgentTraceRun
         from core.db.session import db_session as core_db_session
-        from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+        from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
 
         mock_config.get_llm.return_value = _mock_tutor_llm()
         mock_config.validate.return_value = None
@@ -67,14 +67,14 @@ def test_agent_harness_binds_chat_task_to_trace(mock_config, app, db_session, te
             assert run.chat_task_id == "task-1"
 
 
-@patch("agents.runtime.AIConfig")
+@patch("ai.agents.runtime.AIConfig")
 def test_agent_harness_stream_yields_events_and_binds_trace(mock_config, app, db_session, teacher_user):
     """stream() must yield token/done events and share one trace with run()."""
     with app.app_context():
-        from evals.harness.agent_harness import AgentHarness
+        from ai.evals.harness.agent_harness import AgentHarness
         from domain.models.observability import AgentTraceRun
         from core.db.session import db_session as core_db_session
-        from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+        from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
 
         mock_config.get_llm.return_value = _mock_tutor_llm()
         mock_config.validate.return_value = None
@@ -131,12 +131,12 @@ class _ToolThenDoneLLM:
         return [_Chunk("done", {"input_tokens": 1, "output_tokens": 1})]
 
 
-@patch("agents.runtime.AIConfig")
+@patch("ai.agents.runtime.AIConfig")
 def test_harness_tool_calls_share_run_trace_id(mock_config, app, db_session, teacher_user):
     with app.app_context():
-        from evals.harness.agent_harness import AgentHarness
-        from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
-        from mcp_gateway import client as client_mod
+        from ai.evals.harness.agent_harness import AgentHarness
+        from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+        from ai.mcp_gateway import client as client_mod
 
         captured = {}
 

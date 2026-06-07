@@ -29,7 +29,7 @@ def _keypair() -> tuple[str, str]:
 
 
 def test_mint_then_verify_round_trips_claims():
-    from mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
+    from ai.mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
 
     private_pem, public_pem = _keypair()
     token = mint_internal_token(
@@ -55,7 +55,7 @@ def test_mint_then_verify_round_trips_claims():
 
 def test_token_signed_by_a_different_key_is_rejected():
     """A party without the Host signing key cannot forge a valid token."""
-    from mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
+    from ai.mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
 
     attacker_private, _ = _keypair()
     _, real_public = _keypair()
@@ -73,7 +73,7 @@ def test_token_signed_by_a_different_key_is_rejected():
 
 def test_tampered_token_bytes_fail_verification():
     """Flipping bytes in a signed token (e.g. to elevate role) breaks the signature."""
-    from mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
+    from ai.mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
 
     private_pem, public_pem = _keypair()
     token = mint_internal_token(
@@ -91,7 +91,7 @@ def test_tampered_token_bytes_fail_verification():
 
 
 def test_expired_token_is_rejected():
-    from mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
+    from ai.mcp_gateway.internal_auth import mint_internal_token, verify_internal_token
 
     private_pem, public_pem = _keypair()
     token = mint_internal_token(
@@ -109,7 +109,7 @@ def test_expired_token_is_rejected():
 def test_wrong_audience_is_rejected():
     """A token minted for a different audience must not be accepted by the gateway."""
     import jwt
-    from mcp_gateway.internal_auth import verify_internal_token
+    from ai.mcp_gateway.internal_auth import verify_internal_token
 
     private_pem, public_pem = _keypair()
     import time
@@ -125,7 +125,7 @@ def test_wrong_audience_is_rejected():
 
 
 def test_garbage_token_is_rejected():
-    from mcp_gateway.internal_auth import verify_internal_token
+    from ai.mcp_gateway.internal_auth import verify_internal_token
 
     _, public_pem = _keypair()
     assert verify_internal_token("not-a-jwt", verify_key=public_pem) is None

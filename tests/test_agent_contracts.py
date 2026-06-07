@@ -8,7 +8,7 @@ warn-only contract violations.
 
 import pytest
 
-from agents.contracts import (
+from ai.agents.contracts import (
     RUNTIME_CONTEXT_FIELDS,
     AnalyticsContext,
     GeneratorContext,

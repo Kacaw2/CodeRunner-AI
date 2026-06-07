@@ -17,12 +17,13 @@ import pytest
 import yaml
 
 from core.auth.context import CallerContext
-from tools.protocol.schemas.catalog import TOOL_CATALOG
-from tools.protocol.policies.guard import run_guard
-from tools.protocol.policies.scopes import scopes_for_agent
+from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
+from ai.tools.protocol.policies.guard import run_guard
+from ai.tools.protocol.policies.scopes import scopes_for_agent
 
 _MATRIX_PATH = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
+    "ai",
     "evals",
     "mcp",
     "permission_matrix.yaml",

@@ -82,8 +82,8 @@ Browser / API client
 
 - `app/models/`
 - `app/services/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 
 ### `redis` / `educode_redis`
 
@@ -104,8 +104,8 @@ Browser / API client
 **关联仓库模块：**
 
 - `app/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 
 ### `executor` / `educode_executor`
 
@@ -184,14 +184,14 @@ Browser / API client
 
 - `app/`
 - `core/`
-- `tools/`
-- `agents/`
-- `graph/`
-- `memory/`
-- `knowledge/`
-- `models/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/tools/`
+- `ai/agents/`
+- `ai/graph/`
+- `ai/memory/`
+- `ai/knowledge/`
+- `ai/llm/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 - `scripts/`
 
 **可写 / 运行时挂载：**
@@ -205,12 +205,12 @@ Browser / API client
 
 - `app/`
 - `core/`
-- `tools/`
-- `agents/`
-- `graph/`
-- `knowledge/`
-- `memory/`
-- `models/`
+- `ai/tools/`
+- `ai/agents/`
+- `ai/graph/`
+- `ai/knowledge/`
+- `ai/memory/`
+- `ai/llm/`
 
 ### `workers` / `educode_workers`
 
@@ -242,26 +242,26 @@ Browser / API client
 
 - `app/`
 - `core/`
-- `tools/`
-- `agents/`
-- `graph/`
-- `memory/`
-- `knowledge/`
-- `models/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/tools/`
+- `ai/agents/`
+- `ai/graph/`
+- `ai/memory/`
+- `ai/knowledge/`
+- `ai/llm/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 
-因为这些路径会被复制进 `workers` 镜像，所以如果修改了 `agents/`、`workers/`、`tools/`、`graph/`、`core/` 或 `mcp_gateway/`，通常需要 rebuild 或 recreate 这个服务。除非额外增加开发用 override，把这些目录改成 bind mount。
+因为这些路径会被复制进 `workers` 镜像，所以如果修改了 `ai/agents/`、`ai/workers/`、`ai/tools/`、`ai/graph/`、`core/` 或 `ai/mcp_gateway/`，通常需要 rebuild 或 recreate 这个服务。除非额外增加开发用 override，把这些目录改成 bind mount。
 
 **主要负责或执行的仓库模块：**
 
-- `workers/`
-- `agents/`
-- `graph/`
+- `ai/workers/`
+- `ai/agents/`
+- `ai/graph/`
 - `core/`
-- `tools/`
-- `knowledge/`
-- `memory/`
+- `ai/tools/`
+- `ai/knowledge/`
+- `ai/memory/`
 
 ### `mcp_gateway` / `educode_mcp_gateway`
 
@@ -269,7 +269,7 @@ Browser / API client
 
 **职责：**
 
-- 运行 `python -m mcp_gateway --transport streamable-http --host 0.0.0.0 --port 8200`。
+- 运行 `python -m ai.mcp_gateway --transport streamable-http --host 0.0.0.0 --port 8200`。
 - 暴露给 Agent Host 使用的 MCP HTTP endpoint。
 - 使用 `MCP_INTERNAL_VERIFY_KEY` 校验内部 capability token。
 - 将工具调用连接到数据库、Redis、知识库持久化和 tool runtime 模块。
@@ -293,11 +293,11 @@ Browser / API client
 
 **主要负责或执行的仓库模块：**
 
-- `mcp_gateway/`
-- `tools/`
+- `ai/mcp_gateway/`
+- `ai/tools/`
 - `core/`
-- `knowledge/`
-- `models/`
+- `ai/knowledge/`
+- `ai/llm/`
 
 ## 数据卷
 

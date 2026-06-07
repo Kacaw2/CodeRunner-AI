@@ -2,12 +2,12 @@
 
 import json
 
-from mcp_gateway.middleware import set_caller_info
+from ai.mcp_gateway.middleware import set_caller_info
 
 
 def test_external_gateway_enforces_required_scopes(monkeypatch):
-    from mcp_gateway.middleware.core import call_via_runtime
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from ai.mcp_gateway.middleware.core import call_via_runtime
+    from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
 
     bootstrap_tool_runtime()
     set_caller_info({
@@ -29,8 +29,8 @@ def test_external_gateway_enforces_required_scopes(monkeypatch):
 
 
 def test_external_gateway_allows_call_with_matching_scope(monkeypatch):
-    from mcp_gateway.middleware.core import call_via_runtime
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from ai.mcp_gateway.middleware.core import call_via_runtime
+    from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
 
     bootstrap_tool_runtime()
     set_caller_info({

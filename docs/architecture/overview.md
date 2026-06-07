@@ -48,16 +48,21 @@ CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系
 │  app/core/executor.py      (本地沙箱)               │
 │  app/core/executor_client.py(远程沙箱)              │
 ├────────────────────────────────────────────────────┤
-│                  AI Agent Layer                     │
-│  agents/                (Tutor/Reviewer/Generator/Analytics) │
-│  graph/                 (LangGraph 编排: engine/planner/runner) │
-│  memory/                (短期/长期 + preference)    │
-│  knowledge/             (RAG 向量库 store)          │
-│  models/                (LLM router + providers)    │
-│  tools/                 (业务工具实现 + protocol/ 协议层) │
-│  mcp_gateway/           (FastMCP 对外服务)          │
-│  workers/               (chat/batch/task_runner 守护进程) │
+│            AI Agent Layer  (ai/ 顶层包)             │
+│  ai/agents/             (Tutor/Reviewer/Generator/Analytics) │
+│  ai/graph/              (LangGraph 编排: engine/planner/runner) │
+│  ai/memory/             (短期/长期 + preference)    │
+│  ai/knowledge/          (RAG 向量库 store)          │
+│  ai/llm/                (LLM router + providers)    │
+│  ai/tools/              (业务工具实现 + protocol/ 协议层) │
+│  ai/mcp_gateway/        (FastMCP 对外服务)          │
+│  ai/evals/              (评测 harness / graders)    │
+│  ai/workers/            (chat/batch/task_runner 守护进程) │
+│  ai/agent_runtime/      (FastAPI Agent Runtime)     │
+├────────────────────────────────────────────────────┤
+│         Shared Kernel  (app + ai 共用)              │
 │  core/                  (config/db/auth/observability) │
+│  domain/                (SQLAlchemy 领域模型 + repositories) │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -298,6 +303,19 @@ CodeRunner/
 │   ├── templates/             # 按角色组织的 HTML 模板
 │   ├── static/                # CSS + JS (CodeMirror)
 │   └── utils/                 # 通用工具（分页等）
+├── core/                      # 共享内核（config / db / auth / observability）
+├── domain/                    # 共享 SQLAlchemy 领域层（models / repositories / statements）
+├── ai/                        # AI Agent 运行时（所有 agent 子系统）
+│   ├── agents/                # tutor / reviewer / generator / analytics
+│   ├── graph/                 # LangGraph 编排
+│   ├── memory/                # 会话记忆 + preference
+│   ├── knowledge/             # RAG 向量库
+│   ├── llm/                   # LLM router + providers（原 models/）
+│   ├── tools/                 # 工具实现 + protocol/ 协议层
+│   ├── mcp_gateway/           # 对外 MCP 服务（python -m ai.mcp_gateway）
+│   ├── evals/                 # 评测 harness / graders / datasets
+│   ├── workers/               # 守护进程（chat/batch/task_runner）
+│   └── agent_runtime/         # FastAPI Agent Runtime（uvicorn ai.agent_runtime.main:app）
 ├── docker/
 │   ├── Dockerfile
 │   ├── docker-compose.yml

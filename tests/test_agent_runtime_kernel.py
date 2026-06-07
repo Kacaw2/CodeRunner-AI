@@ -11,9 +11,9 @@ import app.models  # noqa: F401
 
 def test_executor_uses_session_trace_id_for_identity():
     """The tool identity must carry the run's real trace_id, not context's None."""
-    from agents.executor import ToolCallExecutor
-    from agents.session import AgentSession
-    from mcp_gateway import client as client_mod
+    from ai.agents.executor import ToolCallExecutor
+    from ai.agents.session import AgentSession
+    from ai.mcp_gateway import client as client_mod
 
     captured = {}
 
@@ -60,15 +60,15 @@ def _mock_llm_no_tools(text="Here is a hint."):
 
 
 def test_runtime_run_sets_trace_id_and_strips_system_prompt(monkeypatch):
-    from agents.runtime import AgentRuntime
-    from agents.session import AgentSession
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
     from langchain_core.messages import SystemMessage
-    import agents.runtime as runtime_mod
+    import ai.agents.runtime as runtime_mod
 
     monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
                         staticmethod(lambda tier=None: _mock_llm_no_tools()))
 
-    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
     mock_rt = MagicMock(spec=ToolRuntime)
     mock_rt.list_tools.return_value = []
     set_tool_runtime(mock_rt)
@@ -94,10 +94,10 @@ def test_runtime_run_sets_trace_id_and_strips_system_prompt(monkeypatch):
 
 def test_runtime_limit_exceeded_stops_after_max_iterations(monkeypatch):
     """A model that always wants another tool call ends in limit_exceeded."""
-    from agents.runtime import AgentRuntime
-    from agents.session import AgentSession
-    import agents.runtime as runtime_mod
-    from agents.config import MAX_TOOL_ITERATIONS
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
+    from ai.agents.config import MAX_TOOL_ITERATIONS
 
     class _ToolResp:
         content = ""
@@ -111,11 +111,11 @@ def test_runtime_limit_exceeded_stops_after_max_iterations(monkeypatch):
     monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
                         staticmethod(lambda tier=None: llm))
 
-    from mcp_gateway import client as client_mod
+    from ai.mcp_gateway import client as client_mod
     client_mod.set_mcp_tool_client(
         type("C", (), {"call_tool": lambda self, *a, **k: {"ok": True, "data": {}}})()
     )
-    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
     mock_rt = MagicMock(spec=ToolRuntime)
     mock_rt.list_tools.return_value = []
     set_tool_runtime(mock_rt)
@@ -137,9 +137,9 @@ def test_runtime_limit_exceeded_stops_after_max_iterations(monkeypatch):
 
 def test_runtime_uses_per_agent_iteration_budget(monkeypatch):
     """The loop ceiling comes from the agent definition, not the global const."""
-    from agents.runtime import AgentRuntime
-    from agents.session import AgentSession
-    import agents.runtime as runtime_mod
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
 
     class _ToolResp:
         content = ""
@@ -153,11 +153,11 @@ def test_runtime_uses_per_agent_iteration_budget(monkeypatch):
     monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
                         staticmethod(lambda tier=None: llm))
 
-    from mcp_gateway import client as client_mod
+    from ai.mcp_gateway import client as client_mod
     client_mod.set_mcp_tool_client(
         type("C", (), {"call_tool": lambda self, *a, **k: {"ok": True, "data": {}}})()
     )
-    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
     mock_rt = MagicMock(spec=ToolRuntime)
     mock_rt.list_tools.return_value = []
     set_tool_runtime(mock_rt)
@@ -181,8 +181,8 @@ def test_runtime_uses_per_agent_iteration_budget(monkeypatch):
 
 def test_runtime_blocks_undeclared_tool():
     """A tool outside the agent allowlist is denied before crossing the client."""
-    from agents.executor import ToolCallExecutor
-    from agents.session import AgentSession
+    from ai.agents.executor import ToolCallExecutor
+    from ai.agents.session import AgentSession
 
     state = {
         "messages": [HumanMessage(content="x")],
@@ -201,9 +201,9 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
     monkeypatch, app, db_session, teacher_user,
 ):
     """Provider-emitted <get_problem_detail> tags are tool calls, not final text."""
-    from agents.runtime import AgentRuntime
-    from agents.session import AgentSession
-    import agents.runtime as runtime_mod
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
 
     class _Chunk:
         def __init__(self, content="", tool_call_chunks=None, usage_metadata=None):
@@ -235,8 +235,8 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
         staticmethod(lambda tier=None: _XmlThenDoneLLM()),
     )
 
-    from mcp_gateway import client as client_mod
-    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    from ai.mcp_gateway import client as client_mod
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
 
     captured = {}
 
@@ -301,7 +301,7 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
 
 
 def test_runtime_context_restores_question_id_from_conversation():
-    from agent_runtime.services.chat_runner import (
+    from ai.agent_runtime.services.chat_runner import (
         _chat_context_from_conversation,
     )
 
@@ -319,7 +319,7 @@ def test_runtime_context_restores_question_id_from_conversation():
 def test_split_holds_tool_tag_streamed_token_by_token():
     """A tool tag arriving across chunks must never leak as visible text, while
     unrelated angle brackets (code) stream through untouched."""
-    from agents.base import _split_safe_stream_content, _legacy_tag_names
+    from ai.agents.base import _split_safe_stream_content, _legacy_tag_names
 
     tags = _legacy_tag_names(["coderunner.problem.get_detail"])
 
@@ -348,9 +348,9 @@ def test_runtime_stream_records_artifact_for_generated_problem(
     monkeypatch, app, db_session, teacher_user,
 ):
     """save_generated tool output is persisted as a trace artifact."""
-    from agents.runtime import AgentRuntime
-    from agents.session import AgentSession
-    import agents.runtime as runtime_mod
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
 
     class _Chunk:
         def __init__(self, content="", tool_call_chunks=None, usage_metadata=None):
@@ -377,8 +377,8 @@ def test_runtime_stream_records_artifact_for_generated_problem(
         staticmethod(lambda tier=None: _XmlThenDoneLLM()),
     )
 
-    from mcp_gateway import client as client_mod
-    from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    from ai.mcp_gateway import client as client_mod
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
 
     class _FakeClient:
         def call_tool(self, name, args, identity, tool_call_id=""):

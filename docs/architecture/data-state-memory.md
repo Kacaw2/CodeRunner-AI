@@ -132,7 +132,7 @@ class AIMessage(DomainBase):
 
 - `AIMessage` 是持久化后的对话消息，不等同于本次 LLM 调用的完整上下文窗口。
 - `AIConversation.summary` 是中期记忆，由 `MemoryService.generate_conversation_summary()` 在消息数达到阈值后异步生成。
-- 当前 summary 生成触发点主要在 `app/api/v1/ai.py`（同步路径）和 `agent_runtime/services/chat_runner.py`（remote 异步路径），阈值为消息数 `>= 10` 且当前 conversation 还没有 summary。
+- 当前 summary 生成触发点主要在 `app/api/v1/ai.py`（同步路径）和 `ai/agent_runtime/services/chat_runner.py`（remote 异步路径），阈值为消息数 `>= 10` 且当前 conversation 还没有 summary。
 
 ### ChatTask 与 Redis SSE buffer
 
@@ -160,7 +160,7 @@ workflow:{run_id}:buffer
 
 ### AgentSession 是单次运行的内存载体
 
-当前 Agent 不再只依赖松散的 raw state dict。`agents/session.py:AgentSession` 是单次 Agent run 的内存载体：
+当前 Agent 不再只依赖松散的 raw state dict。`ai/agents/session.py:AgentSession` 是单次 Agent run 的内存载体：
 
 | 字段 | 含义 |
 |---|---|
@@ -191,13 +191,13 @@ LLM -> coderunner.agent.delegate
 - `core/definitions.py` 为每个 Agent 声明 `handoff_targets`。
 - `coderunner.agent.delegate` 是 `internal_only=True`，外部 API key client 不能直接调用。
 - delegate handler 使用 caller identity 中的 source agent 和 role 做校验，不信任 LLM 参数自报身份。
-- `graph/handoff.py` 将下一位 Agent 的消息重建为“原始用户请求 + 上一 Agent 摘要”，`HANDOFF_SUMMARY_LIMIT = 1500`，`MAX_HANDOFFS = 2`。
+- `ai/graph/handoff.py` 将下一位 Agent 的消息重建为“原始用户请求 + 上一 Agent 摘要”，`HANDOFF_SUMMARY_LIMIT = 1500`，`MAX_HANDOFFS = 2`。
 
 这已经比早期 marker-based handoff 更可审计，但仍未形成完整的 context/memory policy：handoff summary、tool residue、长期记忆注入和 eval replay snapshot 还没有统一治理。
 
 ### WorkflowRun / WorkflowStep / WorkflowApproval
 
-显式多步任务进入 `WorkflowEngine`，而普通单轮流式对话和 bounded handoff 继续留在 streaming agent path。这个边界在 `graph/supervisor.py` 中按任务形态判断。
+显式多步任务进入 `WorkflowEngine`，而普通单轮流式对话和 bounded handoff 继续留在 streaming agent path。这个边界在 `ai/graph/supervisor.py` 中按任务形态判断。
 
 `domain/models/workflow.py` 当前包含：
 
@@ -305,7 +305,7 @@ MemoryService.get_memory_context()
 
 ## 4.6 RAG 与知识状态
 
-`knowledge/store.py` 使用 SentenceTransformer + ChromaDB：
+`ai/knowledge/store.py` 使用 SentenceTransformer + ChromaDB：
 
 | Collection | 写入来源 | 读取者 |
 |---|---|---|
@@ -378,17 +378,17 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | `app/models/submission.py` | Submission / TestResult |
 | `domain/models/chat.py` | Conversation / Message / summary / ChatTask |
 | `app/models/student_profile.py` | StudentProfile / TeacherPreference |
-| `memory/service.py` | 对话摘要、学生画像更新、memory context、消息压缩 |
-| `memory/preference.py` | 教师偏好、风格摘要、班级薄弱点 |
-| `agents/session.py`、`agents/runtime.py`、`agents/llm_runner.py` | Agent 单次运行状态、LLM/tool loop、压缩入口 |
+| `ai/memory/service.py` | 对话摘要、学生画像更新、memory context、消息压缩 |
+| `ai/memory/preference.py` | 教师偏好、风格摘要、班级薄弱点 |
+| `ai/agents/session.py`、`ai/agents/runtime.py`、`ai/agents/llm_runner.py` | Agent 单次运行状态、LLM/tool loop、压缩入口 |
 | `core/definitions.py` | Agent 定义、工具白名单、handoff target、预算/限流 |
-| `graph/handoff.py` | tool-based handoff 校验后的上下文重建 |
-| `graph/engine.py` | WorkflowEngine、step 输出选择、resume |
+| `ai/graph/handoff.py` | tool-based handoff 校验后的上下文重建 |
+| `ai/graph/engine.py` | WorkflowEngine、step 输出选择、resume |
 | `domain/models/workflow.py` | WorkflowRun / WorkflowStep / WorkflowApproval |
 | `domain/models/observability.py` | trace / eval shared-Domain 映射 |
 | `domain/repositories/*` | Sync/Async repository（user/chat/workflow/traces/evals/mcp） |
-| `agent_runtime/` | FastAPI Agent Runtime（chat/workflow remote 执行） |
-| `knowledge/store.py` | ChromaDB RAG store |
-| `workers/redis_buffer.py` | Redis SSE buffer |
+| `ai/agent_runtime/` | FastAPI Agent Runtime（chat/workflow remote 执行） |
+| `ai/knowledge/store.py` | ChromaDB RAG store |
+| `ai/workers/redis_buffer.py` | Redis SSE buffer |
 | `migrations/versions/e21895a59f7d_baseline_full_schema.py` | 当前完整 schema baseline |
 | `core/db/metadata.py` | Alembic 合并 metadata bridge |

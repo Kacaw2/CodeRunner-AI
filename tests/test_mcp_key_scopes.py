@@ -1,4 +1,4 @@
-from mcp_gateway.scopes import normalize_scopes
+from ai.mcp_gateway.scopes import normalize_scopes
 
 
 def test_normalize_legacy_tool_scope_to_canonical_scope():

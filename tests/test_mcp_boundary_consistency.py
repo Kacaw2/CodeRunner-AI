@@ -10,8 +10,8 @@ import json
 
 import pytest
 
-from mcp_gateway.bootstrap import bootstrap_tool_runtime
-from mcp_gateway.middleware import set_caller_info
+from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
+from ai.mcp_gateway.middleware import set_caller_info
 
 
 @pytest.fixture(autouse=True)
@@ -26,15 +26,15 @@ def _runtime_and_no_rate_limit(app, monkeypatch):
 
 
 def _inproc_envelope(tool: str, args: dict, *, user_id: int, role: str, agent: str) -> dict:
-    from mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
+    from ai.mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
 
     identity = MCPClientIdentity(user_id=user_id, role=role, agent_type=agent)
     return InProcessMCPToolClient().call_tool(tool, args, identity)
 
 
 def _gateway_envelope(tool: str, args: dict, *, user_id: int, role: str, agent: str) -> dict:
-    from mcp_gateway.middleware.core import call_via_runtime
-    from tools.protocol.policies.scopes import scopes_for_agent
+    from ai.mcp_gateway.middleware.core import call_via_runtime
+    from ai.tools.protocol.policies.scopes import scopes_for_agent
 
     # agent_host caller mirrors what the verified internal token would yield.
     set_caller_info({

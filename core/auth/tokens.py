@@ -16,7 +16,7 @@ def verify_service_token(token: str) -> bool:
 
 def verify_api_key(raw_key: str, *, session=None) -> dict | None:
     """Verify an external MCP API key. Returns caller info or None."""
-    from mcp_gateway.middleware.auth import verify_api_key as _legacy_verify
+    from ai.mcp_gateway.middleware.auth import verify_api_key as _legacy_verify
     return _legacy_verify(raw_key)
 
 

@@ -5,8 +5,8 @@ its ``depends_on`` (plus the ``validates_step`` a validation targets). Steps wit
 no declared dependency get a bounded summary instead of the full upstream dict.
 """
 
-from graph.engine import select_step_outputs
-from graph.handoff import HANDOFF_SUMMARY_LIMIT
+from ai.graph.engine import select_step_outputs
+from ai.graph.handoff import HANDOFF_SUMMARY_LIMIT
 
 
 def test_depends_on_passes_only_declared_upstream_in_full():
@@ -67,8 +67,8 @@ def test_missing_upstream_index_is_skipped():
 
 def test_engine_trims_step_outputs_end_to_end(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
-        from graph.node_registry import register_step_handler
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph.node_registry import register_step_handler
 
         seen: dict[int, dict] = {}
 

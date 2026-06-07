@@ -111,7 +111,7 @@ class TestAutoRoutingPerAgentLimit:
 
         with patch("app.api.v1.ai.redis_client", mock_redis), \
              patch("app.api.v1.ai._classify_for_routing", return_value="generator"), \
-             patch("graph.runner.AgentOrchestrator.run", return_value=canned):
+             patch("ai.graph.runner.AgentOrchestrator.run", return_value=canned):
             resp = client.post("/api/v1/ai/chat", json={"message": "Generate a problem"})
 
         assert resp.status_code == 200
@@ -154,14 +154,14 @@ class TestAutoRoutingPerAgentLimit:
 
 
 class TestChatEndpoint:
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_chat_requires_message(self, mock_config, client, mock_auth_student, mock_redis):
         resp = client.post("/api/v1/ai/chat", json={})
         assert resp.status_code == 400
         data = resp.get_json()
         assert data["error"] == "invalid_request"
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_chat_returns_response(self, mock_config, client, mock_auth_student, mock_redis, db_session):
         from langchain_core.messages import AIMessage as LCAIMessage
 
@@ -256,7 +256,7 @@ class TestReviewEndpoint:
         resp = client.post("/api/v1/ai/review", json={})
         assert resp.status_code == 400
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_review_returns_structured_result(self, mock_config, client, mock_auth_student, mock_redis, db_session):
         review = '```json\n{"overall_score": "A", "summary": "Great", "issues": [], "strengths": ["Clean"]}\n```'
         mock_llm = MagicMock()
@@ -289,9 +289,9 @@ class TestGenerateEndpoint:
         resp = client.post("/api/v1/ai/generate", json={})
         assert resp.status_code == 400
 
-    @patch("agents.generator.agent._validate_solution")
-    @patch("agents.config.AIConfig.validate")
-    @patch("agents.config.AIConfig.get_llm")
+    @patch("ai.agents.generator.agent._validate_solution")
+    @patch("ai.agents.config.AIConfig.validate")
+    @patch("ai.agents.config.AIConfig.get_llm")
     def test_generate_returns_question(self, mock_get_llm, mock_validate, mock_val,
                                        client, mock_auth_teacher, mock_redis, db_session):
         q_json = '''```json
@@ -331,7 +331,7 @@ class TestAnalyticsEndpoint:
         resp = client.get(f"/api/v1/ai/analytics/{other_id}")
         assert resp.status_code == 403
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_analytics_returns_report(self, mock_config, client, mock_auth_teacher, mock_redis, db_session):
         report = '```json\n{"summary": "Good", "progress": {"trend": "improving"}}\n```'
         mock_llm = MagicMock()
@@ -494,7 +494,7 @@ class TestChatRedisBuffer:
 
     def test_push_and_get_events(self, app):
         with app.app_context():
-            from workers.redis_buffer import ct_get_events, ct_push_event
+            from ai.workers.redis_buffer import ct_get_events, ct_push_event
 
             mock_redis = MagicMock()
             stored = []
@@ -509,7 +509,7 @@ class TestChatRedisBuffer:
             mock_redis.lrange.side_effect = mock_lrange
             mock_redis.expire.return_value = True
 
-            with patch("workers.redis_buffer.get_redis", return_value=mock_redis):
+            with patch("ai.workers.redis_buffer.get_redis", return_value=mock_redis):
                 ct_push_event(
                     "test-task", {"type": "start", "agent_type": "tutor"}
                 )
@@ -524,7 +524,7 @@ class TestChatRedisBuffer:
 
     def test_get_events_with_offset(self, app):
         with app.app_context():
-            from workers.redis_buffer import ct_get_events, ct_push_event
+            from ai.workers.redis_buffer import ct_get_events, ct_push_event
 
             mock_redis = MagicMock()
             stored = []
@@ -539,7 +539,7 @@ class TestChatRedisBuffer:
             mock_redis.lrange.side_effect = mock_lrange
             mock_redis.expire.return_value = True
 
-            with patch("workers.redis_buffer.get_redis", return_value=mock_redis):
+            with patch("ai.workers.redis_buffer.get_redis", return_value=mock_redis):
                 ct_push_event("test-task", {"type": "start"})
                 ct_push_event(
                     "test-task", {"type": "token", "content": "A"}
@@ -554,7 +554,7 @@ class TestChatRedisBuffer:
 
     def test_get_status_from_redis(self, app):
         with app.app_context():
-            from workers.redis_buffer import ct_get_status, ct_set_status
+            from ai.workers.redis_buffer import ct_get_status, ct_set_status
 
             mock_redis = MagicMock()
             store = {}
@@ -568,7 +568,7 @@ class TestChatRedisBuffer:
             mock_redis.set.side_effect = mock_set
             mock_redis.get.side_effect = mock_get
 
-            with patch("workers.redis_buffer.get_redis", return_value=mock_redis):
+            with patch("ai.workers.redis_buffer.get_redis", return_value=mock_redis):
                 ct_set_status("test-task", "processing", "tutor")
                 info = ct_get_status("test-task")
                 assert info["status"] == "processing"
@@ -576,9 +576,9 @@ class TestChatRedisBuffer:
 
     def test_no_redis_returns_empty(self, app):
         with app.app_context():
-            from workers.redis_buffer import ct_get_events, ct_get_status
+            from ai.workers.redis_buffer import ct_get_events, ct_get_status
 
-            with patch("workers.redis_buffer.get_redis", return_value=None):
+            with patch("ai.workers.redis_buffer.get_redis", return_value=None):
                 assert ct_get_events("x") == []
                 assert ct_get_status("x") == {
                     "status": None,

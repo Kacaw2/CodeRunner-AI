@@ -1,7 +1,7 @@
 """Tests for handoff context rebuild: drop tool residue, keep original + summary."""
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, RemoveMessage
 
-from graph.runner import _check_handoff
+from ai.graph.runner import _check_handoff
 
 
 def _state_with_residue():
@@ -66,14 +66,14 @@ def test_handoff_records_source_agent():
 
 
 def test_validate_handoff_target_allows_declared_edge():
-    from graph.handoff import validate_handoff_target
+    from ai.graph.handoff import validate_handoff_target
 
     # tutor declares {reviewer, analytics}; a student may use reviewer.
     assert validate_handoff_target("tutor", "reviewer", "student") is None
 
 
 def test_validate_handoff_target_rejects_undeclared_edge():
-    from graph.handoff import validate_handoff_target
+    from ai.graph.handoff import validate_handoff_target
 
     # generator declares {analytics} only — generator->tutor is not allowed.
     error = validate_handoff_target("generator", "tutor", "teacher")
@@ -82,20 +82,20 @@ def test_validate_handoff_target_rejects_undeclared_edge():
 
 
 def test_validate_handoff_target_rejects_self_handoff():
-    from graph.handoff import validate_handoff_target
+    from ai.graph.handoff import validate_handoff_target
 
     assert validate_handoff_target("tutor", "tutor", "student") is not None
 
 
 def test_validate_handoff_target_rejects_unknown_target():
-    from graph.handoff import validate_handoff_target
+    from ai.graph.handoff import validate_handoff_target
 
     assert validate_handoff_target("tutor", "nonexistent", "student") is not None
 
 
 def _bootstrapped_runtime():
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
-    from tools.protocol.runtime import get_tool_runtime, set_tool_runtime, reset_tool_runtime
+    from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from ai.tools.protocol.runtime import get_tool_runtime, set_tool_runtime, reset_tool_runtime
 
     return bootstrap_tool_runtime, get_tool_runtime, set_tool_runtime, reset_tool_runtime
 
@@ -103,7 +103,7 @@ def _bootstrapped_runtime():
 def test_delegate_tool_call_populates_handoff_fields():
     """End-to-end: the delegate tool, called as an agent through the real
     pipeline, returns the structured handoff fields (no free-text marker)."""
-    from mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
+    from ai.mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
 
     boot, get_rt, set_rt, reset_rt = _bootstrapped_runtime()
     previous = get_rt()
@@ -130,7 +130,7 @@ def test_delegate_tool_call_populates_handoff_fields():
 def test_delegate_tool_call_rejects_undeclared_target():
     """An edge the source agent does not declare is denied at the tool boundary,
     not silently dropped — the agent cannot route to an unintended agent."""
-    from mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
+    from ai.mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
 
     boot, get_rt, set_rt, reset_rt = _bootstrapped_runtime()
     previous = get_rt()
@@ -153,7 +153,7 @@ def test_delegate_tool_call_rejects_undeclared_target():
 
 def test_apply_handoff_worker_mode_replaces_list_without_remove_markers():
     """Worker state is a plain list: no RemoveMessage markers, direct replace."""
-    from graph.handoff import apply_handoff
+    from ai.graph.handoff import apply_handoff
 
     state = _state_with_residue()
     apply_handoff(state, use_reducer=False)

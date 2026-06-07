@@ -134,7 +134,7 @@ def test_remote_runner_claims_and_executes_with_the_existing_engine(monkeypatch)
     from domain.base import DomainBase
     from domain.models.workflow import WorkflowRun
     from domain.repositories.workflows import AsyncWorkflowRepository
-    from agent_runtime.services.workflow_runner import AsyncWorkflowRunner
+    from ai.agent_runtime.services.workflow_runner import AsyncWorkflowRunner
 
     import domain.models.chat  # noqa: F401
     import domain.models.user  # noqa: F401

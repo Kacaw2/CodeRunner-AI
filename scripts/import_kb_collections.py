@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from knowledge.store import get_knowledge_base
+from ai.knowledge.store import get_knowledge_base
 
 
 TARGETS = {

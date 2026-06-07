@@ -9,11 +9,11 @@ import pytest
 from app import create_app
 from app.core.extensions import db as _db
 from domain.models.user import User, UserRole
-from mcp_gateway.middleware.auth import hash_api_key, verify_api_key
+from ai.mcp_gateway.middleware.auth import hash_api_key, verify_api_key
 from domain.models.mcp import McpApiKey
 from domain.models.mcp import McpAuditLog
-from mcp_gateway.middleware import set_caller_info, get_caller_info, _guarded
-from mcp_gateway.middleware.rate_limit import check_rate_limit
+from ai.mcp_gateway.middleware import set_caller_info, get_caller_info, _guarded
+from ai.mcp_gateway.middleware.rate_limit import check_rate_limit
 
 
 @pytest.fixture(scope="module")
@@ -82,7 +82,7 @@ def mock_auth_student(student_user):
 
 class TestMcpServerCreation:
     def test_server_registers_all_tools(self):
-        from mcp_gateway.server import create_mcp_server, EXPECTED_TOOL_COUNT
+        from ai.mcp_gateway.server import create_mcp_server, EXPECTED_TOOL_COUNT
         mcp = create_mcp_server()
         tools = list(mcp._tool_manager._tools.keys())
         assert len(tools) == EXPECTED_TOOL_COUNT
@@ -100,8 +100,8 @@ class TestMcpServerCreation:
 
 class TestCoreFunctions:
     def test_search_similar_problems_impl(self):
-        from tools.knowledge_search.search import search_similar_problems_impl
-        with patch("knowledge.store.get_knowledge_base") as mock_kb:
+        from ai.tools.knowledge_search.search import search_similar_problems_impl
+        with patch("ai.knowledge.store.get_knowledge_base") as mock_kb:
             mock_kb.return_value.search_similar_problems.return_value = [
                 {"id": 1, "title": "Two Sum", "score": 0.95}
             ]
@@ -110,8 +110,8 @@ class TestCoreFunctions:
         assert len(result["similar_problems"]) == 1
 
     def test_search_knowledge_impl(self):
-        from tools.knowledge_search.search import search_knowledge_impl
-        with patch("knowledge.store.get_knowledge_base") as mock_kb:
+        from ai.tools.knowledge_search.search import search_knowledge_impl
+        with patch("ai.knowledge.store.get_knowledge_base") as mock_kb:
             mock_kb.return_value.search_knowledge.return_value = [
                 {"topic": "Arrays", "content": "..."}
             ]
@@ -120,13 +120,13 @@ class TestCoreFunctions:
         assert len(result["relevant_knowledge"]) == 1
 
     def test_get_problem_detail_impl_not_found(self, app):
-        from tools.problems.queries import get_problem_detail_impl
+        from ai.tools.problems.queries import get_problem_detail_impl
         with app.app_context():
             result = get_problem_detail_impl(99999)
         assert result == {"error": "Problem not found"}
 
     def test_get_problem_difficulty_stats_impl_no_variants(self, app):
-        from tools.analytics.queries import get_problem_difficulty_stats_impl
+        from ai.tools.analytics.queries import get_problem_difficulty_stats_impl
         with app.app_context():
             result = get_problem_difficulty_stats_impl(99999)
         assert result["total_submissions"] == 0
@@ -209,14 +209,14 @@ class TestApiKeyVerification:
         db_session.add(record)
         db_session.commit()
 
-        with patch("mcp_gateway.middleware.auth.get_session", return_value=db_session):
+        with patch("ai.mcp_gateway.middleware.auth.get_session", return_value=db_session):
             caller = verify_api_key(raw_key)
         assert caller is not None
         assert caller["user_id"] == teacher_id
         assert caller["role"] == "teacher"
 
     def test_verify_invalid_key(self, app, db_session):
-        with patch("mcp_gateway.middleware.auth.get_session", return_value=db_session):
+        with patch("ai.mcp_gateway.middleware.auth.get_session", return_value=db_session):
             caller = verify_api_key("mcp-nonexistent-key")
         assert caller is None
 
@@ -234,7 +234,7 @@ class TestApiKeyVerification:
         db_session.add(record)
         db_session.commit()
 
-        with patch("mcp_gateway.middleware.auth.get_session", return_value=db_session):
+        with patch("ai.mcp_gateway.middleware.auth.get_session", return_value=db_session):
             caller = verify_api_key(raw_key)
         assert caller is None
 
@@ -251,8 +251,8 @@ class TestMiddleware:
 
     def test_wrong_role_returns_permission_error(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         result = run_guard(
             TOOL_CATALOG["coderunner.trace.get_agent_trace"],
@@ -263,8 +263,8 @@ class TestMiddleware:
 
     def test_scope_restriction(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         result = run_guard(
             TOOL_CATALOG["coderunner.problem.get_detail"],
@@ -280,7 +280,7 @@ class TestMiddleware:
             "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
         })
 
-        with patch("mcp_gateway.middleware.core.check_rate_limit", return_value=True):
+        with patch("ai.mcp_gateway.middleware.core.check_rate_limit", return_value=True):
             result = _guarded(lambda: json.dumps({"ok": True}))
         data = json.loads(result)
         assert data["ok"] is True
@@ -291,7 +291,7 @@ class TestMiddleware:
             "role": "teacher", "scopes": None, "rate_limit_rpm": 30,
         })
 
-        with patch("mcp_gateway.middleware.core.check_rate_limit", return_value=False):
+        with patch("ai.mcp_gateway.middleware.core.check_rate_limit", return_value=False):
             result = _guarded(lambda: json.dumps({"ok": True}))
         data = json.loads(result)
         assert data["error"]["code"] == "MCP_RATE_LIMITED"
@@ -304,37 +304,37 @@ class TestRateLimiter:
         mock_redis = MagicMock()
         # incr returns the post-increment count for this window
         mock_redis.incr.return_value = 5
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
             assert check_rate_limit("k1", 30) is True
 
     def test_blocks_over_limit(self):
         mock_redis = MagicMock()
         mock_redis.incr.return_value = 31
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
             assert check_rate_limit("k1", 30) is False
 
     def test_sets_expiry_only_on_first_hit(self):
         mock_redis = MagicMock()
         mock_redis.incr.return_value = 1
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
             assert check_rate_limit("k1", 30) is True
         mock_redis.expire.assert_called_once_with("mcp_rate:k1", 60)
 
     def test_no_redis_allows_all(self):
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", None):
             assert check_rate_limit("k1", 30) is True
 
     def test_no_redis_fails_closed_for_high_risk(self):
         # Redis down → cannot throttle. High-risk tools must be denied rather
         # than allowed to flood unbounded.
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", None):
             assert check_rate_limit("k1", 30, high_risk=True) is False
             assert check_rate_limit("k1", 30, high_risk=False) is True
 
     def test_redis_error_fails_closed_for_high_risk(self):
         mock_redis = MagicMock()
         mock_redis.incr.side_effect = RuntimeError("connection reset")
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", mock_redis):
             assert check_rate_limit("k1", 30, high_risk=True) is False
             assert check_rate_limit("k1", 30, high_risk=False) is True
 
@@ -349,8 +349,8 @@ class TestGuardedFailClosed:
         })
 
     def _ensure_registered(self, *canonical_names):
-        from tools.protocol.registry import get_registry
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.registry import get_registry
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
         reg = get_registry()
         for name in canonical_names:
             reg.register(TOOL_CATALOG[name])
@@ -358,7 +358,7 @@ class TestGuardedFailClosed:
     def test_high_risk_denied_when_redis_down(self):
         self._set_caller()
         self._ensure_registered("coderunner.code.execute")
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", None):
             result = _guarded(
                 lambda: json.dumps({"ok": True}),
                 canonical_tool="coderunner.code.execute",
@@ -369,7 +369,7 @@ class TestGuardedFailClosed:
     def test_low_risk_allowed_when_redis_down(self):
         self._set_caller()
         self._ensure_registered("coderunner.knowledge.search")
-        with patch("mcp_gateway.middleware.rate_limit._redis_client", None):
+        with patch("ai.mcp_gateway.middleware.rate_limit._redis_client", None):
             result = _guarded(
                 lambda: json.dumps({"ok": True}),
                 canonical_tool="coderunner.knowledge.search",
@@ -383,8 +383,8 @@ class TestGuardedFailClosed:
 class TestMcpPermissions:
     def test_teacher_allowed(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="teacher")
         for tool in [
@@ -398,8 +398,8 @@ class TestMcpPermissions:
 
     def test_admin_allowed(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         desc = TOOL_CATALOG["coderunner.knowledge.search"]
         assert run_guard(
@@ -410,8 +410,8 @@ class TestMcpPermissions:
 
     def test_student_denied_restricted_tools(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="student")
         assert run_guard(TOOL_CATALOG["coderunner.trace.get_agent_trace"], ctx).rejected
@@ -419,8 +419,8 @@ class TestMcpPermissions:
 
     def test_student_allowed_read_tools(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="student")
         for tool in ["coderunner.knowledge.search", "coderunner.problem.get_detail"]:
@@ -429,8 +429,8 @@ class TestMcpPermissions:
 
     def test_unknown_tool_allowed_by_default(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.rbac import check_rbac
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.policies.rbac import check_rbac
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         check_rbac(
             ToolDescriptor(
@@ -470,7 +470,7 @@ class TestAuditLog:
 
 class TestTokenReplay:
     def test_claim_jti_first_use_then_replay(self):
-        from mcp_gateway.middleware import rate_limit
+        from ai.mcp_gateway.middleware import rate_limit
 
         mock_redis = MagicMock()
         # Redis SET NX returns True on first claim, None when the key exists.
@@ -480,19 +480,19 @@ class TestTokenReplay:
             assert rate_limit.claim_jti("jti-1", 120) is False
 
     def test_claim_jti_fail_open_without_redis(self):
-        from mcp_gateway.middleware import rate_limit
+        from ai.mcp_gateway.middleware import rate_limit
 
         with patch.object(rate_limit, "_redis_client", None):
             assert rate_limit.claim_jti("jti-x", 120) is True
 
     def test_resolve_caller_rejects_replayed_token(self):
-        from mcp_gateway.middleware import core
+        from ai.mcp_gateway.middleware import core
 
         claims = {"sub": "1", "role": "student", "agent_type": "tutor",
                   "scopes": [], "jti": "abc", "exp": 9999999999}
         # verify_*/load_* are imported inside the function, so patch them at
         # their source module; claim_jti is bound on core at import time.
-        with patch("mcp_gateway.internal_auth.load_verify_key_from_env", return_value="k"), \
-             patch("mcp_gateway.internal_auth.verify_internal_token", return_value=claims), \
+        with patch("ai.mcp_gateway.internal_auth.load_verify_key_from_env", return_value="k"), \
+             patch("ai.mcp_gateway.internal_auth.verify_internal_token", return_value=claims), \
              patch.object(core, "claim_jti", return_value=False):
             assert core.resolve_caller_from_bearer("token") is None

@@ -37,8 +37,8 @@ def migrate(app=None):
         app = create_app()
 
     with app.app_context():
-        from knowledge.store import get_knowledge_base, index_all_problems
-        import knowledge.store as kb_module
+        from ai.knowledge.store import get_knowledge_base, index_all_problems
+        import ai.knowledge.store as kb_module
 
         kb = get_knowledge_base()
         client = kb.client

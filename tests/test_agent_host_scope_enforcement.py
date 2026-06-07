@@ -8,9 +8,9 @@ claims (transport) or derived minimal scopes (in-process).
 import pytest
 
 from core.auth.context import CallerContext
-from tools.protocol.schemas.descriptors import ToolDescriptor
-from tools.protocol.errors import MCPScopeDenied
-from tools.protocol.policies.scopes import check_scope
+from ai.tools.protocol.schemas.descriptors import ToolDescriptor
+from ai.tools.protocol.errors import MCPScopeDenied
+from ai.tools.protocol.policies.scopes import check_scope
 
 
 def _scoped_tool() -> ToolDescriptor:
@@ -40,8 +40,8 @@ def test_in_process_client_grants_agent_minimal_scopes():
     """The in-process client must attach the agent's minimal scopes so scoped
     tools pass without the bypass."""
     from unittest.mock import MagicMock
-    from mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
-    from tools.protocol.runtime import (
+    from ai.mcp_gateway.client import InProcessMCPToolClient, MCPClientIdentity
+    from ai.tools.protocol.runtime import (
         ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
     )
 
@@ -61,7 +61,7 @@ def test_in_process_client_grants_agent_minimal_scopes():
 
 
 def test_call_via_runtime_passes_agent_host_granted_scopes(monkeypatch):
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     captured = {}
 

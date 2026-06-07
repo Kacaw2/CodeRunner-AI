@@ -10,7 +10,7 @@
 |---|---|---|
 | **可观测优先于可中断** | 观测代码绝不破坏 Agent 主路径——metrics/costing/trace 落库全部 best-effort、异常吞掉 | `tracing.py:_emit_metrics()`、`save()` 的 try/except |
 | **运行时中立** | Trace / Eval 落库不依赖 Flask app context，Worker、MCP 网关、Eval harness、CI 均可写入 | `core/observability/trace_schema.py`、`core/db/session.py` |
-| **不静默放行** | 未实现/不可用的判分器返回显式失败而非默默 pass，质量门禁宁可误报不漏报 | `evals/graders/base.py:error_result()` |
+| **不静默放行** | 未实现/不可用的判分器返回显式失败而非默默 pass，质量门禁宁可误报不漏报 | `ai/evals/graders/base.py:error_result()` |
 
 相关章节：Agent 运行时见 [ai-agents.md](ai-agents.md)，数据落库见 [data-state-memory.md](data-state-memory.md)，工具与 RAG 见 [tools-mcp-rag.md](tools-mcp-rag.md)，安全红线见 [security-permissions-reliability.md](security-permissions-reliability.md)。
 
@@ -98,7 +98,7 @@ _SECRET_PATTERNS = [
 
 ### 数据集与用例
 
-`evals/datasets/schema.py` 定义规范化用例，按 `case_type` 分目录存 JSON（`evals/datasets/<case_type>/<suite>.json`）：
+`ai/evals/datasets/schema.py` 定义规范化用例，按 `case_type` 分目录存 JSON（`ai/evals/datasets/<case_type>/<suite>.json`）：
 
 | case_type | 用途 |
 |---|---|
@@ -113,15 +113,15 @@ _SECRET_PATTERNS = [
 max_tokens=2048, max_tool_calls=5, timeout_seconds=90, max_cost_cny=0.25
 ```
 
-加载由 `evals/datasets/store.py:DatasetStore.load_cases(selector)` 完成，selector 支持 `all` / `<case_type>` / `<case_type>:<suite>`，并兼容旧 `evals/cases/*` 的 legacy shim。
+加载由 `ai/evals/datasets/store.py:DatasetStore.load_cases(selector)` 完成，selector 支持 `all` / `<case_type>` / `<case_type>:<suite>`，并兼容旧 `ai/evals/cases/*` 的 legacy shim。
 
 ### 判分器（Grader）体系
 
-`evals/graders/base.py:run_grader()` 按 `<family>.<name>` 命名分发到家族实现：
+`ai/evals/graders/base.py:run_grader()` 按 `<family>.<name>` 命名分发到家族实现：
 
 | 家族 | 状态 | 实现 |
 |---|---|---|
-| `deterministic` | **已实现** | `graders/deterministic.py`，包装 `evals/judges/judges.py:JUDGE_REGISTRY`（18 个确定性 judge） |
+| `deterministic` | **已实现** | `graders/deterministic.py`，包装 `ai/evals/judges/judges.py:JUDGE_REGISTRY`（18 个确定性 judge） |
 | `static_checks` | 预留（Phase 6） | 占位，代码静态检查 |
 | `unit_tests` | 预留（Phase 6） | 占位，需沙箱；无沙箱时 `skipped_result()` |
 | `llm_judge` | 预留（Phase 6） | 占位，LLM 评分（答案质量/相关性/安全/幻觉） |
@@ -147,7 +147,7 @@ max_tokens=2048, max_tool_calls=5, timeout_seconds=90, max_cost_cny=0.25
 
 ### Eval Harness 与失败分类
 
-`evals/harness/eval_harness.py:EvalHarness.run()` 批量驱动：建 `EvalRun` → 每个 case 经 `AgentHarness` 跑出一条 trace（把 `eval_run_id` / `eval_case_id` 绑进 case 的 trace context）→ 回读 trace 的 token/cost/latency → 跑判分器 → 落 `EvalCaseRun` + `EvalCaseGraderResult`。
+`ai/evals/harness/eval_harness.py:EvalHarness.run()` 批量驱动：建 `EvalRun` → 每个 case 经 `AgentHarness` 跑出一条 trace（把 `eval_run_id` / `eval_case_id` 绑进 case 的 trace context）→ 回读 trace 的 token/cost/latency → 跑判分器 → 落 `EvalCaseRun` + `EvalCaseGraderResult`。
 
 **软预算**（plan DP-A）：预算在跑完后检查、绝不中断 Agent 循环。`_classify()` 给出 `(status, passed, failure_type)`：
 
@@ -164,7 +164,7 @@ grader_failed    -> 有判分器但未全通过
 
 ### 报告与回归检测
 
-`evals/reports/generator.py:ReportGenerator.build()` 从持久化的 `EvalRun` / `EvalCaseRun` / `EvalCaseGraderResult` 聚合出 `EvalReport`：
+`ai/evals/reports/generator.py:ReportGenerator.build()` 从持久化的 `EvalRun` / `EvalCaseRun` / `EvalCaseGraderResult` 聚合出 `EvalReport`：
 
 - 质量：`pass_rate`、各判分家族通过率（`grader_pass_rates`，跳过项不计入分母）
 - 成本：`total` / `avg` / `p95`（CNY）
@@ -243,7 +243,7 @@ trace 的 run 级与 span 级都带 `tokens_input` / `tokens_output` / `cost_cny
 
 ### 模型分层
 
-`agents/config.py:AIConfig.get_llm(tier)` 委托 ModelRouter 做分层选型（BALANCED / FAST / POWER），不同 tier 的 temperature、max_tokens、限流不同——成本与质量在路由层就可权衡。
+`ai/agents/config.py:AIConfig.get_llm(tier)` 委托 ModelRouter 做分层选型（BALANCED / FAST / POWER），不同 tier 的 temperature、max_tokens、限流不同——成本与质量在路由层就可权衡。
 
 ---
 
@@ -308,16 +308,16 @@ trace 的 run 级与 span 级都带 `tokens_input` / `tokens_output` / `cost_cny
 触发：每日 02:00 UTC + 手动 workflow_dispatch
 环境：真实 DeepSeek API（DEEPSEEK_API_KEY secret，缺失即 fail-fast）
        throwaway SQLite（eval_ci.db），--bootstrap-schema 每次现建 schema
-步骤：python -m evals.ci --use-harness --bootstrap-schema \
+步骤：python -m ai.evals.ci --use-harness --bootstrap-schema \
         --db-url sqlite:///eval_ci.db --selector all \
         --tolerance 0.05 --report-out eval-report.json
 产物：eval-report.json / eval-report.md / eval-regressions.json（always 上传）
 ```
 
-它**不是** PR 必需检查（要花 token）。门禁逻辑在 `evals/ci.py:_run_harness_mode()`：跑 harness → `ReportGenerator` 出报告 → 两条失败条件任一触发即退非零：
+它**不是** PR 必需检查（要花 token）。门禁逻辑在 `ai/evals/ci.py:_run_harness_mode()`：跑 harness → `ReportGenerator` 出报告 → 两条失败条件任一触发即退非零：
 
 1. 存在 case 级回归（`regressions` 非空）；
-2. 整体 `pass_rate` 跌破 `baseline - tolerance`（基线 `evals/baseline.json` 按 suite key 存 `min_pass_rate`，默认容忍 5pp）。
+2. 整体 `pass_rate` 跌破 `baseline - tolerance`（基线 `ai/evals/baseline.json` 按 suite key 存 `min_pass_rate`，默认容忍 5pp）。
 
 基线由 `workflow_dispatch` 带 `update_baseline=true`（→ `--update-baseline`）自校准重写。CI 用 `_bootstrap_eval_schema()` 在单引擎上同时建 Flask `db` 与 core `Base` 两套元数据（镜像 `tests/conftest.py`）——仅 CI/测试便利，生产 schema 由 Alembic 拥有。
 
@@ -330,7 +330,7 @@ trace 的 run 级与 span 级都带 `tokens_input` / `tokens_output` / `cost_cny
 | 类 | 文件 | 职责 |
 |---|---|---|
 | `Settings` | `core/config.py` | 运行时中立配置，`get_settings()` 经 `lru_cache` 单例；`load_dotenv()` 读 `.env`；构造 `DATABASE_URL`（`MYSQL_*` / `DB_*` / `DATABASE_URL` 优先级） |
-| `AIConfig` | `agents/config.py` | LLM 配置：`DEEPSEEK_API_KEY` / `MODEL` / `MAX_TOKENS` / `TEMPERATURE` / 限流；`validate()` 校验 key、`get_llm(tier)` 出 LLM 实例 |
+| `AIConfig` | `ai/agents/config.py` | LLM 配置：`DEEPSEEK_API_KEY` / `MODEL` / `MAX_TOKENS` / `TEMPERATURE` / 限流；`validate()` 校验 key、`get_llm(tier)` 出 LLM 实例 |
 
 关键 env（节选）：
 

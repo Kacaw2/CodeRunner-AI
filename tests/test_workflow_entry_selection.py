@@ -10,8 +10,8 @@ Two invariants:
 
 from langchain_core.messages import HumanMessage
 
-from graph.handoff import MAX_HANDOFFS, stream_with_handoffs
-from graph.supervisor import SupervisorAgent, should_use_workflow
+from ai.graph.handoff import MAX_HANDOFFS, stream_with_handoffs
+from ai.graph.supervisor import SupervisorAgent, should_use_workflow
 
 
 # ── Entry-selection boundary ───────────────────────────────────

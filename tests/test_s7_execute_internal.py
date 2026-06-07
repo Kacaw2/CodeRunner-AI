@@ -12,11 +12,11 @@ Three guarantees:
 import pytest
 
 from core.auth.context import CallerContext
-from tools.protocol.schemas.catalog import TOOL_CATALOG
-from tools.protocol.schemas.descriptors import RiskLevel, ApprovalPolicy
-from tools.protocol.errors import MCPPermissionDenied
-from tools.protocol.policies.guard import check_internal_only, run_guard
-from tools.protocol.policies.scopes import scopes_for_agent
+from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
+from ai.tools.protocol.schemas.descriptors import RiskLevel, ApprovalPolicy
+from ai.tools.protocol.errors import MCPPermissionDenied
+from ai.tools.protocol.policies.guard import check_internal_only, run_guard
+from ai.tools.protocol.policies.scopes import scopes_for_agent
 
 
 INTERNAL_TOOL = "coderunner.code.execute_internal"
@@ -83,7 +83,7 @@ def test_output_schema_validation_is_warn_only():
     logger force-enabled is immune to that cross-test pollution.
     """
     import logging
-    from tools.protocol.runtime import ToolRuntime, logger as runtime_logger
+    from ai.tools.protocol.runtime import ToolRuntime, logger as runtime_logger
 
     d = TOOL_CATALOG[INTERNAL_TOOL]
     bad_result = {"status": 123}  # status should be a string per schema

@@ -4,13 +4,13 @@ import json
 
 
 def test_agent_tool_allowlists_derive_from_definitions():
-    from agents.analytics.agent import AnalyticsAgent
-    from agents.generator.agent import GeneratorAgent
-    from agents.reviewer.agent import ReviewerAgent
-    from agents.tutor.agent import TutorAgent
+    from ai.agents.analytics.agent import AnalyticsAgent
+    from ai.agents.generator.agent import GeneratorAgent
+    from ai.agents.reviewer.agent import ReviewerAgent
+    from ai.agents.tutor.agent import TutorAgent
     from core.definitions import AGENT_DEFINITIONS, allowed_tools_for
-    from tools.protocol.policies.rbac import _agent_tool_allow
-    from tools.protocol.schemas.catalog import TOOL_CATALOG
+    from ai.tools.protocol.policies.rbac import _agent_tool_allow
+    from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
     agents = {
         "analytics": AnalyticsAgent(),
@@ -27,10 +27,10 @@ def test_agent_tool_allowlists_derive_from_definitions():
 
 def test_runtime_validates_input_schema_before_transport():
     from core.auth.context import CallerContext
-    from tools.protocol.registry import ToolRegistry
-    from tools.protocol.runtime import ToolCallContext, ToolRuntime
-    from tools.protocol.schemas.descriptors import RiskLevel, ToolDescriptor
-    from tools.protocol.transports.inproc import LocalTransport
+    from ai.tools.protocol.registry import ToolRegistry
+    from ai.tools.protocol.runtime import ToolCallContext, ToolRuntime
+    from ai.tools.protocol.schemas.descriptors import RiskLevel, ToolDescriptor
+    from ai.tools.protocol.transports.inproc import LocalTransport
 
     registry = ToolRegistry()
     transport = LocalTransport()
@@ -68,8 +68,8 @@ def test_runtime_validates_input_schema_before_transport():
 
 
 def test_gateway_bridge_returns_runtime_envelope(monkeypatch):
-    from mcp_gateway.middleware.core import call_via_runtime
-    from tools.protocol.runtime import ToolResult
+    from ai.mcp_gateway.middleware.core import call_via_runtime
+    from ai.tools.protocol.runtime import ToolResult
 
     captured = {}
 
@@ -106,9 +106,9 @@ def test_gateway_bridge_returns_runtime_envelope(monkeypatch):
 
 
 def test_gateway_registered_tool_invokes_runtime_pipeline(monkeypatch):
-    from mcp_gateway.middleware import set_caller_info
-    from mcp_gateway.server import create_mcp_server
-    from tools.protocol.runtime import ToolResult
+    from ai.mcp_gateway.middleware import set_caller_info
+    from ai.mcp_gateway.server import create_mcp_server
+    from ai.tools.protocol.runtime import ToolResult
 
     captured = {}
 
@@ -144,14 +144,14 @@ def test_gateway_registered_tool_invokes_runtime_pipeline(monkeypatch):
 
 def test_runtime_persists_high_risk_approval_request():
     from core.auth.context import CallerContext
-    from tools.protocol.registry import ToolRegistry
-    from tools.protocol.runtime import ToolCallContext, ToolRuntime
-    from tools.protocol.schemas.descriptors import (
+    from ai.tools.protocol.registry import ToolRegistry
+    from ai.tools.protocol.runtime import ToolCallContext, ToolRuntime
+    from ai.tools.protocol.schemas.descriptors import (
         ApprovalPolicy,
         RiskLevel,
         ToolDescriptor,
     )
-    from tools.protocol.transports.inproc import LocalTransport
+    from ai.tools.protocol.transports.inproc import LocalTransport
 
     class FakeApprovalStore:
         def __init__(self):

@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 # metadata used to build the in-memory schema.
 import domain.models.chat  # noqa: F401
 import domain.models.user  # noqa: F401
-from agent_runtime.dependencies import get_redis, get_session
-from agent_runtime.main import create_app
+from ai.agent_runtime.dependencies import get_redis, get_session
+from ai.agent_runtime.main import create_app
 from core.auth.service_tokens import mint_service_token
 from domain.base import DomainBase
 
@@ -72,7 +72,7 @@ def test_health_ready_reports_checks(app_client):
 
 
 def test_process_runtime_bootstrap_wires_tool_runtime(monkeypatch):
-    import agent_runtime.main as runtime_main
+    import ai.agent_runtime.main as runtime_main
 
     calls = {}
 

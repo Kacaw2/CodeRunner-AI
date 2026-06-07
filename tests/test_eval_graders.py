@@ -7,8 +7,8 @@ prefix so the harness has one entry point.
 
 
 def test_deterministic_grader_passes_clean_response():
-    from evals.graders.base import GraderResult
-    from evals.graders.deterministic import run_deterministic_grader
+    from ai.evals.graders.base import GraderResult
+    from ai.evals.graders.deterministic import run_deterministic_grader
 
     result = run_deterministic_grader(
         "deterministic.answer_leak",
@@ -25,7 +25,7 @@ def test_deterministic_grader_passes_clean_response():
 
 
 def test_deterministic_grader_detects_answer_leak():
-    from evals.graders.deterministic import run_deterministic_grader
+    from ai.evals.graders.deterministic import run_deterministic_grader
 
     leaked = "```python\ndef twoSum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i\n```"
     result = run_deterministic_grader(
@@ -40,7 +40,7 @@ def test_deterministic_grader_detects_answer_leak():
 
 
 def test_unknown_deterministic_grader_is_error_result():
-    from evals.graders.deterministic import run_deterministic_grader
+    from ai.evals.graders.deterministic import run_deterministic_grader
 
     result = run_deterministic_grader("deterministic.does_not_exist", "x", {})
 
@@ -49,7 +49,7 @@ def test_unknown_deterministic_grader_is_error_result():
 
 
 def test_run_grader_dispatches_by_family_prefix():
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     result = run_grader(
         {"type": "deterministic.regex_absent", "pattern": "TOP_SECRET"},
@@ -63,7 +63,7 @@ def test_run_grader_dispatches_by_family_prefix():
 
 
 def test_run_grader_rejects_unknown_family():
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     result = run_grader({"type": "telepathy.vibes"}, "response")
 
@@ -75,7 +75,7 @@ def test_run_grader_rejects_unknown_family():
 
 
 def test_static_checks_python_parse_passes_on_valid_code():
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     code = "```python\ndef f(x):\n    return x + 1\n```"
     result = run_grader({"type": "static_checks.python_parses"}, code)
@@ -85,7 +85,7 @@ def test_static_checks_python_parse_passes_on_valid_code():
 
 
 def test_static_checks_python_parse_fails_on_syntax_error():
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     code = "```python\ndef f(x):\n    return x +\n```"
     result = run_grader({"type": "static_checks.python_parses"}, code)
@@ -95,7 +95,7 @@ def test_static_checks_python_parse_fails_on_syntax_error():
 
 
 def test_static_checks_flags_dangerous_imports():
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     code = "```python\nimport os\nos.system('rm -rf /')\n```"
     result = run_grader({"type": "static_checks.no_dangerous_imports"}, code)
@@ -105,7 +105,7 @@ def test_static_checks_flags_dangerous_imports():
 
 
 def test_unit_tests_grader_skips_without_sandbox():
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     result = run_grader(
         {"type": "unit_tests.run", "tests": "assert f(1) == 2"},
@@ -118,7 +118,7 @@ def test_unit_tests_grader_skips_without_sandbox():
 
 def test_llm_judge_skips_without_api_key(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    from evals.graders.base import run_grader
+    from ai.evals.graders.base import run_grader
 
     result = run_grader(
         {"type": "llm_judge.quality", "rubric": "Is the answer helpful?"},

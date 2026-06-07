@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 def test_chroma_http_client_uses_configured_host(monkeypatch):
     from core.config import get_settings
-    import knowledge.store as store
+    import ai.knowledge.store as store
 
     settings = get_settings()
     monkeypatch.setattr(settings, "CHROMA_MODE", "http")
@@ -21,7 +21,7 @@ def test_chroma_http_client_uses_configured_host(monkeypatch):
 
 def test_chroma_persistent_client_kept_for_explicit_local_mode(monkeypatch, tmp_path):
     from core.config import get_settings
-    import knowledge.store as store
+    import ai.knowledge.store as store
 
     settings = get_settings()
     monkeypatch.setattr(settings, "CHROMA_MODE", "persistent")

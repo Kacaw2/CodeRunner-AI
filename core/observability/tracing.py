@@ -383,7 +383,7 @@ class TraceCollector:
 
     def _resolve_model(self):
         try:
-            from agents.config import AIConfig
+            from ai.agents.config import AIConfig
             return AIConfig.MODEL
         except Exception:
             return None

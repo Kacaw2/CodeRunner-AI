@@ -79,7 +79,7 @@ def _classify_for_routing(message: str, agent_type: str, user_role: str) -> str:
     if agent_type and agent_type != "auto":
         return agent_type
     from langchain_core.messages import HumanMessage
-    from graph.runner import _classify_intent
+    from ai.graph.runner import _classify_intent
 
     state = _classify_intent({
         "messages": [HumanMessage(content=message)],
@@ -143,7 +143,7 @@ def _maybe_index_problem(problem):
     if not problem:
         return
     try:
-        from knowledge.store import get_knowledge_base
+        from ai.knowledge.store import get_knowledge_base
         kb = get_knowledge_base()
         kb.index_problem(problem)
     except Exception as e:
@@ -165,7 +165,7 @@ def _maybe_generate_summary(conv_id: int):
             def _generate(app_obj, cid):
                 with app_obj.app_context():
                     try:
-                        from memory.service import MemoryService
+                        from ai.memory.service import MemoryService
                         summary = MemoryService.generate_conversation_summary(cid)
                         if summary:
                             c = SyncChatRepository(db.session).get_conversation(cid)
@@ -222,7 +222,7 @@ def _load_history(conversation_id: int) -> list:
 
 def _try_parse_review_json(text: str) -> dict | None:
     """Try to extract a structured review JSON from the LLM response."""
-    from agents.json_utils import extract_first_json_object
+    from ai.agents.json_utils import extract_first_json_object
     return extract_first_json_object(text)
 
 
@@ -339,7 +339,7 @@ def chat():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from graph.runner import AgentOrchestrator
+        from ai.graph.runner import AgentOrchestrator
 
         orch = AgentOrchestrator()
         state = orch.run({
@@ -437,8 +437,8 @@ def chat_stream():
 
     def generate():
         from langchain_core.messages import HumanMessage
-        from agents.registry import get_agent_instance
-        from graph.handoff import stream_with_handoffs
+        from ai.agents.registry import get_agent_instance
+        from ai.graph.handoff import stream_with_handoffs
 
         # Phase 3: the concrete agent was already resolved (and rate-limited)
         # before the response started streaming.
@@ -635,7 +635,7 @@ def chat_task_stream(task_id):
     last_event = request.args.get("last_event", 0, type=int)
 
     def generate():
-        from workers.redis_buffer import ct_get_events, ct_get_status
+        from ai.workers.redis_buffer import ct_get_events, ct_get_status
 
         cursor = last_event
         done = False
@@ -815,7 +815,7 @@ def review_code():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents.registry import get_agent_instance
+        from ai.agents.registry import get_agent_instance
 
         agent = get_agent_instance("reviewer")
         state = {
@@ -891,7 +891,7 @@ def generate_question():
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents.registry import get_agent_instance
+        from ai.agents.registry import get_agent_instance
 
         agent = get_agent_instance("generator")
         state = {
@@ -1031,7 +1031,7 @@ def generate_batch():
                                {"Retry-After": str(e.retry_after)})
 
     from app.models.agent_task import AgentTask
-    from workers.batch import decompose_batch_params, BatchTaskRunner
+    from ai.workers.batch import decompose_batch_params, BatchTaskRunner
 
     params = {
         "topic": topic,
@@ -1094,10 +1094,10 @@ def generate_pipeline():
 
     user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
 
-    from memory.service import MemoryService
+    from ai.memory.service import MemoryService
     teacher_ctx = MemoryService.get_memory_context(user.id, user_role)
 
-    from workers.generation_pipeline import run_generation_workflow
+    from ai.workers.generation_pipeline import run_generation_workflow
     try:
         result = run_generation_workflow(
             teacher_id=user.id,
@@ -1180,7 +1180,7 @@ def retry_task(task_id):
     """Retry a failed task or a specific step within a batch."""
     user = get_current_user_or_401()
     from app.models.agent_task import AgentTask
-    from workers.batch import BatchTaskRunner
+    from ai.workers.batch import BatchTaskRunner
 
     task = AgentTask.query.filter_by(id=task_id, user_id=user.id).first()
     if not task:
@@ -1308,7 +1308,7 @@ def _publish_draft(draft, created_by: int):
 
 def _trigger_revision(draft):
     """Use the Generator agent to revise based on teacher feedback."""
-    from agents.registry import get_agent_instance
+    from ai.agents.registry import get_agent_instance
     from langchain_core.messages import HumanMessage as LCHumanMessage
 
     original_json = json.dumps(draft.question_data, indent=2, ensure_ascii=False)
@@ -1476,7 +1476,7 @@ def analytics_report(student_id):
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents.registry import get_agent_instance
+        from ai.agents.registry import get_agent_instance
 
         agent = get_agent_instance("analytics")
         state = {
@@ -1584,7 +1584,7 @@ def refresh_profile():
     if user_role != "student":
         return _error_response("forbidden", "Only students have learning profiles", 403)
 
-    from memory.service import MemoryService
+    from ai.memory.service import MemoryService
     try:
         MemoryService.update_student_profile(user.id)
         from app.models.student_profile import StudentProfile
@@ -1601,7 +1601,7 @@ def refresh_profile():
 def _learn_teacher_preferences(teacher_id: int, request_params: dict, question_data: dict):
     """Background call to update teacher preferences after a successful generation."""
     try:
-        from memory.preference import learn_from_generation
+        from ai.memory.preference import learn_from_generation
         learn_from_generation(teacher_id, request_params, question_data)
     except Exception as e:
         logger.debug("Preference learning skipped: %s", e)
@@ -1613,7 +1613,7 @@ def refresh_teacher_style():
     """Refresh the teacher's AI style summary based on generation history."""
     user = get_current_user_or_401()
     try:
-        from memory.preference import refresh_teacher_style_summary
+        from ai.memory.preference import refresh_teacher_style_summary
         refresh_teacher_style_summary(user.id)
 
         from app.models.student_profile import TeacherPreference
@@ -1633,7 +1633,7 @@ def refresh_class_analysis():
     """Analyze students' weak areas across teacher's classrooms."""
     user = get_current_user_or_401()
     try:
-        from memory.preference import analyze_class_weak_areas
+        from ai.memory.preference import analyze_class_weak_areas
         analyze_class_weak_areas(user.id)
 
         from app.models.student_profile import TeacherPreference
@@ -1655,7 +1655,7 @@ def refresh_class_analysis():
 def index_problems():
     """Index all problems into the knowledge base vector store. Teacher/admin only."""
     try:
-        from knowledge.store import index_all_problems
+        from ai.knowledge.store import index_all_problems
     except ImportError:
         return _error_response("kb_unavailable",
                                "Knowledge base is unavailable. Please install chromadb and sentence-transformers.", 503)
@@ -1678,7 +1678,7 @@ _KB_UNAVAILABLE_MSG = (
 def _get_kb_or_503():
     """Get the KnowledgeBase singleton, or return a 503 error response."""
     try:
-        from knowledge.store import get_knowledge_base
+        from ai.knowledge.store import get_knowledge_base
         return get_knowledge_base(), None
     except ImportError:
         return None, _error_response("kb_unavailable", _KB_UNAVAILABLE_MSG, 503)
@@ -1847,7 +1847,7 @@ def run_evals():
 
     suite = data.get("suite", "all")
     try:
-        from evals.runner import EvalRunner, report_to_dict
+        from ai.evals.runner import EvalRunner, report_to_dict
         runner = EvalRunner(use_real_llm=True)
 
         if suite == "all":
@@ -1855,7 +1855,7 @@ def run_evals():
             results = [report_to_dict(r) for r in reports]
         else:
             import os
-            suite_path = os.path.join("evals", "cases", f"{suite}_evals.json")
+            suite_path = os.path.join("ai", "evals", "cases", f"{suite}_evals.json")
             if not os.path.exists(suite_path):
                 return _error_response("not_found", f"Suite '{suite}' not found", 404)
             report = runner.run_suite(suite_path)
@@ -1887,7 +1887,7 @@ def run_evals():
 def _run_evals_harness(data: dict, selector: str):
     """Selector-based eval run via the EvalHarness (persists through core store)."""
     try:
-        from evals.harness.eval_harness import EvalHarness
+        from ai.evals.harness.eval_harness import EvalHarness
 
         budget = data.get("budget") or {}
         report = EvalHarness().run(
@@ -1961,7 +1961,7 @@ def eval_history():
 @require_teacher
 def eval_run_report(run_id: int):
     """Full report for one eval run (summary + cases + optional regressions)."""
-    from evals.reports.generator import ReportGenerator
+    from ai.evals.reports.generator import ReportGenerator
 
     compare_to = request.args.get("compare_to", default=0, type=int)
     try:
@@ -2019,7 +2019,7 @@ def promote_regression():
     if not trace_id:
         return _error_response("invalid_request", "trace_id is required", 400)
 
-    from evals.datasets.store import DatasetStore
+    from ai.evals.datasets.store import DatasetStore
 
     try:
         case = DatasetStore().create_from_trace(
@@ -2211,7 +2211,7 @@ def stream_workflow(workflow_run_id):
     last_event = request.args.get("last_event", 0, type=int)
 
     def generate():
-        from workers import redis_buffer
+        from ai.workers import redis_buffer
 
         cursor = last_event
         idle_count = 0
@@ -2282,7 +2282,7 @@ def approve_workflow_step(workflow_run_id):
     feedback = data.get("feedback", data.get("notes", ""))
 
     try:
-        from graph import SupervisorAgent
+        from ai.graph import SupervisorAgent
         supervisor = SupervisorAgent()
         state = supervisor.resume_workflow(
             workflow_run_id, approved, feedback, approver_user_id=user.id

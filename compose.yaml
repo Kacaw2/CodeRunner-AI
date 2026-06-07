@@ -118,14 +118,7 @@ services:
     volumes:
       - ./app:/app/app:ro
       - ./core:/app/core:ro
-      - ./tools:/app/tools:ro
-      - ./agents:/app/agents:ro
-      - ./graph:/app/graph:ro
-      - ./memory:/app/memory:ro
-      - ./knowledge:/app/knowledge:ro
-      - ./models:/app/models:ro
-      - ./workers:/app/workers:ro
-      - ./mcp_gateway:/app/mcp_gateway:ro
+      - ./ai:/app/ai:ro
       - ./scripts:/app/scripts:ro
       - ./uploads:/app/uploads
       - ./logs:/app/logs
@@ -249,7 +242,7 @@ services:
       dockerfile: docker/Dockerfile.workers
     container_name: educode_agent_runtime
     restart: unless-stopped
-    entrypoint: ["uvicorn", "agent_runtime.main:app", "--host", "0.0.0.0", "--port", "8100"]
+    entrypoint: ["uvicorn", "ai.agent_runtime.main:app", "--host", "0.0.0.0", "--port", "8100"]
     environment:
       TZ: Asia/Shanghai
       DEBUG: ${DEBUG:-False}

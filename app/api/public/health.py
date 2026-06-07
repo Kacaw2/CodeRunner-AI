@@ -50,7 +50,7 @@ def health_check():
     # does NOT flip the service to unhealthy / 503 — RAG searches degrade to
     # empty results, so the platform stays in the load balancer.
     try:
-        from knowledge.store import kb_health
+        from ai.knowledge.store import kb_health
         kb = kb_health()
         if kb.get('status') == 'ok':
             health_status['checks']['knowledge_base'] = 'ok'

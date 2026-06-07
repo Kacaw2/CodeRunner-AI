@@ -10,8 +10,8 @@ from app.core.extensions import db
 from app.core.timezone import now_china
 from domain.models.mcp import McpApiKey
 from domain.repositories.mcp import SyncMcpRepository
-from mcp_gateway.middleware.auth import hash_api_key
-from mcp_gateway.scopes import normalize_scopes
+from ai.mcp_gateway.middleware.auth import hash_api_key
+from ai.mcp_gateway.scopes import normalize_scopes
 
 bp = Blueprint("mcp_keys", __name__, url_prefix="/api/v1/mcp/keys")
 
