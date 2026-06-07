@@ -1,17 +1,17 @@
 """Contract tests for external MCP gateway surface.
 
 EXPECTED_EXTERNAL_TOOL_MAP is an independent oracle: it is intentionally NOT
-imported from mcp_gateway.tool_map so that a wrong edit to the source map is
+imported from ai.mcp_gateway.tool_map so that a wrong edit to the source map is
 caught by test_source_map_matches_declared_contract rather than silently
 accepted.
 """
 
 import pytest
 
-from mcp_gateway.server import create_mcp_server
-from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
-from tools.protocol.schemas.catalog import TOOL_CATALOG
-from tools.protocol.schemas.descriptors import RiskLevel, ApprovalPolicy
+from ai.mcp_gateway.server import create_mcp_server
+from ai.mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
+from ai.tools.protocol.schemas.descriptors import RiskLevel, ApprovalPolicy
 
 # Canonical scope vocabulary (docs/MCP_RUNTIME_ARCHITECTURE.md §3). A required
 # scope outside this set is a drift bug — external API keys are minted against
@@ -81,7 +81,7 @@ def test_external_gateway_registers_exact_declared_tools():
 
 
 def test_expected_tool_count_matches_registered_tools():
-    from mcp_gateway.server import EXPECTED_TOOL_COUNT
+    from ai.mcp_gateway.server import EXPECTED_TOOL_COUNT
 
     mcp = create_mcp_server()
     assert EXPECTED_TOOL_COUNT == len(mcp._tool_manager._tools)
@@ -93,7 +93,7 @@ def test_generated_tools_module_is_not_stale():
     Run ``python -m mcp_gateway._codegen`` to fix a failure here.
     """
     import os
-    from mcp_gateway._codegen import render_generated_tools_module
+    from ai.mcp_gateway._codegen import render_generated_tools_module
 
     path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
@@ -114,7 +114,7 @@ def test_generated_signatures_never_expose_caller_identity_fields():
     Exposing them would let an API-key holder spoof another user's identity.
     """
     import inspect
-    from mcp_gateway._codegen import CALLER_INJECTED_FIELDS
+    from ai.mcp_gateway._codegen import CALLER_INJECTED_FIELDS
 
     mcp = create_mcp_server()
     for external_name, canonical in EXPECTED_EXTERNAL_TOOL_MAP.items():

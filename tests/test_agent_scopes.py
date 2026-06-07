@@ -7,7 +7,7 @@ rather than a god-mode scope bypass.
 
 
 def test_tutor_scopes_are_union_of_its_tools():
-    from tools.protocol.policies.scopes import scopes_for_agent
+    from ai.tools.protocol.policies.scopes import scopes_for_agent
 
     scopes = set(scopes_for_agent("tutor"))
 
@@ -16,7 +16,7 @@ def test_tutor_scopes_are_union_of_its_tools():
 
 
 def test_generator_scopes_include_problem_write():
-    from tools.protocol.policies.scopes import scopes_for_agent
+    from ai.tools.protocol.policies.scopes import scopes_for_agent
 
     scopes = set(scopes_for_agent("generator"))
 
@@ -25,6 +25,6 @@ def test_generator_scopes_include_problem_write():
 
 
 def test_unknown_agent_gets_no_scopes():
-    from tools.protocol.policies.scopes import scopes_for_agent
+    from ai.tools.protocol.policies.scopes import scopes_for_agent
 
     assert scopes_for_agent("nope") == []

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from models.tiers import ModelTier
+from ai.llm.tiers import ModelTier
 
 
 @dataclass(frozen=True)

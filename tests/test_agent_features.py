@@ -50,7 +50,7 @@ def student_user(db_session):
 class TestGenerationPipeline:
 
     def test_pipeline_state_type_has_all_fields(self):
-        from workers.generation_pipeline import PipelineState
+        from ai.workers.generation_pipeline import PipelineState
         import typing
         hints = typing.get_type_hints(PipelineState)
         required_fields = [
@@ -63,14 +63,14 @@ class TestGenerationPipeline:
             assert field in hints, f"Missing field: {field}"
 
     def test_build_generation_pipeline_compiles(self):
-        from workers.generation_pipeline import build_generation_pipeline
+        from ai.workers.generation_pipeline import build_generation_pipeline
         graph = build_generation_pipeline()
         compiled = graph.compile()
         assert compiled is not None
 
-    @patch("agents.generator.agent._validate_solution")
+    @patch("ai.agents.generator.agent._validate_solution")
     def test_validate_problem_passes_on_all_ac(self, mock_validate):
-        from workers.generation_pipeline import _validate_problem
+        from ai.workers.generation_pipeline import _validate_problem
 
         mock_validate.return_value = [
             {"index": 0, "passed": True, "status": "AC"},
@@ -93,7 +93,7 @@ class TestGenerationPipeline:
         assert result["generated_problem"]["verified"] is True
 
     def test_validate_problem_fails_with_no_problem(self):
-        from workers.generation_pipeline import _validate_problem
+        from ai.workers.generation_pipeline import _validate_problem
 
         state = {
             "generated_problem": None,
@@ -104,7 +104,7 @@ class TestGenerationPipeline:
         assert result["validation_passed"] is False
 
     def test_finalize_draft_assembles_result(self):
-        from workers.generation_pipeline import _finalize_draft
+        from ai.workers.generation_pipeline import _finalize_draft
 
         state = {
             "generated_problem": {"title": "Test", "verified": True},
@@ -125,7 +125,7 @@ class TestGenerationPipeline:
         assert result["final_draft"]["problem_data"]["title"] == "Test"
 
     def test_finalize_draft_fails_without_question(self):
-        from workers.generation_pipeline import _finalize_draft
+        from ai.workers.generation_pipeline import _finalize_draft
 
         state = {
             "generated_problem": None,
@@ -150,7 +150,7 @@ class TestGenerationPipeline:
 class TestPreferenceLearner:
 
     def test_learn_from_generation_creates_preference(self, app, teacher_user, db_session):
-        from memory.preference import learn_from_generation
+        from ai.memory.preference import learn_from_generation
         from app.models.student_profile import TeacherPreference
 
         learn_from_generation(
@@ -166,7 +166,7 @@ class TestPreferenceLearner:
         assert "trees" in pref.preferred_topics
 
     def test_learn_updates_existing_preference(self, app, teacher_user, db_session):
-        from memory.preference import learn_from_generation
+        from ai.memory.preference import learn_from_generation
         from app.models.student_profile import TeacherPreference
 
         pref = TeacherPreference(teacher_id=teacher_user.id, preferred_language="c")
@@ -184,7 +184,7 @@ class TestPreferenceLearner:
         assert "arrays" in pref.preferred_topics
 
     def test_learn_caps_topic_list(self, app, teacher_user, db_session):
-        from memory.preference import learn_from_generation
+        from ai.memory.preference import learn_from_generation
         from app.models.student_profile import TeacherPreference
 
         pref = TeacherPreference(
@@ -210,7 +210,7 @@ class TestPreferenceLearner:
 class TestAnalyticsTools:
 
     def test_get_student_activity_returns_structure(self, app, student_user, db_session):
-        from tools.analytics.queries import get_student_activity_impl
+        from ai.tools.analytics.queries import get_student_activity_impl
         result = get_student_activity_impl(student_id=student_user.id, days=30)
         assert "student_id" in result
         assert "total_submissions" in result
@@ -221,7 +221,7 @@ class TestAnalyticsTools:
         from app.models.submission import Submission
         from app.models.problem import Problem
         from app.models.question import Question
-        from tools.analytics.queries import get_student_activity_impl
+        from ai.tools.analytics.queries import get_student_activity_impl
 
         problem = Problem(slug="test-q-activity", title="Test Q", description="Desc", created_by=1)
         db_session.add(problem)
@@ -246,12 +246,12 @@ class TestAnalyticsTools:
         assert result["total_accepted"] == 2
 
     def test_get_class_statistics_no_classrooms(self, app, teacher_user):
-        from tools.analytics.queries import get_class_statistics_impl
+        from ai.tools.analytics.queries import get_class_statistics_impl
         result = get_class_statistics_impl(teacher_id=teacher_user.id)
         assert result["classrooms"] == []
 
     def test_get_problem_difficulty_stats_no_submissions(self, app, db_session):
-        from tools.analytics.queries import get_problem_difficulty_stats_impl
+        from ai.tools.analytics.queries import get_problem_difficulty_stats_impl
         result = get_problem_difficulty_stats_impl(problem_id=99999)
         assert result["total_submissions"] == 0
 
@@ -259,7 +259,7 @@ class TestAnalyticsTools:
         from app.models.submission import Submission
         from app.models.problem import Problem
         from app.models.question import Question
-        from tools.analytics.queries import get_problem_difficulty_stats_impl
+        from ai.tools.analytics.queries import get_problem_difficulty_stats_impl
 
         problem = Problem(slug="stats-q", title="Stats Q", description="Desc", created_by=1)
         db_session.add(problem)
@@ -285,7 +285,7 @@ class TestAnalyticsTools:
         assert result["status_distribution"]["AC"] == 2
 
     def test_analytics_tools_in_rbac(self):
-        from tools.protocol.policies.rbac import _agent_tool_allow, _ROLE_OVERRIDES
+        from ai.tools.protocol.policies.rbac import _agent_tool_allow, _ROLE_OVERRIDES
         allow = _agent_tool_allow()["analytics"]
         assert "coderunner.analytics.student_activity" in allow
         assert "coderunner.analytics.class_statistics" in allow
@@ -293,7 +293,7 @@ class TestAnalyticsTools:
         assert "student" not in _ROLE_OVERRIDES["coderunner.analytics.class_statistics"]
 
     def test_analytics_agent_has_mcp_tools(self):
-        from agents.analytics.agent import AnalyticsAgent
+        from ai.agents.analytics.agent import AnalyticsAgent
         tools = AnalyticsAgent().mcp_tool_names
         assert "coderunner.analytics.student_activity" in tools
         assert "coderunner.analytics.class_statistics" in tools
@@ -305,20 +305,20 @@ class TestAnalyticsTools:
 class TestHandoff:
 
     def test_declared_edge_allowed_at_boundary(self):
-        from graph.handoff import validate_handoff_target
+        from ai.graph.handoff import validate_handoff_target
         assert validate_handoff_target("tutor", "reviewer", "student") is None
 
     def test_undeclared_edge_rejected_at_boundary(self):
-        from graph.handoff import validate_handoff_target
+        from ai.graph.handoff import validate_handoff_target
         # tutor does not declare generator as a handoff target.
         assert validate_handoff_target("tutor", "generator", "student") is not None
 
     def test_same_agent_handoff_rejected_at_boundary(self):
-        from graph.handoff import validate_handoff_target
+        from ai.graph.handoff import validate_handoff_target
         assert validate_handoff_target("tutor", "tutor", "student") is not None
 
     def test_check_handoff_routes_correctly(self):
-        from graph.runner import _check_handoff
+        from ai.graph.runner import _check_handoff
         state = {
             "agent_type": "tutor",
             "handoff_to": "reviewer",
@@ -331,7 +331,7 @@ class TestHandoff:
         assert state["handoff_to"] is None
 
     def test_check_handoff_blocked_by_max(self):
-        from graph.runner import _check_handoff
+        from ai.graph.runner import _check_handoff
         state = {
             "agent_type": "reviewer",
             "handoff_to": "analytics",
@@ -342,7 +342,7 @@ class TestHandoff:
         assert result == "respond"
 
     def test_check_handoff_blocked_by_loop(self):
-        from graph.runner import _check_handoff
+        from ai.graph.runner import _check_handoff
         state = {
             "agent_type": "reviewer",
             "handoff_to": "tutor",
@@ -353,7 +353,7 @@ class TestHandoff:
         assert result == "respond"
 
     def test_check_handoff_returns_respond_when_no_handoff(self):
-        from graph.runner import _check_handoff
+        from ai.graph.runner import _check_handoff
         state = {
             "agent_type": "tutor",
             "handoff_to": None,
@@ -364,15 +364,15 @@ class TestHandoff:
         assert result == "respond"
 
     def test_orchestrator_graph_compiles_with_handoff(self):
-        from graph.runner import build_graph
+        from ai.graph.runner import build_graph
         graph = build_graph()
         compiled = graph.compile()
         assert compiled is not None
 
     def test_handoff_addendum_in_agent_prompts(self, app):
-        from agents.tutor.agent import TutorAgent
-        from agents.reviewer.agent import ReviewerAgent
-        from agents.analytics.agent import AnalyticsAgent
+        from ai.agents.tutor.agent import TutorAgent
+        from ai.agents.reviewer.agent import ReviewerAgent
+        from ai.agents.analytics.agent import AnalyticsAgent
 
         for AgentCls in [TutorAgent, ReviewerAgent, AnalyticsAgent]:
             agent = AgentCls()

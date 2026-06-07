@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture()
 def kb(tmp_path):
-    from knowledge.store import KnowledgeBase
+    from ai.knowledge.store import KnowledgeBase
     return KnowledgeBase(persist_dir=str(tmp_path / "kb"))
 
 

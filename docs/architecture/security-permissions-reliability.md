@@ -10,10 +10,10 @@
 |---|---|
 | 学生不能访问其他学生的数据 | `trace_query_service.get_trace()` ownership 校验、各 service `filter_by(user_id=...)` |
 | 学生不能绕过规则套取标准答案 / 隐藏测试用例 | `core/security.py:filter_output()`、`SECURITY_PROMPT_ADDENDUM` |
-| 教师可查看其班级的分析数据 | `tools/protocol/policies/rbac.py` 工具级 override、`classroom_service.is_teacher_owner()` |
-| Agent 不能泄露 system prompt | `mcp_gateway/middleware/sanitizer.py` egress 脱敏、injection 防护、prompt addendum |
+| 教师可查看其班级的分析数据 | `ai/tools/protocol/policies/rbac.py` 工具级 override、`classroom_service.is_teacher_owner()` |
+| Agent 不能泄露 system prompt | `ai/mcp_gateway/middleware/sanitizer.py` egress 脱敏、injection 防护、prompt addendum |
 | RAG 检索必须做课程与权限过滤 | 知识检索工具走统一 guard，scope/role 校验 |
-| 工具调用必须校验用户身份与 Agent 权限 | `tools/protocol/policies/guard.py` 四道检查 + EdDSA 内部签名 token |
+| 工具调用必须校验用户身份与 Agent 权限 | `ai/tools/protocol/policies/guard.py` 四道检查 + EdDSA 内部签名 token |
 
 整体安全模型采用**纵深防御（defense-in-depth）**：认证 → 角色 → 数据隔离 → 工具权限 → 内容过滤 → 审计，每一层独立成立，单层被绕过不导致系统失守。
 
@@ -139,7 +139,7 @@ CodeRunner 同时服务浏览器（Jinja2 HTML 页面）和 REST API 客户端�
 
 ## 5.4 Agent 工具权限控制（Tool Permission）
 
-工具调用是 Agent 能产生副作用的唯一通道，因此权限校验最严格。所有工具调用经过 `tools/protocol/policies/guard.py:run_guard()` 的**四道顺序检查**：
+工具调用是 Agent 能产生副作用的唯一通道，因此权限校验最严格。所有工具调用经过 `ai/tools/protocol/policies/guard.py:run_guard()` 的**四道顺序检查**：
 
 ```
 check_internal_only  →  check_rbac  →  check_scope  →  check_risk_policy
@@ -153,7 +153,7 @@ check_internal_only  →  check_rbac  →  check_scope  →  check_risk_policy
 
 ### ② RBAC — 工具级角色白名单
 
-`tools/protocol/policies/rbac.py:check_rbac()` 两层判定：
+`ai/tools/protocol/policies/rbac.py:check_rbac()` 两层判定：
 
 1. **工具级 override**（`_ROLE_OVERRIDES`）优先，如：
    - `coderunner.analytics.student_stats` / `class_statistics` / `problem_difficulty` → 仅 teacher / admin
@@ -163,17 +163,17 @@ check_internal_only  →  check_rbac  →  check_scope  →  check_risk_policy
 
 ### ③ Scope — 最小权限集
 
-`tools/protocol/policies/scopes.py`：每个工具声明 `required_scopes`，`scopes_for_agent()` 为 Agent 计算其工具所需 scope 的**最小并集**。所有调用方（含内部 `agent_host`）都按 granted scope 强制校验，**无 actor_type 旁路**。
+`ai/tools/protocol/policies/scopes.py`：每个工具声明 `required_scopes`，`scopes_for_agent()` 为 Agent 计算其工具所需 scope 的**最小并集**。所有调用方（含内部 `agent_host`）都按 granted scope 强制校验，**无 actor_type 旁路**。
 
 ### ④ Risk — 高危需人工审批
 
-`tools/protocol/policies/risk.py`：
+`ai/tools/protocol/policies/risk.py`：
 - `RiskLevel.HIGH` 且 `approval_policy != NONE` → 抛 `MCPApprovalRequired`，进入人工 gate（见 5.7 workflow pause / resume）。
 - `RiskLevel.MEDIUM` 且调用方为 `student` → 直接拒绝。
 
 ### 内部 capability token（EdDSA 签名）
 
-`mcp_gateway/internal_auth.py`：内部 Agent 用 Host 签发的**短时（默认 120s）EdDSA-JWT** 向网关认证。
+`ai/mcp_gateway/internal_auth.py`：内部 Agent 用 Host 签发的**短时（默认 120s）EdDSA-JWT** 向网关认证。
 
 - claims（`user_id / role / agent_type / scopes / task_id / trace_id`）封装在**签名内**，网关只信任签名身份，绝不信任请求头自声明。
 - Host 持私钥 `MCP_INTERNAL_SIGNING_KEY`，网关只持公钥 `MCP_INTERNAL_VERIFY_KEY`——**Agent 无法自提权，公钥持有者无法伪造 token**。
@@ -207,7 +207,7 @@ if is_suspicious:
 message = sanitize_user_input(message)
 ```
 
-检测到注入**不直接拒绝**，而是记审计 + 清洁后继续，由后续 prompt 加固与输出过滤兜底。`agents/base.py:_maybe_inject_security_alert()` 在系统 prompt 前注入安全告警。
+检测到注入**不直接拒绝**，而是记审计 + 清洁后继续，由后续 prompt 加固与输出过滤兜底。`ai/agents/base.py:_maybe_inject_security_alert()` 在系统 prompt 前注入安全告警。
 
 ### ④ 系统 Prompt 加固
 
@@ -232,7 +232,7 @@ message = sanitize_user_input(message)
 ### Secrets 脱敏（写入 + egress 双重）
 
 - **写入侧** `core/observability/tracing.py:_redact_secrets()`：trace 持久化前递归替换 credential-like 子串（正则匹配 `api_key / secret / token / password` 等 `key=value` 形态），作用于 input_message / response / tool_input / tool_output。
-- **egress 侧** `mcp_gateway/middleware/sanitizer.py:sanitize_agent_trace()`：返回 trace 前再 pop 掉 `system_prompt` / `system_message`，并对**历史存量行**再次脱敏（防御早于写入侧脱敏存入的数据）。代码字段截断至 200 字符、输出预览截断至 300 字符。
+- **egress 侧** `ai/mcp_gateway/middleware/sanitizer.py:sanitize_agent_trace()`：返回 trace 前再 pop 掉 `system_prompt` / `system_message`，并对**历史存量行**再次脱敏（防御早于写入侧脱敏存入的数据）。代码字段截断至 200 字符、输出预览截断至 300 字符。
 
 ### 学生画像最小披露
 
@@ -246,14 +246,14 @@ message = sanitize_user_input(message)
 
 ### 启动恢复（orphaned recovery）
 
-服务崩溃后重启时，`graph/recovery.py` 清理中断的执行：
+服务崩溃后重启时，`ai/graph/recovery.py` 清理中断的执行：
 
 - `recover_orphaned_tasks()`：处于 `executing / validating / planning` 的 task，若 `attempt < max_attempts` 重置为 `pending` 并 +1 重试；否则标记 `failed`。
 - `recover_orphaned_workflows()`：中断的 workflow **不做 resume**（步骤可能已部分产生副作用，resume 不安全），直接连同 in-flight step 标记 `failed`。注意 `waiting_approval` 是人工 gate 的有意暂停，**不算 orphan**。
 
 ### Workflow 引擎的超时与人工 gate
 
-`graph/engine.py`：step 级超时检查（默认 300s）+ 超时失败处理；高危步骤 pause 进入 `waiting_approval`，经 `resume_after_approval` 恢复。`graph/runner.py` 在结构化输出校验失败时置 `needs_retry`，conditional_edges 支持 retry_targets。
+`ai/graph/engine.py`：step 级超时检查（默认 300s）+ 超时失败处理；高危步骤 pause 进入 `waiting_approval`，经 `resume_after_approval` 恢复。`ai/graph/runner.py` 在结构化输出校验失败时置 `needs_retry`，conditional_edges 支持 retry_targets。
 
 ### 外部依赖降级
 
@@ -316,13 +316,13 @@ Redis 不可用时**降级而非阻断**：限流检查直接返回 `allowed=Tru
 | `app/services/auth_service.py` | 业务层：注册、登录、token 刷新、用户信息封装 |
 | `app/schemas/user_schema.py` | `RegisterIn / LoginIn / LoginOut / UserOut / RefreshOut` |
 | `core/definitions.py` | Agent 定义（allowed_roles / allowed_tools / risk_level） |
-| `tools/protocol/policies/guard.py` | 工具权限统一 guard（四道检查） |
-| `tools/protocol/policies/rbac.py` / `scopes.py` / `risk.py` | 工具级角色 / scope / 风险策略 |
-| `mcp_gateway/internal_auth.py` | EdDSA 内部 capability token |
-| `mcp_gateway/middleware/sanitizer.py` | egress 脱敏 / system prompt 剥离 |
+| `ai/tools/protocol/policies/guard.py` | 工具权限统一 guard（四道检查） |
+| `ai/tools/protocol/policies/rbac.py` / `scopes.py` / `risk.py` | 工具级角色 / scope / 风险策略 |
+| `ai/mcp_gateway/internal_auth.py` | EdDSA 内部 capability token |
+| `ai/mcp_gateway/middleware/sanitizer.py` | egress 脱敏 / system prompt 剥离 |
 | `core/security.py` | 注入检测 / 输入清洁 / 输出过滤 / prompt 加固 |
 | `core/observability/tracing.py` | trace 采集 + secrets 脱敏 |
 | `core/observability/audit.py` | 工具调用审计 |
 | `app/services/trace_query_service.py` | trace 可见性与 I/O 脱敏 |
-| `graph/recovery.py` / `engine.py` / `runner.py` | 启动恢复 / 超时 / 重试 / 人工 gate |
+| `ai/graph/recovery.py` / `engine.py` / `runner.py` | 启动恢复 / 超时 / 重试 / 人工 gate |
 | `app/api/v1/ai.py` | 限流 + 聊天审计 + 注入检测调用点 |

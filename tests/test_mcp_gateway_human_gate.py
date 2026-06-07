@@ -79,7 +79,7 @@ def mock_auth_student(student_user):
 
 class TestSanitization:
     def test_sanitize_agent_trace_removes_system_prompt(self):
-        from mcp_gateway.middleware.sanitizer import sanitize_agent_trace
+        from ai.mcp_gateway.middleware.sanitizer import sanitize_agent_trace
 
         run = {
             "id": "run-1",
@@ -107,7 +107,7 @@ class TestSanitization:
         assert len(result["steps"][0]["tool_output_preview"]) == 300
 
     def test_sanitize_agent_trace_short_code_unchanged(self):
-        from mcp_gateway.middleware.sanitizer import sanitize_agent_trace
+        from ai.mcp_gateway.middleware.sanitizer import sanitize_agent_trace
 
         run = {"input_context": {}}
         steps = [{"tool_input": {"code": "print(1)"}, "tool_output_preview": "1"}]
@@ -116,7 +116,7 @@ class TestSanitization:
         assert result["steps"][0]["tool_input"]["code"] == "print(1)"
 
     def test_sanitize_student_summary_no_pii(self):
-        from mcp_gateway.middleware.sanitizer import sanitize_student_summary
+        from ai.mcp_gateway.middleware.sanitizer import sanitize_student_summary
 
         profile = {
             "preferred_language": "python",
@@ -147,8 +147,8 @@ class TestSanitization:
 
 class TestMcpServerPhase4:
     def test_server_registers_full_tool_surface(self):
-        from mcp_gateway.server import create_mcp_server
-        from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
+        from ai.mcp_gateway.server import create_mcp_server
+        from ai.mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
         mcp = create_mcp_server()
         tools = set(mcp._tool_manager._tools.keys())
         assert tools == set(EXTERNAL_TOOL_MAP)
@@ -159,8 +159,8 @@ class TestMcpServerPhase4:
 class TestPhase4Permissions:
     def test_teacher_allowed_medium_risk(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="teacher")
         for tool in ["coderunner.trace.get_agent_trace", "coderunner.student.get_summary"]:
@@ -169,8 +169,8 @@ class TestPhase4Permissions:
 
     def test_teacher_allowed_high_risk(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="teacher")
         for tool in ["coderunner.code.execute", "coderunner.problem.save_generated"]:
@@ -180,8 +180,8 @@ class TestPhase4Permissions:
 
     def test_admin_allowed_all(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="admin")
         for tool in ["coderunner.trace.get_agent_trace", "coderunner.student.get_summary"]:
@@ -194,8 +194,8 @@ class TestPhase4Permissions:
 
     def test_student_denied_medium_risk(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="student")
         assert run_guard(TOOL_CATALOG["coderunner.trace.get_agent_trace"], ctx).rejected
@@ -203,8 +203,8 @@ class TestPhase4Permissions:
 
     def test_student_denied_high_risk_write(self):
         from core.auth.context import CallerContext
-        from tools.protocol.policies.guard import run_guard
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         ctx = CallerContext(user_id=1, role="student")
         exec_desc = TOOL_CATALOG["coderunner.code.execute"]
@@ -221,7 +221,7 @@ class TestPhase4Permissions:
 
 class TestRiskLevels:
     def test_all_tools_have_risk_level(self):
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
         expected_tools = {
             "coderunner.knowledge.search", "coderunner.knowledge.search_similar_problems",
             "coderunner.problem.get_detail", "coderunner.analytics.problem_difficulty",
@@ -232,12 +232,12 @@ class TestRiskLevels:
         assert expected_tools <= set(TOOL_CATALOG)
 
     def test_high_risk_tools(self):
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
         assert TOOL_CATALOG["coderunner.code.execute"].risk_level.value == "high"
         assert TOOL_CATALOG["coderunner.problem.save_generated"].risk_level.value == "high"
 
     def test_medium_risk_tools(self):
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
         assert TOOL_CATALOG["coderunner.trace.get_agent_trace"].risk_level.value == "medium"
         assert TOOL_CATALOG["coderunner.student.get_summary"].risk_level.value == "medium"
 
@@ -388,19 +388,19 @@ class TestApprovalEndpoints:
 
 class TestPhase4CoreFunctions:
     def test_get_agent_trace_impl_not_found(self, app):
-        from tools.traces.queries import get_agent_trace_impl
+        from ai.tools.traces.queries import get_agent_trace_impl
         with app.app_context():
             result = get_agent_trace_impl("nonexistent-run-id")
         assert result == {"error": "Agent run not found"}
 
     def test_get_student_summary_impl_not_found(self, app):
-        from tools.students.summary import get_student_summary_impl
+        from ai.tools.students.summary import get_student_summary_impl
         with app.app_context():
             result = get_student_summary_impl(99999)
         assert result == {"error": "Student not found"}
 
     def test_execute_code_impl(self):
-        from tools.code.executor import execute_code_impl
+        from ai.tools.code.executor import execute_code_impl
         with patch("app.services.executor_service.ExecutorService.run_code") as mock:
             mock.return_value = {
                 "status": "AC",
@@ -413,7 +413,7 @@ class TestPhase4CoreFunctions:
         assert result["stdout"] == "hello\n"
 
     def test_save_generated_problem_impl(self, app, db_session):
-        from tools.problems.write import save_generated_problem_impl
+        from ai.tools.problems.write import save_generated_problem_impl
         teacher = User(
             username="gen_teacher", password="h",
             email="gen@test.com", role=UserRole.TEACHER,
@@ -433,9 +433,9 @@ class TestPhase4CoreFunctions:
 
 class TestCodeValidation:
     def test_code_max_length(self):
-        from mcp_gateway.middleware import CODE_MAX_LENGTH
+        from ai.mcp_gateway.middleware import CODE_MAX_LENGTH
         assert CODE_MAX_LENGTH == 10_000
 
     def test_allowed_languages(self):
-        from mcp_gateway.middleware import ALLOWED_LANGUAGES
+        from ai.mcp_gateway.middleware import ALLOWED_LANGUAGES
         assert ALLOWED_LANGUAGES == {"python", "c"}

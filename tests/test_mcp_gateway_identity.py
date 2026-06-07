@@ -6,7 +6,7 @@ per request and cleared after each call so it cannot leak between callers.
 
 import json
 
-from mcp_gateway.middleware import set_caller_info, get_caller_info
+from ai.mcp_gateway.middleware import set_caller_info, get_caller_info
 
 
 def test_caller_info_is_not_process_global_after_request_clear():
@@ -16,7 +16,7 @@ def test_caller_info_is_not_process_global_after_request_clear():
 
 
 def test_guarded_rejects_when_no_caller(monkeypatch):
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     core.set_caller_info(None)
     monkeypatch.setattr(core, "_resolve_request_caller", lambda: None)
@@ -27,7 +27,7 @@ def test_guarded_rejects_when_no_caller(monkeypatch):
 
 
 def test_guarded_resolves_per_request_identity_and_clears(monkeypatch):
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     core.set_caller_info(None)
     monkeypatch.setattr(core, "check_rate_limit", lambda *_, **__: True)
@@ -59,7 +59,7 @@ def test_guarded_resolves_per_request_identity_and_clears(monkeypatch):
 
 def test_per_request_identity_overrides_stale_fallback(monkeypatch):
     """A request's own bearer identity wins over any pre-set fallback."""
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     core.set_caller_info({"api_key_id": "stale", "user_id": 99, "role": "student"})
     monkeypatch.setattr(core, "check_rate_limit", lambda *_, **__: True)

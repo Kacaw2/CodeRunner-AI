@@ -51,8 +51,8 @@ def _seed_partial_run(db_session, user_id, run_id):
 
 def test_resume_continues_after_last_completed_step(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
-        from graph.node_registry import register_step_handler
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph.node_registry import register_step_handler
         from domain.models.workflow import WorkflowRun, WorkflowStep
 
         ran: list[int] = []
@@ -94,7 +94,7 @@ def test_resume_continues_after_last_completed_step(app, db_session, teacher_use
 
 def test_resume_rejects_finished_run(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
+        from ai.graph.engine import WorkflowEngine
         from domain.models.workflow import WorkflowRun
 
         db_session.add(WorkflowRun(
@@ -110,7 +110,7 @@ def test_resume_rejects_finished_run(app, db_session, teacher_user):
 
 def test_resume_rejects_waiting_approval_run(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
+        from ai.graph.engine import WorkflowEngine
         from domain.models.workflow import WorkflowRun
 
         db_session.add(WorkflowRun(
@@ -128,8 +128,8 @@ def test_resume_rejects_waiting_approval_run(app, db_session, teacher_user):
 def test_resume_re_gates_downstream_approval_step(app, db_session, teacher_user):
     """A not-yet-completed downstream step that requires approval re-pauses the run."""
     with app.app_context():
-        from graph.engine import WorkflowEngine
-        from graph.node_registry import register_step_handler
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph.node_registry import register_step_handler
         from domain.models.workflow import WorkflowRun, WorkflowStep
 
         register_step_handler("resume_done", lambda _s, _c: {"success": True})

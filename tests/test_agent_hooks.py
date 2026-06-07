@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import ToolMessage
 
-from agents.hooks import (
+from ai.agents.hooks import (
     Hook,
     HookContext,
     HookEvent,
@@ -168,7 +168,7 @@ class TestExecutorToolHooks:
     """Executor enforces the allowlist hook at the MCP client boundary."""
 
     def test_disallowed_tool_blocked_without_calling_mcp(self, monkeypatch):
-        from agents.executor import ToolCallExecutor
+        from ai.agents.executor import ToolCallExecutor
 
         called = {"mcp": False}
 
@@ -190,7 +190,7 @@ class TestExecutorToolHooks:
         assert called["mcp"] is False
 
     def test_allowed_tool_reaches_mcp(self, monkeypatch):
-        from agents.executor import ToolCallExecutor
+        from ai.agents.executor import ToolCallExecutor
 
         fake_client = MagicMock()
         fake_client.call_tool.return_value = {"ok": True, "data": {"result": 42}}

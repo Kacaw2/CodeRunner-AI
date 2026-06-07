@@ -19,14 +19,14 @@ import pytest
 
 class TestMCPErrorCodes:
     def test_error_codes_exist(self):
-        from tools.protocol.errors import MCPErrorCode
+        from ai.tools.protocol.errors import MCPErrorCode
 
         assert MCPErrorCode.AUTH_REQUIRED == "MCP_AUTH_REQUIRED"
         assert MCPErrorCode.PERMISSION_DENIED == "MCP_PERMISSION_DENIED"
         assert MCPErrorCode.TOOL_NOT_FOUND == "MCP_TOOL_NOT_FOUND"
 
     def test_retryable_codes(self):
-        from tools.protocol.errors import MCPErrorCode
+        from ai.tools.protocol.errors import MCPErrorCode
 
         assert MCPErrorCode.RATE_LIMITED.retryable is True
         assert MCPErrorCode.TRANSPORT_UNAVAILABLE.retryable is True
@@ -34,7 +34,7 @@ class TestMCPErrorCodes:
         assert MCPErrorCode.PERMISSION_DENIED.retryable is False
 
     def test_http_status(self):
-        from tools.protocol.errors import MCPErrorCode
+        from ai.tools.protocol.errors import MCPErrorCode
 
         assert MCPErrorCode.AUTH_REQUIRED.http_status == 401
         assert MCPErrorCode.TOOL_NOT_FOUND.http_status == 404
@@ -43,7 +43,7 @@ class TestMCPErrorCodes:
 
 class TestMCPExceptions:
     def test_error_to_envelope(self):
-        from tools.protocol.errors import MCPPermissionDenied
+        from ai.tools.protocol.errors import MCPPermissionDenied
 
         err = MCPPermissionDenied("Not allowed", trace_id="t1")
         env = err.to_envelope()
@@ -53,7 +53,7 @@ class TestMCPExceptions:
         assert env["trace_id"] == "t1"
 
     def test_approval_required_envelope(self):
-        from tools.protocol.errors import MCPApprovalRequired
+        from ai.tools.protocol.errors import MCPApprovalRequired
 
         err = MCPApprovalRequired(
             "Needs approval", approval_id="a1", resume_token="r1", trace_id="t2"
@@ -67,7 +67,7 @@ class TestMCPExceptions:
 
 class TestToolDescriptors:
     def test_descriptor_to_llm_schema(self):
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         desc = ToolDescriptor(
             name="test.tool",
@@ -82,7 +82,7 @@ class TestToolDescriptors:
         assert schema["function"]["description"] == "A test tool"
 
     def test_descriptor_to_dict(self):
-        from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
 
         desc = ToolDescriptor(
             name="coderunner.code.execute",
@@ -99,7 +99,7 @@ class TestToolDescriptors:
 
 class TestToolCatalog:
     def test_catalog_has_expected_tools(self):
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         expected = {
             "coderunner.problem.get_detail",
@@ -123,8 +123,8 @@ class TestToolCatalog:
         assert expected == set(TOOL_CATALOG.keys())
 
     def test_high_risk_tools(self):
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
-        from tools.protocol.schemas.descriptors import RiskLevel
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.schemas.descriptors import RiskLevel
 
         high_risk = {n for n, d in TOOL_CATALOG.items() if d.risk_level == RiskLevel.HIGH}
         assert "coderunner.code.execute" in high_risk
@@ -135,7 +135,7 @@ class TestToolCatalog:
         properties, not the bare ``{"type": "object"}`` placeholder. This keeps
         the output contract describable (and enforceable via
         MCP_OUTPUT_SCHEMA_ENFORCE) instead of silently accepting any shape."""
-        from tools.protocol.schemas.catalog import TOOL_CATALOG
+        from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
 
         offenders = [
             name for name, d in TOOL_CATALOG.items()
@@ -148,8 +148,8 @@ class TestToolCatalog:
 
 class TestToolRegistry:
     def test_register_and_get(self):
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         reg = ToolRegistry()
         desc = ToolDescriptor(
@@ -161,8 +161,8 @@ class TestToolRegistry:
         assert len(reg) == 1
 
     def test_duplicate_name_different_server_raises(self):
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         reg = ToolRegistry()
         d1 = ToolDescriptor(name="dup", version="1.0.0", description="",
@@ -174,8 +174,8 @@ class TestToolRegistry:
             reg.register(d2)
 
     def test_list_tools_with_name_filter(self):
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         reg = ToolRegistry()
         for name in ["a.b", "c.d", "e.f"]:
@@ -190,10 +190,10 @@ class TestToolRegistry:
 
 class TestRBACPolicy:
     def test_analytics_stats_denied_for_student(self):
-        from tools.protocol.policies.rbac import check_rbac
+        from ai.tools.protocol.policies.rbac import check_rbac
         from core.auth.context import CallerContext
-        from tools.protocol.schemas.descriptors import ToolDescriptor
-        from tools.protocol.errors import MCPPermissionDenied
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.errors import MCPPermissionDenied
 
         tool = ToolDescriptor(
             name="coderunner.analytics.class_statistics", version="1.0.0",
@@ -204,9 +204,9 @@ class TestRBACPolicy:
             check_rbac(tool, ctx)
 
     def test_analytics_stats_allowed_for_teacher(self):
-        from tools.protocol.policies.rbac import check_rbac
+        from ai.tools.protocol.policies.rbac import check_rbac
         from core.auth.context import CallerContext
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         tool = ToolDescriptor(
             name="coderunner.analytics.class_statistics", version="1.0.0",
@@ -216,10 +216,10 @@ class TestRBACPolicy:
         check_rbac(tool, ctx)  # should not raise
 
     def test_agent_tool_allowlist(self):
-        from tools.protocol.policies.rbac import check_rbac
+        from ai.tools.protocol.policies.rbac import check_rbac
         from core.auth.context import CallerContext
-        from tools.protocol.schemas.descriptors import ToolDescriptor
-        from tools.protocol.errors import MCPPermissionDenied
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.errors import MCPPermissionDenied
 
         tool = ToolDescriptor(
             name="coderunner.knowledge.search_similar_problems", version="1.0.0",
@@ -234,9 +234,9 @@ class TestRBACPolicy:
 
 class TestGuardPipeline:
     def test_guard_passes_for_valid_call(self):
-        from tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.policies.guard import run_guard
         from core.auth.context import CallerContext
-        from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
 
         tool = ToolDescriptor(
             name="coderunner.problem.get_detail", version="1.0.0",
@@ -248,9 +248,9 @@ class TestGuardPipeline:
         assert result.passed is True
 
     def test_guard_rejects_unauthorized_role(self):
-        from tools.protocol.policies.guard import run_guard
+        from ai.tools.protocol.policies.guard import run_guard
         from core.auth.context import CallerContext
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         tool = ToolDescriptor(
             name="coderunner.analytics.class_statistics", version="1.0.0",
@@ -265,8 +265,8 @@ class TestGuardPipeline:
 
 class TestAdapters:
     def test_descriptors_to_llm_tools(self):
-        from tools.protocol.adapters import descriptors_to_llm_tools
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.adapters import descriptors_to_llm_tools
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
 
         descs = [
             ToolDescriptor(name="a.b", version="1.0.0", description="do A",
@@ -280,7 +280,7 @@ class TestAdapters:
         assert schemas[0]["function"]["name"].replace("_", "").isalnum()
 
     def test_parse_llm_tool_call(self):
-        from tools.protocol.adapters import parse_llm_tool_call
+        from ai.tools.protocol.adapters import parse_llm_tool_call
 
         tc = {
             "name": "coderunner_d_code_d_execute",
@@ -293,7 +293,7 @@ class TestAdapters:
         assert req.tool_call_id == "tc1"
 
     def test_tool_result_to_message(self):
-        from tools.protocol.adapters import tool_result_to_message
+        from ai.tools.protocol.adapters import tool_result_to_message
 
         result = {"ok": True, "data": {"status": "AC", "stdout": "hello"}}
         msg = tool_result_to_message(result, "tc1")
@@ -320,10 +320,10 @@ class TestCallerContext:
 
 class TestToolRuntime:
     def test_call_sync_success(self):
-        from tools.protocol.runtime import ToolRuntime, ToolCallContext
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.transports.inproc import LocalTransport
-        from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+        from ai.tools.protocol.runtime import ToolRuntime, ToolCallContext
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.transports.inproc import LocalTransport
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
         from core.auth.context import CallerContext
 
         reg = ToolRegistry()
@@ -349,9 +349,9 @@ class TestToolRuntime:
         assert result.data["title"] == "Two Sum"
 
     def test_call_sync_tool_not_found(self):
-        from tools.protocol.runtime import ToolRuntime, ToolCallContext
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.transports.inproc import LocalTransport
+        from ai.tools.protocol.runtime import ToolRuntime, ToolCallContext
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.transports.inproc import LocalTransport
         from core.auth.context import CallerContext
 
         runtime = ToolRuntime(registry=ToolRegistry(), transport=LocalTransport())
@@ -363,10 +363,10 @@ class TestToolRuntime:
         assert "MCP_TOOL_NOT_FOUND" in (result.error or {}).get("code", "")
 
     def test_call_sync_permission_denied(self):
-        from tools.protocol.runtime import ToolRuntime, ToolCallContext
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.transports.inproc import LocalTransport
-        from tools.protocol.schemas.descriptors import ToolDescriptor
+        from ai.tools.protocol.runtime import ToolRuntime, ToolCallContext
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.transports.inproc import LocalTransport
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor
         from core.auth.context import CallerContext
 
         reg = ToolRegistry()
@@ -385,10 +385,10 @@ class TestToolRuntime:
         assert "PERMISSION_DENIED" in (result.error or {}).get("code", "")
 
     def test_unexpected_exception_text_not_leaked_in_envelope(self):
-        from tools.protocol.runtime import ToolRuntime, ToolCallContext
-        from tools.protocol.registry import ToolRegistry
-        from tools.protocol.transports.inproc import LocalTransport
-        from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+        from ai.tools.protocol.runtime import ToolRuntime, ToolCallContext
+        from ai.tools.protocol.registry import ToolRegistry
+        from ai.tools.protocol.transports.inproc import LocalTransport
+        from ai.tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
         from core.auth.context import CallerContext
 
         secret = "secret-db-password-leak /etc/internal/path"
@@ -419,7 +419,7 @@ class TestToolRuntime:
         assert (result.error or {}).get("code") == "MCP_INTERNAL_ERROR"
 
     def test_sanitize_args_strips_identity(self):
-        from tools.protocol.runtime import ToolRuntime
+        from ai.tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext
 
         ctx = CallerContext(user_id=42, role="student")
@@ -454,9 +454,9 @@ class _FlakyTransport:
 
 
 def _retry_runtime(transport, *, max_attempts: int):
-    from tools.protocol.runtime import ToolRuntime, ToolCallContext
-    from tools.protocol.registry import ToolRegistry
-    from tools.protocol.schemas.descriptors import (
+    from ai.tools.protocol.runtime import ToolRuntime, ToolCallContext
+    from ai.tools.protocol.registry import ToolRegistry
+    from ai.tools.protocol.schemas.descriptors import (
         ToolDescriptor, RiskLevel, RetryPolicy,
     )
     from core.auth.context import CallerContext
@@ -477,7 +477,7 @@ def _retry_runtime(transport, *, max_attempts: int):
 
 class TestRetryPolicy:
     def test_retryable_error_retries_then_succeeds(self):
-        from tools.protocol.errors import MCPTransportUnavailable
+        from ai.tools.protocol.errors import MCPTransportUnavailable
 
         transport = _FlakyTransport(fail_times=1, exc=MCPTransportUnavailable("down"))
         runtime, ctx = _retry_runtime(transport, max_attempts=2)
@@ -486,7 +486,7 @@ class TestRetryPolicy:
         assert transport.calls == 2
 
     def test_zero_max_attempts_makes_single_attempt(self):
-        from tools.protocol.errors import MCPTransportUnavailable
+        from ai.tools.protocol.errors import MCPTransportUnavailable
 
         transport = _FlakyTransport(fail_times=1, exc=MCPTransportUnavailable("down"))
         runtime, ctx = _retry_runtime(transport, max_attempts=0)
@@ -496,7 +496,7 @@ class TestRetryPolicy:
         assert transport.calls == 1
 
     def test_non_retryable_error_not_retried(self):
-        from tools.protocol.errors import MCPArgumentInvalid
+        from ai.tools.protocol.errors import MCPArgumentInvalid
 
         transport = _FlakyTransport(fail_times=99, exc=MCPArgumentInvalid("bad"))
         runtime, ctx = _retry_runtime(transport, max_attempts=3)
@@ -506,7 +506,7 @@ class TestRetryPolicy:
         assert transport.calls == 1
 
     def test_retry_stops_at_ceiling(self):
-        from tools.protocol.errors import MCPTransportUnavailable
+        from ai.tools.protocol.errors import MCPTransportUnavailable
 
         transport = _FlakyTransport(fail_times=99, exc=MCPTransportUnavailable("down"))
         runtime, ctx = _retry_runtime(transport, max_attempts=2)
@@ -519,10 +519,10 @@ class TestRetryPolicy:
 # ── Output schema enforce toggle ─────────────────────────────
 
 def _schema_runtime(transport_result):
-    from tools.protocol.runtime import ToolRuntime, ToolCallContext
-    from tools.protocol.registry import ToolRegistry
-    from tools.protocol.transports.inproc import LocalTransport
-    from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+    from ai.tools.protocol.runtime import ToolRuntime, ToolCallContext
+    from ai.tools.protocol.registry import ToolRegistry
+    from ai.tools.protocol.transports.inproc import LocalTransport
+    from ai.tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
     from core.auth.context import CallerContext
 
     reg = ToolRegistry()
@@ -567,7 +567,7 @@ class TestOutputSchemaEnforce:
 
 class TestAgentMCPToolNames:
     def test_tutor_declares_mcp_names(self):
-        from agents.tutor.agent import TutorAgent
+        from ai.agents.tutor.agent import TutorAgent
 
         tools = TutorAgent().mcp_tool_names
         assert "coderunner.code.execute" in tools
@@ -575,7 +575,7 @@ class TestAgentMCPToolNames:
         assert all(t.startswith("coderunner.") for t in tools)
 
     def test_reviewer_declares_mcp_names(self):
-        from agents.reviewer.agent import ReviewerAgent
+        from ai.agents.reviewer.agent import ReviewerAgent
 
         tools = ReviewerAgent().mcp_tool_names
         assert "coderunner.code.execute" in tools
@@ -583,7 +583,7 @@ class TestAgentMCPToolNames:
         assert len(tools) == 3
 
     def test_generator_declares_mcp_names(self):
-        from agents.generator.agent import GeneratorAgent
+        from ai.agents.generator.agent import GeneratorAgent
 
         tools = GeneratorAgent().mcp_tool_names
         assert "coderunner.code.execute_internal" in tools
@@ -591,7 +591,7 @@ class TestAgentMCPToolNames:
         assert "coderunner.problem.save_generated" in tools
 
     def test_analytics_declares_mcp_names(self):
-        from agents.analytics.agent import AnalyticsAgent
+        from ai.agents.analytics.agent import AnalyticsAgent
 
         tools = AnalyticsAgent().mcp_tool_names
         assert "coderunner.analytics.student_activity" in tools

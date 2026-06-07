@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 
 def test_workflow_tool_call_grants_agent_scopes(monkeypatch):
-    from graph.node_registry import _handle_tool_call
+    from ai.graph.node_registry import _handle_tool_call
 
     captured = {}
 
@@ -36,8 +36,8 @@ def test_workflow_tool_call_grants_agent_scopes(monkeypatch):
 
 def test_workflow_engine_can_execute_into_existing_run(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
-        from graph.node_registry import register_step_handler
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph.node_registry import register_step_handler
         from domain.models.workflow import WorkflowRun, WorkflowStep
 
         run = WorkflowRun(
@@ -92,9 +92,9 @@ def test_workflow_aborts_when_wall_clock_timeout_exceeded(
     app, db_session, teacher_user, monkeypatch
 ):
     with app.app_context():
-        from graph import engine as engine_module
-        from graph.engine import WorkflowEngine
-        from graph.node_registry import register_step_handler
+        from ai.graph import engine as engine_module
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph.node_registry import register_step_handler
         from domain.models.workflow import WorkflowRun
 
         register_step_handler(
@@ -146,7 +146,7 @@ class TestWorkflowCrashRecovery:
     def test_recovers_orphaned_workflow(self, app, db_session, teacher_user):
         with app.app_context():
             from domain.models.workflow import WorkflowRun, WorkflowStep
-            from graph.recovery import recover_orphaned_workflows
+            from ai.graph.recovery import recover_orphaned_workflows
 
             run = WorkflowRun(
                 id="orphan-run",
@@ -184,7 +184,7 @@ class TestWorkflowCrashRecovery:
     def test_preserves_waiting_approval(self, app, db_session, teacher_user):
         with app.app_context():
             from domain.models.workflow import WorkflowRun
-            from graph.recovery import recover_orphaned_workflows
+            from ai.graph.recovery import recover_orphaned_workflows
 
             run = WorkflowRun(
                 id="gated-run",
@@ -206,7 +206,7 @@ class TestWorkflowCrashRecovery:
 class TestPlannerFallback:
     def test_general_fallback_when_llm_returns_none(self, app, monkeypatch):
         with app.app_context():
-            from graph import planner as planner_module
+            from ai.graph import planner as planner_module
 
             monkeypatch.setattr(planner_module, "plan_with_llm", lambda *a, **k: None)
 

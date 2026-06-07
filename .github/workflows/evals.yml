@@ -6,7 +6,7 @@ name: evals
 # EvalHarness over the dataset, persists trace/eval rows to a throwaway SQLite DB,
 # and gates on a full ReportGenerator report (regressions + baseline floor from
 # evals/baseline.json). Calibrate the floor with the "update baseline" dispatch
-# (python -m evals.ci --use-harness --bootstrap-schema --update-baseline).
+# (python -m ai.evals.ci --use-harness --bootstrap-schema --update-baseline).
 
 on:
   workflow_dispatch:
@@ -70,7 +70,7 @@ jobs:
       - name: Run evals (gate)
         if: ${{ github.event_name == 'schedule' || inputs.update_baseline != true }}
         run: |
-          python -m evals.ci --use-harness --bootstrap-schema \
+          python -m ai.evals.ci --use-harness --bootstrap-schema \
             --db-url "${DB_URL}" --selector all \
             --tolerance "${{ inputs.tolerance || '0.05' }}" \
             --report-out eval-report.json
@@ -78,7 +78,7 @@ jobs:
       - name: Run evals (update baseline)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.update_baseline == true }}
         run: |
-          python -m evals.ci --use-harness --bootstrap-schema \
+          python -m ai.evals.ci --use-harness --bootstrap-schema \
             --db-url "${DB_URL}" --selector all \
             --update-baseline --report-out eval-report.json
 

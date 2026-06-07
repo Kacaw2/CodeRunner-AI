@@ -11,8 +11,8 @@ from sqlalchemy import select
 
 def test_engine_persists_step_trace_id_and_injects_context(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
-        from graph.node_registry import register_step_handler
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph.node_registry import register_step_handler
         from domain.models.workflow import WorkflowStep
 
         seen = {}
@@ -59,8 +59,8 @@ def test_agent_call_binds_workflow_run_to_trace(app, db_session, teacher_user, m
     """An agent_call step records workflow_run_id on its agent trace, and the step
     records that trace_id back — closing the workflow <-> trace loop without an LLM."""
     with app.app_context():
-        from graph.engine import WorkflowEngine
-        from graph import runner as runner_module
+        from ai.graph.engine import WorkflowEngine
+        from ai.graph import runner as runner_module
         from domain.models.workflow import WorkflowStep
         from domain.models.observability import AgentTraceRun
         import core.db.session as core_session
@@ -72,7 +72,7 @@ def test_agent_call_binds_workflow_run_to_trace(app, db_session, teacher_user, m
                 # Mirror AgentRuntime: open a real trace seeded with link keys
                 # pulled from the agent state's context (workflow_run_id lives there).
                 from core.observability.tracing import acquire_trace, finalize_trace
-                from agents.base import _trace_links_from_state
+                from ai.agents.base import _trace_links_from_state
 
                 captured_state["context"] = dict(state.get("context", {}))
                 trace, owns = acquire_trace(

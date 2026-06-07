@@ -10,7 +10,7 @@ from langchain_core.messages import ToolMessage
 
 
 def test_mcp_permission_denial_is_linked_to_trace():
-    from agents.executor import ToolCallExecutor
+    from ai.agents.executor import ToolCallExecutor
 
     msg = ToolCallExecutor().run(
         {"name": "coderunner.problem.save_generated", "args": {}, "id": "tc1"},
@@ -29,7 +29,7 @@ def test_mcp_permission_denial_is_linked_to_trace():
 
 def test_trace_id_propagates_to_mcp_identity():
     """An allowed tool call must carry context.trace_id into MCPClientIdentity."""
-    from agents.executor import ToolCallExecutor
+    from ai.agents.executor import ToolCallExecutor
 
     captured = {}
 
@@ -47,8 +47,8 @@ def test_trace_id_propagates_to_mcp_identity():
     fake_hooks = MagicMock()
     fake_hooks.fire.return_value = allow
 
-    with patch("mcp_gateway.client.get_mcp_tool_client", return_value=fake_client), \
-         patch("agents.hooks.get_hook_manager", return_value=fake_hooks):
+    with patch("ai.mcp_gateway.client.get_mcp_tool_client", return_value=fake_client), \
+         patch("ai.agents.hooks.get_hook_manager", return_value=fake_hooks):
         msg = ToolCallExecutor().run(
             {"name": "coderunner.code.execute_internal", "args": {}, "id": "tc2"},
             {

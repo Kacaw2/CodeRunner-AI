@@ -108,17 +108,19 @@ CodeRunner/
 │   ├── web/                       # Jinja2 路由
 │   ├── templates/                 # HTML 模板
 │   └── static/                    # CSS + JS
-├── core/                          # 平台基建：config / db / auth / observability / exceptions
-├── tools/                         # 工具实现（业务逻辑）
-│   ├── code/ problems/ analytics/ students/ traces/ knowledge_search/
-│   └── protocol/                  # 工具协议层（registry/runtime/transports/policies/adapters/schemas）
-├── mcp_gateway/                   # 对外 MCP 服务（python -m mcp_gateway）
-├── agents/                        # tutor / reviewer / generator / analytics
-├── graph/                         # LangGraph 编排（engine/planner/supervisor/handoff/runner/recovery）
-├── memory/                        # 会话短期/长期记忆 + preference learning
-├── knowledge/                     # RAG 向量库 store / retriever
-├── models/                        # LLM router + providers
-├── workers/                       # FastAPI Agent Host 守护进程（chat/batch/task_runner）
+├── core/                          # 共享内核：config / db / auth / observability / exceptions（app + ai 共用）
+├── domain/                        # 共享 SQLAlchemy 领域层：models / repositories / statements（app + ai 共用）
+├── ai/                            # AI Agent 运行时（所有 agent 子系统收口于此）
+│   ├── agents/                    # tutor / reviewer / generator / analytics
+│   ├── graph/                     # LangGraph 编排（engine/planner/supervisor/handoff/runner/recovery）
+│   ├── memory/                    # 会话短期/长期记忆 + preference learning
+│   ├── knowledge/                 # RAG 向量库 store / retriever
+│   ├── llm/                       # LLM router + providers（原 models/，改名消歧）
+│   ├── tools/                     # 工具实现（业务层）+ protocol/ 协议层
+│   ├── mcp_gateway/               # 对外 MCP 服务（python -m ai.mcp_gateway）
+│   ├── evals/                     # 评测 harness / graders / datasets
+│   ├── workers/                   # 守护进程（chat/batch/task_runner）
+│   └── agent_runtime/             # FastAPI Agent Runtime（uvicorn ai.agent_runtime.main:app）
 ├── docker/
 │   ├── Dockerfile                 # Flask 镜像
 │   ├── Dockerfile.workers         # Workers + MCP Gateway 镜像

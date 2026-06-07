@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def test_generator_extract_json_skips_non_json_braces_around_fenced_payload():
-    from agents.generator.agent import _extract_json
+    from ai.agents.generator.agent import _extract_json
 
     text = textwrap.dedent(r'''
         I will generate a problem. Example notation: {not json}.

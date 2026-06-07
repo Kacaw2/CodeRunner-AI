@@ -2,7 +2,7 @@
 
 
 def test_extract_usage_prefers_usage_metadata():
-    from agents.llm_runner import LLMRunner
+    from ai.agents.llm_runner import LLMRunner
 
     class _Resp:
         usage_metadata = {"input_tokens": 11, "output_tokens": 5}
@@ -12,7 +12,7 @@ def test_extract_usage_prefers_usage_metadata():
 
 
 def test_extract_usage_falls_back_to_response_metadata():
-    from agents.llm_runner import LLMRunner
+    from ai.agents.llm_runner import LLMRunner
 
     class _Resp:
         usage_metadata = None
@@ -22,7 +22,7 @@ def test_extract_usage_falls_back_to_response_metadata():
 
 
 def test_extract_usage_handles_missing_metadata():
-    from agents.llm_runner import LLMRunner
+    from ai.agents.llm_runner import LLMRunner
 
     class _Resp:
         usage_metadata = None
@@ -32,7 +32,7 @@ def test_extract_usage_handles_missing_metadata():
 
 
 def test_compact_never_raises_and_returns_list():
-    from agents.llm_runner import LLMRunner
+    from ai.agents.llm_runner import LLMRunner
     from langchain_core.messages import HumanMessage
 
     msgs = [HumanMessage(content=f"m{i}") for i in range(30)]

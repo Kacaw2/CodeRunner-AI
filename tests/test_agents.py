@@ -14,7 +14,7 @@ def _make_llm_response(content="test response", tool_calls=None):
 
 class TestBaseAgent:
     def test_legacy_tool_name_xml_tag_parses_to_canonical_tool(self):
-        from agents.base import _parse_legacy_function_text
+        from ai.agents.base import _parse_legacy_function_text
 
         call = _parse_legacy_function_text(
             "Let me inspect it.\n\n<get_problem_detail>\n</get_problem_detail>",
@@ -28,7 +28,7 @@ class TestBaseAgent:
         }
 
     def test_sanitize_args_strips_identity(self):
-        from tools.protocol.runtime import ToolRuntime
+        from ai.tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext
 
         caller = CallerContext(
@@ -43,7 +43,7 @@ class TestBaseAgent:
         assert "role" not in result
 
     def test_sanitize_args_injects_student_id(self):
-        from tools.protocol.runtime import ToolRuntime
+        from ai.tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext
 
         caller = CallerContext(actor_type="user", user_id=42, role="student")
@@ -52,7 +52,7 @@ class TestBaseAgent:
         assert result["student_id"] == 42
 
     def test_sanitize_args_preserves_teacher_query(self):
-        from tools.protocol.runtime import ToolRuntime
+        from ai.tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext
 
         caller = CallerContext(actor_type="user", user_id=10, role="teacher")
@@ -61,8 +61,8 @@ class TestBaseAgent:
         assert result["teacher_id"] == 10
 
     def test_run_mcp_tool_handles_unknown_tool(self):
-        from agents.base import BaseAgent
-        from tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+        from ai.agents.base import BaseAgent
+        from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
 
         runtime = ToolRuntime()
         set_tool_runtime(runtime)
@@ -80,11 +80,11 @@ class TestToolLoopExhaustion:
     """Phase 1: an exhausted tool loop must be explicit, never a blank success."""
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_sync_exhaustion_is_explicit(self, mock_config, mock_save, app):
         with app.app_context():
-            from agents.tutor.agent import TutorAgent
-            from tools.protocol.runtime import (
+            from ai.agents.tutor.agent import TutorAgent
+            from ai.tools.protocol.runtime import (
                 ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
             )
 
@@ -126,11 +126,11 @@ class TestToolLoopExhaustion:
             assert "completed" not in statuses
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_stream_exhaustion_yields_error(self, mock_config, mock_save, app):
         with app.app_context():
-            from agents.tutor.agent import TutorAgent
-            from tools.protocol.runtime import (
+            from ai.agents.tutor.agent import TutorAgent
+            from ai.tools.protocol.runtime import (
                 ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
             )
 
@@ -180,10 +180,10 @@ class TestToolLoopExhaustion:
 class TestSystemContextIsolation:
     """Phase 2: the injected system prompt must never be persisted into history."""
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_invoke_strips_system_message(self, mock_config, app):
         with app.app_context():
-            from agents.tutor.agent import TutorAgent
+            from ai.agents.tutor.agent import TutorAgent
 
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
@@ -205,13 +205,13 @@ class TestSystemContextIsolation:
 
             assert all(not isinstance(m, SystemMessage) for m in result["messages"])
 
-    @patch("agents.config.AIConfig.validate")
-    @patch("agents.config.AIConfig.get_llm")
+    @patch("ai.agents.config.AIConfig.validate")
+    @patch("ai.agents.config.AIConfig.get_llm")
     def test_generator_retry_does_not_accumulate_system_messages(
         self, mock_get_llm, mock_validate, app,
     ):
         with app.app_context():
-            from agents.generator.agent import GeneratorAgent
+            from ai.agents.generator.agent import GeneratorAgent
 
             question_json = '''```json
 {
@@ -236,7 +236,7 @@ class TestSystemContextIsolation:
                 return [{"index": 0, "passed": passed, "input": "", "expected": "1",
                          "actual": "1" if passed else "2", "error": "", "status": "AC" if passed else "WA"}]
 
-            with patch("agents.generator.agent._validate_solution", side_effect=validation_side_effect):
+            with patch("ai.agents.generator.agent._validate_solution", side_effect=validation_side_effect):
                 agent = GeneratorAgent()
                 state = {
                     "messages": [HumanMessage(content="Create a problem")],
@@ -255,10 +255,10 @@ class TestSystemContextIsolation:
 
 
 class TestTutorAgent:
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
         with app.app_context():
-            from agents.tutor.agent import TutorAgent
+            from ai.agents.tutor.agent import TutorAgent
 
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
@@ -281,11 +281,11 @@ class TestTutorAgent:
             assert result["final_response"] == "Here's a hint about your loop."
             assert len(result["messages"]) > 1
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_invoke_with_tool_calls(self, mock_config, app):
         with app.app_context():
-            from agents.tutor.agent import TutorAgent
-            from tools.protocol.runtime import ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime
+            from ai.agents.tutor.agent import TutorAgent
+            from ai.tools.protocol.runtime import ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime
 
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
@@ -326,10 +326,10 @@ class TestTutorAgent:
 
 
 class TestReviewerAgent:
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_invoke_returns_review(self, mock_config, app):
         with app.app_context():
-            from agents.reviewer.agent import ReviewerAgent
+            from ai.agents.reviewer.agent import ReviewerAgent
 
             review_json = '```json\n{"overall_score": "B", "summary": "Good", "issues": [], "strengths": ["Clean"]}\n```'
             mock_llm = MagicMock()
@@ -354,11 +354,11 @@ class TestReviewerAgent:
 
 
 class TestGeneratorAgent:
-    @patch("agents.config.AIConfig.validate")
-    @patch("agents.config.AIConfig.get_llm")
+    @patch("ai.agents.config.AIConfig.validate")
+    @patch("ai.agents.config.AIConfig.get_llm")
     def test_invoke_with_valid_json(self, mock_get_llm, mock_validate, app):
         with app.app_context():
-            from agents.generator.agent import GeneratorAgent
+            from ai.agents.generator.agent import GeneratorAgent
 
             question_json = '''```json
 {
@@ -379,7 +379,7 @@ class TestGeneratorAgent:
             mock_llm.invoke.return_value = _make_llm_response(question_json)
             mock_get_llm.return_value = mock_llm
 
-            with patch("agents.generator.agent._validate_solution") as mock_val:
+            with patch("ai.agents.generator.agent._validate_solution") as mock_val:
                 mock_val.return_value = [
                     {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
                     {"index": 1, "passed": True, "input": "0 0", "expected": "0", "actual": "0", "error": "", "status": "AC"},
@@ -400,11 +400,11 @@ class TestGeneratorAgent:
             assert result["context"].get("generated_problem") is not None
             assert result["context"]["generated_problem"]["verified"] is True
 
-    @patch("agents.config.AIConfig.validate")
-    @patch("agents.config.AIConfig.get_llm")
+    @patch("ai.agents.config.AIConfig.validate")
+    @patch("ai.agents.config.AIConfig.get_llm")
     def test_invoke_retries_on_validation_failure(self, mock_get_llm, mock_validate, app):
         with app.app_context():
-            from agents.generator.agent import GeneratorAgent
+            from ai.agents.generator.agent import GeneratorAgent
 
             question_json = '''```json
 {
@@ -431,7 +431,7 @@ class TestGeneratorAgent:
                 return [{"index": 0, "passed": True, "input": "", "expected": "1",
                          "actual": "1", "error": "", "status": "AC"}]
 
-            with patch("agents.generator.agent._validate_solution", side_effect=validation_side_effect):
+            with patch("ai.agents.generator.agent._validate_solution", side_effect=validation_side_effect):
                 agent = GeneratorAgent()
                 state = {
                     "messages": [HumanMessage(content="Create a problem")],
@@ -447,12 +447,12 @@ class TestGeneratorAgent:
             assert call_count == 2
             assert result["context"]["generated_problem"]["verified"] is True
 
-    @patch("agents.config.AIConfig.validate")
-    @patch("agents.generator.agent.AIConfig.get_llm")
+    @patch("ai.agents.config.AIConfig.validate")
+    @patch("ai.agents.generator.agent.AIConfig.get_llm")
     def test_stream_persists_trace(self, mock_get_llm, mock_validate, app, db_session, teacher_user):
         with app.app_context():
             from langchain_core.messages import HumanMessage
-            from agents.generator.agent import GeneratorAgent
+            from ai.agents.generator.agent import GeneratorAgent
             from core.observability.tracing import TraceCollector
             from domain.models.observability import AgentTraceRun, AgentTraceSpan
             from core.db.session import db_session as core_db_session
@@ -482,7 +482,7 @@ class TestGeneratorAgent:
             ]
             mock_get_llm.return_value = mock_llm
 
-            with patch("agents.generator.agent._validate_solution") as mock_val:
+            with patch("ai.agents.generator.agent._validate_solution") as mock_val:
                 mock_val.return_value = [
                     {"index": 0, "passed": True, "input": "1 2", "expected": "3", "actual": "3", "error": "", "status": "AC"},
                 ]
@@ -529,10 +529,10 @@ class TestGeneratorAgent:
 
 
 class TestAnalyticsAgent:
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_invoke_returns_report(self, mock_config, app):
         with app.app_context():
-            from agents.analytics.agent import AnalyticsAgent
+            from ai.agents.analytics.agent import AnalyticsAgent
 
             report = '```json\n{"summary": "Good progress", "progress": {"trend": "improving"}}\n```'
             mock_llm = MagicMock()
@@ -556,11 +556,11 @@ class TestAnalyticsAgent:
             assert "progress" in result["final_response"]
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_stream_executes_legacy_function_text_without_leaking_it(self, mock_config, mock_save, app):
         with app.app_context():
-            from agents.analytics.agent import AnalyticsAgent
-            from tools.protocol.runtime import (
+            from ai.agents.analytics.agent import AnalyticsAgent
+            from ai.tools.protocol.runtime import (
                 ToolRuntime, ToolResult, set_tool_runtime, reset_tool_runtime,
             )
 
@@ -614,7 +614,7 @@ class TestAnalyticsAgent:
 class TestOrchestrator:
     def test_routes_to_correct_agent(self, app):
         with app.app_context():
-            from graph.runner import _route
+            from ai.graph.runner import _route
 
             state = {
                 "messages": [],
@@ -630,7 +630,7 @@ class TestOrchestrator:
 
     def test_defaults_to_tutor_for_unknown(self, app):
         with app.app_context():
-            from graph.runner import _route
+            from ai.graph.runner import _route
 
             state = {
                 "messages": [],
@@ -646,7 +646,7 @@ class TestOrchestrator:
 
     def test_defaults_to_tutor_when_missing(self, app):
         with app.app_context():
-            from graph.runner import _route
+            from ai.graph.runner import _route
 
             state = {
                 "messages": [],
@@ -659,7 +659,7 @@ class TestOrchestrator:
             result = _route(state)
             assert result["agent_type"] == "tutor"
 
-    @patch("graph.runner.AIConfig")
+    @patch("ai.graph.runner.AIConfig")
     def test_auto_route_classifies_intent(self, mock_config, app):
         """Phase 2: Smart intent router classifies 'auto' agent_type."""
         with app.app_context():
@@ -668,7 +668,7 @@ class TestOrchestrator:
             mock_config.get_llm.return_value = mock_llm
             mock_config.validate.return_value = None
 
-            from graph.runner import _route
+            from ai.graph.runner import _route
 
             state = {
                 "messages": [HumanMessage(content="Review my code please")],
@@ -683,7 +683,7 @@ class TestOrchestrator:
             assert result["agent_type"] == "reviewer"
             assert result.get("auto_routed") is True
 
-    @patch("graph.runner.AIConfig")
+    @patch("ai.graph.runner.AIConfig")
     def test_auto_route_blocks_student_generator(self, mock_config, app):
         """Phase 2: Students cannot be routed to generator even if LLM says so."""
         with app.app_context():
@@ -692,7 +692,7 @@ class TestOrchestrator:
             mock_config.get_llm.return_value = mock_llm
             mock_config.validate.return_value = None
 
-            from graph.runner import _route
+            from ai.graph.runner import _route
 
             state = {
                 "messages": [HumanMessage(content="Create a problem for me")],
@@ -706,13 +706,13 @@ class TestOrchestrator:
             result = _route(state)
             assert result["agent_type"] == "tutor"
 
-    @patch("graph.runner.AIConfig")
+    @patch("ai.graph.runner.AIConfig")
     def test_auto_route_fallback_on_error(self, mock_config, app):
         """Phase 2: Falls back gracefully if intent classification fails."""
         with app.app_context():
             mock_config.get_llm.side_effect = RuntimeError("API down")
 
-            from graph.runner import _route
+            from ai.graph.runner import _route
 
             state = {
                 "messages": [HumanMessage(content="Help me")],
@@ -727,10 +727,10 @@ class TestOrchestrator:
             assert result["agent_type"] == "analytics"
             assert result.get("auto_routed") is True
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_run_agent_catches_ai_error(self, mock_config, app):
         with app.app_context():
-            from graph.runner import _run_agent
+            from ai.graph.runner import _run_agent
             from core.exceptions import LLMError
 
             mock_config.get_llm.side_effect = LLMError("API down")
@@ -748,10 +748,10 @@ class TestOrchestrator:
             result = _run_agent("tutor", state)
             assert "temporarily unavailable" in result["final_response"]
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_run_agent_catches_unexpected_error(self, mock_config, app):
         with app.app_context():
-            from graph.runner import _run_agent
+            from ai.graph.runner import _run_agent
 
             mock_config.get_llm.side_effect = RuntimeError("unexpected")
             mock_config.validate.side_effect = RuntimeError("unexpected")
@@ -792,7 +792,7 @@ class TestTaskStateMachine:
 
 class TestBatchRunner:
     def test_decompose_batch_params(self):
-        from workers.batch import decompose_batch_params
+        from ai.workers.batch import decompose_batch_params
 
         params = {"topic": "arrays", "language": "python", "difficulty": "easy", "count": 3}
         steps = decompose_batch_params(params)
@@ -805,7 +805,7 @@ class TestBatchRunner:
             assert f"{i + 1} of 3" in step["prompt"]
 
     def test_decompose_single(self):
-        from workers.batch import decompose_batch_params
+        from ai.workers.batch import decompose_batch_params
 
         params = {"topic": "sorting", "language": "c", "count": 1}
         steps = decompose_batch_params(params)
@@ -836,7 +836,7 @@ class TestCrashRecovery:
             from app.models.agent_task import AgentTask
             from domain.models.user import User, UserRole
             from domain.repositories.users import SyncUserRepository
-            from graph.recovery import recover_orphaned_tasks
+            from ai.graph.recovery import recover_orphaned_tasks
 
             user = SyncUserRepository(db_session).get_by_username(
                 "recovery_test_user"
@@ -870,7 +870,7 @@ class TestCrashRecovery:
             from app.models.agent_task import AgentTask
             from domain.models.user import User, UserRole
             from domain.repositories.users import SyncUserRepository
-            from graph.recovery import recover_orphaned_tasks
+            from ai.graph.recovery import recover_orphaned_tasks
 
             user = SyncUserRepository(db_session).get_by_username(
                 "recovery_test_user2"
@@ -904,7 +904,7 @@ class TestMemorySummaryReplay:
         with app.app_context():
             from domain.models.chat import AIConversation
             from domain.models.user import User, UserRole
-            from memory.service import MemoryService
+            from ai.memory.service import MemoryService
 
             user = User(username="mem_replay_user", password="x",
                         email="memreplay@test.com", role=UserRole.STUDENT)
@@ -940,13 +940,13 @@ class TestCrossAgentCallGuardrail:
             pass
         assert trace.llm_call_count == 2
 
-    @patch("agents.runtime.AIConfig")
+    @patch("ai.agents.runtime.AIConfig")
     def test_guardrail_aborts_when_shared_budget_exhausted(self, mock_config, app):
         with app.app_context():
-            from agents.config import MAX_LLM_CALLS_PER_TRACE
-            from agents.tutor.agent import TutorAgent
+            from ai.agents.config import MAX_LLM_CALLS_PER_TRACE
+            from ai.agents.tutor.agent import TutorAgent
             from core.observability.tracing import TraceCollector, use_current_trace
-            from tools.protocol.runtime import (
+            from ai.tools.protocol.runtime import (
                 ToolRuntime, set_tool_runtime, reset_tool_runtime,
             )
 

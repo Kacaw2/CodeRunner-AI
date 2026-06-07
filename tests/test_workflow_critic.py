@@ -1,5 +1,5 @@
 """Tests for WorkflowCritic narrow routing (Option A) and generation validation."""
-from graph.critic import WorkflowCritic
+from ai.graph.critic import WorkflowCritic
 
 
 def _valid_problem_output():

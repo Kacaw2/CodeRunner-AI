@@ -43,8 +43,8 @@ def test_allowed_tools_exist_in_the_tool_catalog():
 
     Bootstrap the gateway so the runtime holds the live catalog (a bare app does
     not register tools), then assert against what the runtime actually exposes."""
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
-    from tools.protocol.runtime import get_tool_runtime, set_tool_runtime, reset_tool_runtime
+    from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from ai.tools.protocol.runtime import get_tool_runtime, set_tool_runtime, reset_tool_runtime
 
     previous = get_tool_runtime()
     try:

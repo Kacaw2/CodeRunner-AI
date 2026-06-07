@@ -16,7 +16,7 @@ def _state():
 
 
 def test_from_state_pulls_core_fields():
-    from agents.session import AgentSession
+    from ai.agents.session import AgentSession
 
     s = AgentSession.from_state(_state(), agent_name="tutor")
     assert s.agent_name == "tutor"
@@ -27,7 +27,7 @@ def test_from_state_pulls_core_fields():
 
 
 def test_to_state_roundtrip_preserves_messages_and_context():
-    from agents.session import AgentSession
+    from ai.agents.session import AgentSession
 
     original = _state()
     s = AgentSession.from_state(original, agent_name="tutor")
@@ -39,7 +39,7 @@ def test_to_state_roundtrip_preserves_messages_and_context():
 
 
 def test_mcp_identity_uses_session_trace_id_not_context():
-    from agents.session import AgentSession
+    from ai.agents.session import AgentSession
 
     s = AgentSession.from_state(_state(), agent_name="tutor")
     s.trace_id = "trace-abc"  # set once the trace is acquired

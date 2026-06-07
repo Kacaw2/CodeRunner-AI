@@ -33,8 +33,8 @@ def _keypair() -> tuple[str, str]:
 
 
 def test_signed_token_resolves_to_agent_host_from_claims(monkeypatch):
-    from mcp_gateway.middleware import core
-    from mcp_gateway.internal_auth import mint_internal_token
+    from ai.mcp_gateway.middleware import core
+    from ai.mcp_gateway.internal_auth import mint_internal_token
 
     private_pem, public_pem = _keypair()
     monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", public_pem)
@@ -69,8 +69,8 @@ def test_forged_identity_without_valid_token_cannot_become_agent_host(monkeypatc
     verifies, so they fall through to API-key verification and never get
     agent_host / admin.
     """
-    from mcp_gateway.middleware import core
-    from mcp_gateway.internal_auth import mint_internal_token
+    from ai.mcp_gateway.middleware import core
+    from ai.mcp_gateway.internal_auth import mint_internal_token
 
     _, real_public = _keypair()
     attacker_private, _ = _keypair()
@@ -91,7 +91,7 @@ def test_forged_identity_without_valid_token_cannot_become_agent_host(monkeypatc
 
 
 def test_external_token_falls_through_to_api_key_verification(monkeypatch):
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     _, public_pem = _keypair()
     monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", public_pem)
@@ -119,7 +119,7 @@ def test_external_token_falls_through_to_api_key_verification(monkeypatch):
 
 def test_internal_path_disabled_when_verify_key_unset(monkeypatch):
     """With no verify key configured, every token is just an API key candidate."""
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     monkeypatch.delenv("MCP_INTERNAL_VERIFY_KEY", raising=False)
     monkeypatch.setattr(
@@ -130,7 +130,7 @@ def test_internal_path_disabled_when_verify_key_unset(monkeypatch):
 
 
 def test_call_via_runtime_uses_agent_host_context_for_internal_caller(monkeypatch):
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     captured = {}
 
@@ -166,7 +166,7 @@ def test_call_via_runtime_uses_agent_host_context_for_internal_caller(monkeypatc
 
 
 def test_call_via_runtime_uses_external_client_context_for_api_key_caller(monkeypatch):
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     captured = {}
 

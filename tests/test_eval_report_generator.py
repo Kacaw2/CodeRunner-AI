@@ -63,7 +63,7 @@ def _seed_run(
 
 @pytest.mark.usefixtures("app", "db_session")
 def test_report_contains_quality_cost_latency_and_regression():
-    from evals.reports.generator import ReportGenerator
+    from ai.evals.reports.generator import ReportGenerator
 
     report = ReportGenerator().build(eval_run_id=1, compare_to_eval_run_id=0)
 
@@ -76,7 +76,7 @@ def test_report_contains_quality_cost_latency_and_regression():
 
 @pytest.mark.usefixtures("app", "db_session")
 def test_report_computes_metrics_from_seeded_run():
-    from evals.reports.generator import ReportGenerator
+    from ai.evals.reports.generator import ReportGenerator
 
     run_id = _seed_run(
         suite="tutor",
@@ -116,7 +116,7 @@ def test_report_computes_metrics_from_seeded_run():
 
 @pytest.mark.usefixtures("app", "db_session")
 def test_report_detects_regressions_against_previous_run():
-    from evals.reports.generator import ReportGenerator
+    from ai.evals.reports.generator import ReportGenerator
 
     baseline_id = _seed_run(
         suite="tutor",
@@ -150,7 +150,7 @@ def test_report_detects_regressions_against_previous_run():
 
 @pytest.mark.usefixtures("app", "db_session")
 def test_report_renders_markdown():
-    from evals.reports.generator import ReportGenerator
+    from ai.evals.reports.generator import ReportGenerator
 
     run_id = _seed_run(
         suite="tutor",

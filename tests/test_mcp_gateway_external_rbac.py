@@ -7,13 +7,13 @@ callers. These tests pin that boundary so it can't drift silently.
 
 import json
 
-from mcp_gateway.middleware import set_caller_info
+from ai.mcp_gateway.middleware import set_caller_info
 
 
 def test_external_client_role_override_still_enforced(monkeypatch):
     """A scope alone must not unlock a teacher-only tool for a student."""
-    from mcp_gateway.middleware.core import call_via_runtime
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from ai.mcp_gateway.middleware.core import call_via_runtime
+    from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
 
     bootstrap_tool_runtime()
     monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
@@ -36,8 +36,8 @@ def test_external_client_role_override_still_enforced(monkeypatch):
 
 def test_external_client_unrestricted_tool_passes_with_scope(monkeypatch):
     """A tool with no role override is gated by scope only — document that."""
-    from mcp_gateway.middleware.core import call_via_runtime
-    from mcp_gateway.bootstrap import bootstrap_tool_runtime
+    from ai.mcp_gateway.middleware.core import call_via_runtime
+    from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
 
     bootstrap_tool_runtime()
     monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
@@ -67,7 +67,7 @@ def test_external_path_has_no_agent_allowlist_layer():
     """
     import inspect
 
-    from mcp_gateway.middleware import core
+    from ai.mcp_gateway.middleware import core
 
     src = inspect.getsource(core.call_via_runtime)
     assert "HookEvent" not in src

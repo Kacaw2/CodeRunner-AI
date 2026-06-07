@@ -78,8 +78,8 @@ The important boundary is:
 
 - `app/models/`
 - `app/services/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 
 ### `redis` / `educode_redis`
 
@@ -100,8 +100,8 @@ The important boundary is:
 **Repository modules connected to it:**
 
 - `app/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 
 ### `executor` / `educode_executor`
 
@@ -182,14 +182,14 @@ can be picked up by recreating or restarting `web` without rebuilding the image:
 
 - `app/`
 - `core/`
-- `tools/`
-- `agents/`
-- `graph/`
-- `memory/`
-- `knowledge/`
-- `models/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/tools/`
+- `ai/agents/`
+- `ai/graph/`
+- `ai/memory/`
+- `ai/knowledge/`
+- `ai/llm/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 - `scripts/`
 
 **Writable/runtime mounts:**
@@ -203,12 +203,12 @@ can be picked up by recreating or restarting `web` without rebuilding the image:
 
 - `app/`
 - `core/`
-- `tools/`
-- `agents/`
-- `graph/`
-- `knowledge/`
-- `memory/`
-- `models/`
+- `ai/tools/`
+- `ai/agents/`
+- `ai/graph/`
+- `ai/knowledge/`
+- `ai/memory/`
+- `ai/llm/`
 
 ### `workers` / `educode_workers`
 
@@ -240,29 +240,29 @@ can be picked up by recreating or restarting `web` without rebuilding the image:
 
 - `app/`
 - `core/`
-- `tools/`
-- `agents/`
-- `graph/`
-- `memory/`
-- `knowledge/`
-- `models/`
-- `workers/`
-- `mcp_gateway/`
+- `ai/tools/`
+- `ai/agents/`
+- `ai/graph/`
+- `ai/memory/`
+- `ai/knowledge/`
+- `ai/llm/`
+- `ai/workers/`
+- `ai/mcp_gateway/`
 
 Because these paths are copied into the `workers` image, changes under
-`agents/`, `workers/`, `tools/`, `graph/`, `core/`, or `mcp_gateway/` normally
+`ai/agents/`, `ai/workers/`, `ai/tools/`, `ai/graph/`, `core/`, or `ai/mcp_gateway/` normally
 require rebuilding or recreating this service unless a development override adds
 bind mounts.
 
 **Repository modules owned or executed here:**
 
-- `workers/`
-- `agents/`
-- `graph/`
+- `ai/workers/`
+- `ai/agents/`
+- `ai/graph/`
 - `core/`
-- `tools/`
-- `knowledge/`
-- `memory/`
+- `ai/tools/`
+- `ai/knowledge/`
+- `ai/memory/`
 
 ### `mcp_gateway` / `educode_mcp_gateway`
 
@@ -270,7 +270,7 @@ bind mounts.
 
 **Responsibilities:**
 
-- Runs `python -m mcp_gateway --transport streamable-http --host 0.0.0.0 --port 8200`.
+- Runs `python -m ai.mcp_gateway --transport streamable-http --host 0.0.0.0 --port 8200`.
 - Exposes the MCP HTTP endpoint used by the Agent Host.
 - Verifies internal capability tokens with `MCP_INTERNAL_VERIFY_KEY`.
 - Connects tool calls to database, Redis, knowledge-base storage, and tool runtime modules.
@@ -294,11 +294,11 @@ bind mounts.
 
 **Repository modules owned or executed here:**
 
-- `mcp_gateway/`
-- `tools/`
+- `ai/mcp_gateway/`
+- `ai/tools/`
 - `core/`
-- `knowledge/`
-- `models/`
+- `ai/knowledge/`
+- `ai/llm/`
 
 ## Data Volumes
 

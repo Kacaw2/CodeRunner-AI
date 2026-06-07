@@ -9,7 +9,7 @@ import pytest
 @pytest.fixture()
 def kb(tmp_path):
     """Create a KnowledgeBase with an isolated temp directory."""
-    from knowledge.store import KnowledgeBase
+    from ai.knowledge.store import KnowledgeBase
     return KnowledgeBase(persist_dir=str(tmp_path / "kb"))
 
 
@@ -173,7 +173,7 @@ class TestScopeIsolation:
 class TestLowRelevanceFiltering:
     def test_tutor_filters_low_relevance(self, seeded_kb):
         results = seeded_kb.search_knowledge("completely unrelated quantum physics", n=2)
-        from agents.tutor.agent import TutorAgent
+        from ai.agents.tutor.agent import TutorAgent
         filtered = [r for r in results if r.get("score", 0) >= TutorAgent.MIN_KNOWLEDGE_SCORE]
         assert len(filtered) <= len(results)
 
@@ -195,7 +195,7 @@ class TestIndexAllProblems:
             ],
         }
 
-        with patch("knowledge.store.get_knowledge_base", return_value=kb):
+        with patch("ai.knowledge.store.get_knowledge_base", return_value=kb):
             problem, variant = _publish_question_data_as_problem(question_data, teacher_user.id)
 
         assert problem.id is not None
@@ -204,7 +204,7 @@ class TestIndexAllProblems:
         assert not kb.index_question.called
 
     def test_legacy_index_question_method_is_removed(self):
-        from knowledge.store import KnowledgeBase
+        from ai.knowledge.store import KnowledgeBase
 
         assert not hasattr(KnowledgeBase, "index_question")
 
@@ -213,7 +213,7 @@ class TestKbHealth:
     """F6: KB readiness probe must never raise and must report degradation."""
 
     def test_health_ok_reports_counts(self, kb):
-        from knowledge import store as kb_module
+        from ai.knowledge import store as kb_module
 
         original = kb_module._kb_instance
         try:
@@ -228,7 +228,7 @@ class TestKbHealth:
             kb_module._kb_instance = original
 
     def test_health_degraded_when_init_fails(self, monkeypatch):
-        from knowledge import store as kb_module
+        from ai.knowledge import store as kb_module
 
         def _boom():
             raise RuntimeError("model not found in offline cache")
@@ -240,7 +240,7 @@ class TestKbHealth:
 
     def test_index_all_problems_function(self, app, db_session, tmp_path):
         from app.models.problem import Problem
-        from knowledge import store as kb_module
+        from ai.knowledge import store as kb_module
 
         p = Problem(slug="test-problem", title="Test Problem", description="A test.", difficulty="easy")
         db_session.add(p)

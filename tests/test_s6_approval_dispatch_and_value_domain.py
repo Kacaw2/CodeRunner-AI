@@ -10,10 +10,10 @@ problem_id <= 0, empty query/code, oversized limit/days), not just wrong types.
 
 import pytest
 
-from mcp_gateway import bootstrap
-from tools.protocol.runtime import ToolRuntime
-from tools.protocol.schemas.catalog import TOOL_CATALOG
-from tools.protocol.errors import MCPArgumentInvalid
+from ai.mcp_gateway import bootstrap
+from ai.tools.protocol.runtime import ToolRuntime
+from ai.tools.protocol.schemas.catalog import TOOL_CATALOG
+from ai.tools.protocol.errors import MCPArgumentInvalid
 
 
 # ── Test doubles ─────────────────────────────────────────────────

@@ -45,7 +45,7 @@ def _seed_gated_run(db_session, user_id, run_id):
 
 def test_approval_creates_audit_record(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
+        from ai.graph.engine import WorkflowEngine
         from domain.models.workflow import WorkflowApproval, WorkflowStep
 
         run = _seed_gated_run(db_session, teacher_user.id, "approve-run")
@@ -81,7 +81,7 @@ def test_approval_creates_audit_record(app, db_session, teacher_user):
 
 def test_rejection_is_also_audited(app, db_session, teacher_user):
     with app.app_context():
-        from graph.engine import WorkflowEngine
+        from ai.graph.engine import WorkflowEngine
         from domain.models.workflow import WorkflowApproval, WorkflowRun
 
         _seed_gated_run(db_session, teacher_user.id, "reject-run")

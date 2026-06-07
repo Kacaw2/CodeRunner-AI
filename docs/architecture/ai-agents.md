@@ -26,7 +26,7 @@
 | Model Router | ✅ 三层 tier (fast/balanced/strong)，DeepSeek provider | 多 provider 支持 |
 | Orchestrator | ✅ LangGraph StateGraph，基于 definition 路由 | Education Orchestrator 多步编排 |
 | 工具调用 | ✅ 内部 Agent 经 MCP client 跨 transport 调用 gateway（ToolRuntime 仅为服务端引擎） | 不变 |
-| MCP 内核 | ✅ `mcp_gateway` FastMCP 服务 + `tools/protocol` guard pipeline，唯一工具边界 | 不变 |
+| MCP 内核 | ✅ `mcp_gateway` FastMCP 服务 + `ai/tools/protocol` guard pipeline，唯一工具边界 | 不变 |
 | Human Gate | ⚠️ 生成草稿审批流 | 与 AgentTask 状态机完整打通 |
 | Subagent 隔离 | ❌ Agent 共享上下文 | 独立上下文窗口和工具权限 |
 | 多模型路由 | ✅ tier 抽象，单 provider | 多 provider + 动态路由策略 |
@@ -43,16 +43,16 @@
 | 模块 | 当前职责 |
 |---|---|
 | `app/api/v1/ai.py` | Flask 主业务 API：同步聊天、流式聊天、异步任务创建/读取、生成、分析、trace/eval 等入口 |
-| `graph/runner.py` | 普通同步聊天的 Router + LangGraph Orchestrator |
-| `agents/base.py` | 四个 specialist agent 的共享 LLM/tool loop、trace、handoff、失败处理 |
-| `agents/{tutor,reviewer,generator,analytics}/agent.py` | 具体 Agent 的 system context、知识库预取和特定输出逻辑 |
+| `ai/graph/runner.py` | 普通同步聊天的 Router + LangGraph Orchestrator |
+| `ai/agents/base.py` | 四个 specialist agent 的共享 LLM/tool loop、trace、handoff、失败处理 |
+| `ai/agents/{tutor,reviewer,generator,analytics}/agent.py` | 具体 Agent 的 system context、知识库预取和特定输出逻辑 |
 | `core/definitions.py` | Agent 声明式定义：角色权限、工具白名单、输入字段、输出格式 |
-| `agents/executor.py` | Agent 调 MCP 工具的客户端边界 |
-| `tools/protocol/runtime.py` | ToolRuntime：工具目录、schema、权限 guard、审计、实际 transport 调用 |
-| `knowledge/store.py` | Chroma 知识库：题目相似度、知识点、错误模式 |
-| `evals/harness/agent_harness.py` | remote/eval 路径的一次逻辑 trace + handoff 编排 |
-| `agent_runtime/` | FastAPI Agent Runtime：`AGENT_RUNTIME_MODE=remote`(默认)下的 chat/workflow 执行边界 |
-| `graph/supervisor.py` / `graph/engine.py` | 多步 workflow 的规划与执行编排 |
+| `ai/agents/executor.py` | Agent 调 MCP 工具的客户端边界 |
+| `ai/tools/protocol/runtime.py` | ToolRuntime：工具目录、schema、权限 guard、审计、实际 transport 调用 |
+| `ai/knowledge/store.py` | Chroma 知识库：题目相似度、知识点、错误模式 |
+| `ai/evals/harness/agent_harness.py` | remote/eval 路径的一次逻辑 trace + handoff 编排 |
+| `ai/agent_runtime/` | FastAPI Agent Runtime：`AGENT_RUNTIME_MODE=remote`(默认)下的 chat/workflow 执行边界 |
+| `ai/graph/supervisor.py` / `ai/graph/engine.py` | 多步 workflow 的规划与执行编排 |
 
 ### 请求流转图
 
@@ -93,7 +93,7 @@ flowchart TD
 
 ### AgentState（运行时统一载体）
 
-Agent 运行时围绕 `AgentState` 传递数据：`messages`、`agent_type`、`user_id`、`user_role`、`context`（`conversation_id`/`question_id`/`submission_id`/`code`/`language`/`topic`/`difficulty`/`target_student_id`/`period` 等）、`tool_results`、`final_response`、`trace_id`、`handoff_*`。输入契约由 `agents/contracts.py` 做 warn-only 校验（只记录漂移，不阻断）。流式路径输出 `start`/`route`/`token`/`tool_call`/`tool_result`/`handoff_start`/`replace`/`done`/`error` 等 SSE event。
+Agent 运行时围绕 `AgentState` 传递数据：`messages`、`agent_type`、`user_id`、`user_role`、`context`（`conversation_id`/`question_id`/`submission_id`/`code`/`language`/`topic`/`difficulty`/`target_student_id`/`period` 等）、`tool_results`、`final_response`、`trace_id`、`handoff_*`。输入契约由 `ai/agents/contracts.py` 做 warn-only 校验（只记录漂移，不阻断）。流式路径输出 `start`/`route`/`token`/`tool_call`/`tool_result`/`handoff_start`/`replace`/`done`/`error` 等 SSE event。
 
 ### 失败处理总览
 
@@ -202,7 +202,7 @@ Agent 运行时围绕 `AgentState` 传递数据：`messages`、`agent_type`、`u
 | 组件 | 技术 | 用途 |
 |------|------|------|
 | LLM Provider | DeepSeek API (deepseek-chat)，兼容 OpenAI 协议 | 外部 LLM Provider，非 Agent |
-| Model Router | `models/` | 按 tier (fast/balanced/strong) 路由到 provider |
+| Model Router | `ai/llm/` | 按 tier (fast/balanced/strong) 路由到 provider |
 | Agent 编排 | LangGraph | 状态图驱动的多 Agent 流转 |
 | LLM 集成 | langchain-openai + langchain-core | Tool Calling 标准抽象（通过 OpenAI 兼容接口） |
 | 向量数据库 | ChromaDB | 知识库语义搜索 (RAG) |
@@ -226,10 +226,10 @@ sentence-transformers>=2.2.0
 
 ## 三、目录结构
 
-Phase 6 重构后，agent 子系统拆分为多个顶层目录（每个目录单一职责，独立可替换）：
+Phase 6 重构后，agent 子系统拆分为多个单一职责包；这些包统一收口在顶层 `ai/` 下（`core/`、`domain/` 作为 app + ai 共享内核仍留在根目录）：
 
 ```
-agents/                          # 角色定义层（每个 agent 一个子包）
+ai/agents/                       # 角色定义层（每个 agent 一个子包）
 ├── __init__.py                  # 统一导出 BaseAgent / TutorAgent / ...
 ├── base.py                      # BaseAgent 抽象基类
 ├── config.py                    # AGENT_RATE_LIMITS 等共享配置
@@ -240,7 +240,7 @@ agents/                          # 角色定义层（每个 agent 一个子包�
 ├── generator/                   # GeneratorAgent — 自动出题 (STRONG)
 └── analytics/                   # AnalyticsAgent — 学习分析 (STRONG)
 
-graph/                           # LangGraph 编排引擎
+ai/graph/                        # LangGraph 编排引擎
 ├── engine.py                    # WorkflowEngine
 ├── runner.py                    # AgentOrchestrator（前身为 orchestrator.py）
 ├── planner.py                   # 任务规划
@@ -252,15 +252,15 @@ graph/                           # LangGraph 编排引擎
 ├── state.py                     # WorkflowState
 └── node_registry.py             # 节点注册中心
 
-memory/                          # 会话记忆
+ai/memory/                       # 会话记忆
 ├── service.py                   # MemoryService（消息压缩、摘要、画像更新）
 └── preference.py                # 教师偏好自动学习
 
-knowledge/                       # RAG 向量库
+ai/knowledge/                    # RAG 向量库
 ├── __init__.py                  # 导出 KnowledgeBase / get_knowledge_base / index_*
 └── store.py                     # ChromaDB 客户端 + SentenceTransformer 嵌入
 
-models/                          # LLM Router 与 Providers
+ai/llm/                          # LLM Router 与 Providers（原 models/，改名消歧）
 ├── __init__.py                  # 导出 ModelTier / ModelRouter / get_model_router
 ├── router.py                    # ModelRouter — tier → LLM 实例解析
 ├── tiers.py                     # ModelTier 枚举 (FAST / BALANCED / STRONG)
@@ -268,7 +268,7 @@ models/                          # LLM Router 与 Providers
     ├── base.py                  # BaseProvider 抽象接口
     └── deepseek.py              # DeepSeekProvider
 
-tools/                           # 工具实现（业务层）+ 协议层
+ai/tools/                        # 工具实现（业务层）+ 协议层
 ├── code/executor.py             # execute_code_impl — 沙箱执行
 ├── problems/                    # get_problem_detail_impl / save_generated_problem_impl
 ├── analytics/queries.py         # 统计查询
@@ -284,7 +284,7 @@ tools/                           # 工具实现（业务层）+ 协议层
     ├── adapters/                # llm_to_tool / tool_to_llm / result_to_message
     └── transports/              # inproc.py（进程内）
 
-mcp_gateway/                     # MCP 服务 + 内部 Agent 的 MCP client（python -m mcp_gateway）
+ai/mcp_gateway/                  # MCP 服务 + 内部 Agent 的 MCP client（python -m ai.mcp_gateway）
 ├── __main__.py                  # 入口（per-request 鉴权，启动 key 仅 dev 模式）
 ├── server.py                    # FastMCP 装配 + EXPECTED_TOOL_COUNT 断言
 ├── bootstrap.py                 # ToolRuntime 初始化（含 approval 处理器）
@@ -294,8 +294,8 @@ mcp_gateway/                     # MCP 服务 + 内部 Agent 的 MCP client（py
 ├── _codegen.py / generated_tools.py  # 从 TOOL_CATALOG 生成的 FastMCP 包装
 └── middleware/                  # auth / rate_limit / sanitizer / core(caller ctx)
 
-workers/                         # 守护进程
-├── __main__.py                  # FastAPI 入口（python -m workers）
+ai/workers/                      # 守护进程
+├── __main__.py                  # FastAPI 入口（python -m ai.workers）
 ├── chat.py                      # 流式聊天 worker
 ├── batch.py                     # 批量任务 runner
 ├── generation_pipeline.py       # 多阶段题目生成管线
@@ -331,7 +331,7 @@ Agent 不再直接绑定 DeepSeek 的具体配置。所有 LLM 调用经过 `Mod
 
 **调用方式**：
 ```python
-from models import ModelTier, get_model_router
+from ai.llm import ModelTier, get_model_router
 llm = get_model_router().get_llm(ModelTier.STRONG)
 # 或通过 AIConfig 兼容入口：
 llm = AIConfig.get_llm(tier=ModelTier.FAST)
@@ -791,7 +791,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | `eval_case_runs` | 单个 case 执行（绑定 trace） | `eval_run_id`、`case_id`、`case_type`、`suite`、`agent_type`、`trace_id`、`status`、`passed`、`failure_type`、`cost_cny`、`duration_ms` |
 | `eval_case_grader_results` | 每个 grader 结果 | `case_run_id`、`grader_type`(`<family>.<name>`)、`grader_name`、`passed`、`score`、`reason`、`latency_ms`、`cost_cny`、`trace_id` |
 
-**数据链路**：`workers/task_runner` / `EvalHarness` → `AgentHarness`（建 `TraceCollector` + 绑 `trace_id`）
+**数据链路**：`ai/workers/task_runner` / `EvalHarness` → `AgentHarness`（建 `TraceCollector` + 绑 `trace_id`）
 → `TraceStore.save_run`（plain SQLAlchemy 写 `agent_trace_*`）→ graders 写 `eval_case_grader_results`
 → `ReportGenerator` 聚合（pass_rate / cost / latency / failure_types / regressions）→ `/ai/evals` + `/ai/traces` 只读展示。
 旧 `agent_runs` 可经 `scripts/backfill_agent_traces.py` 回填为新 trace（`id` 复用为 `trace_id` 并存入 `legacy_run_id`）。
@@ -954,7 +954,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | **架构 Phase C** | **Agent Definition**：声明式定义、基于 definition 路由/权限/校验 | ✅ 完成 |
 | 架构 Phase E | MCP 唯一工具边界（删除 LangChain `@tool` 兼容层）| ✅ 完成 |
 | 架构 Phase E2 | 顶层目录拆分（agent_host / mcp 独立顶层）| ✅ 完成 |
-| **架构 Phase 6** | **顶层目录重组**：消除双 mcp 冲突，agent_host 拆为 agents/graph/memory/knowledge/models/workers | ✅ 完成 |
+| **架构 Phase 6** | **顶层目录重组**：消除双 mcp 冲突，agent_host 拆为 ai/agents/graph/memory/knowledge/models/workers | ✅ 完成 |
 | **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 tools-mcp-rag.md §3.3） | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
 | 架构 Phase F | Human Gate 与 AgentTask 状态机打通（部分完成）| ⚠️ 进行中 |

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def test_dataset_cases_dir_uses_harness_selector(monkeypatch, tmp_path):
-    import evals.ci as ci
+    import ai.evals.ci as ci
 
     captured = {}
 
