@@ -143,28 +143,15 @@ class SupervisorAgent:
 
     def get_workflow_status(self, workflow_run_id: str) -> dict:
         """Query current status of a workflow run."""
-        from app.models.workflow import WorkflowRun, WorkflowStep
+        from core.db.session import get_session
+        from domain.repositories.workflows import SyncWorkflowRepository
 
-        if self._session:
-            run = self._session.get(WorkflowRun, workflow_run_id)
-            if not run:
-                return {"error": "Workflow not found"}
-            steps = (
-                self._session.query(WorkflowStep)
-                .filter_by(workflow_run_id=workflow_run_id)
-                .order_by(WorkflowStep.step_index)
-                .all()
-            )
-        else:
-            run = WorkflowRun.query.get(workflow_run_id)
-            if not run:
-                return {"error": "Workflow not found"}
-            steps = (
-                WorkflowStep.query
-                .filter_by(workflow_run_id=workflow_run_id)
-                .order_by(WorkflowStep.step_index)
-                .all()
-            )
+        session = self._session or get_session()
+        repo = SyncWorkflowRepository(session)
+        run = repo.get_run(workflow_run_id)
+        if not run:
+            return {"error": "Workflow not found"}
+        steps = repo.list_steps(workflow_run_id)
 
         return {
             "run": run.to_dict(),

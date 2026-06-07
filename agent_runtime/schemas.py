@@ -44,6 +44,25 @@ class ChatTaskEventsResponse(BaseModel):
     events: list[dict] = Field(default_factory=list)
 
 
+class WorkflowStartResponse(BaseModel):
+    workflow_run_id: str
+    status: str
+    claimed: bool
+
+
+class WorkflowStatusResponse(BaseModel):
+    workflow_run_id: str
+    status: str
+    run: dict
+    steps: list[dict] = Field(default_factory=list)
+
+
+class WorkflowEventsResponse(BaseModel):
+    workflow_run_id: str
+    status: Optional[str] = None
+    events: list[dict] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     status: str
     checks: dict[str, str] = Field(default_factory=dict)

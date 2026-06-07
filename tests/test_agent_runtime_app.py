@@ -79,6 +79,9 @@ def test_only_expected_routes_registered():
     assert "/internal/v1/chat-tasks/{task_id}:start" in paths
     assert "/internal/v1/chat-tasks/{task_id}" in paths
     assert "/internal/v1/chat-tasks/{task_id}/events" in paths
+    assert "/internal/v1/workflows/{workflow_run_id}:start" in paths
+    assert "/internal/v1/workflows/{workflow_run_id}" in paths
+    assert "/internal/v1/workflows/{workflow_run_id}/events" in paths
     # No revived agent-host routes.
     assert not any(p.startswith("/api/v1/agents") for p in paths)
 

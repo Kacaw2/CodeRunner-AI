@@ -40,6 +40,26 @@ def test_create_workflow_persists_run_and_submits_worker(
     assert submit_workflow.call_count == 1
 
 
+def test_create_workflow_uses_runtime_dispatcher(
+    client, db_session, mock_auth_teacher
+):
+    payload = {
+        "goal": "Generate and review a graph problem",
+        "steps": [],
+    }
+
+    with patch(
+        "app.services.agent_runtime_dispatcher.dispatch_workflow",
+        create=True,
+    ) as dispatch:
+        response = client.post("/api/v1/ai/workflows", json=payload)
+
+    assert response.status_code == 202
+    run_id = response.get_json()["workflow_id"]
+    dispatch.assert_called_once()
+    assert dispatch.call_args.args[0] == run_id
+
+
 def test_list_workflows_returns_current_user_runs(client, db_session, mock_auth_teacher):
     owned = WorkflowRun(
         id="owned-workflow",

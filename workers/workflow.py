@@ -20,15 +20,25 @@ def submit_workflow(run_id: str, app, goal: str, context: dict | None = None):
 def _run_workflow(run_id: str, app, goal: str, context: dict | None = None):
     """Execute a workflow run inside a Flask app context."""
     with app.app_context():
-        from app.models.workflow import WorkflowRun
+        from domain.repositories.workflows import SyncWorkflowRepository
 
-        run = db.session.get(WorkflowRun, run_id)
+        repo = SyncWorkflowRepository(db.session)
+        run = repo.get_run(run_id)
         if not run:
             logger.error("WorkflowRun %s not found", run_id)
             return
 
-        run.status = "executing"
-        run.started_at = now_china()
+        if not repo.transition_run(
+            run_id,
+            "planning",
+            "executing",
+            started_at=now_china(),
+            completed_at=None,
+            error_detail=None,
+        ):
+            logger.info("WorkflowRun %s was already claimed", run_id)
+            db.session.rollback()
+            return
         db.session.commit()
 
         redis_buffer.wf_set_status(run_id, "executing")
@@ -118,14 +128,20 @@ def _run_workflow(run_id: str, app, goal: str, context: dict | None = None):
 
 
 def _complete_workflow(run_id: str, result: dict | None = None):
-    from app.models.workflow import WorkflowRun
+    from domain.repositories.workflows import SyncWorkflowRepository
 
-    run = db.session.get(WorkflowRun, run_id)
+    repo = SyncWorkflowRepository(db.session)
+    run = repo.get_run(run_id)
     if run:
-        run.status = "completed"
-        run.completed_at = now_china()
+        values = {"completed_at": now_china()}
         if result is not None:
-            run.result = result
+            values["result"] = result
+        repo.transition_run(
+            run_id,
+            ("executing", "completed"),
+            "completed",
+            **values,
+        )
         db.session.commit()
 
     redis_buffer.wf_push_event(
@@ -139,13 +155,18 @@ def _complete_workflow(run_id: str, result: dict | None = None):
 
 
 def _fail_workflow(run_id: str, error: str = "Unknown error"):
-    from app.models.workflow import WorkflowRun
+    from domain.repositories.workflows import SyncWorkflowRepository
 
-    run = db.session.get(WorkflowRun, run_id)
+    repo = SyncWorkflowRepository(db.session)
+    run = repo.get_run(run_id)
     if run:
-        run.status = "failed"
-        run.error_detail = error
-        run.completed_at = now_china()
+        repo.transition_run(
+            run_id,
+            ("planning", "executing", "waiting_approval", "failed"),
+            "failed",
+            error_detail=error,
+            completed_at=now_china(),
+        )
         db.session.commit()
 
     redis_buffer.wf_push_event(

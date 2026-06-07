@@ -81,6 +81,30 @@ def _dispatch_remote(task_id: str) -> None:
     resp.raise_for_status()
 
 
+def _dispatch_remote_workflow(run_id: str) -> None:
+    """Send a signed workflow start command to the runtime."""
+    import httpx
+
+    from core.auth.service_tokens import mint_service_token
+    from core.config import get_settings
+
+    settings = get_settings()
+    token = mint_service_token(
+        subject=settings.SERVICE_TOKEN_ISSUER,
+        task_id=run_id,
+    )
+    url = (
+        f"{settings.AGENT_RUNTIME_URL.rstrip('/')}"
+        f"/internal/v1/workflows/{run_id}:start"
+    )
+    response = httpx.post(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=settings.AGENT_RUNTIME_TIMEOUT,
+    )
+    response.raise_for_status()
+
+
 def _mark_task_failed(task_id: str, detail: str) -> None:
     """Mark a task failed via the sync CAS repository (remote dispatch failure)."""
     from app.core.extensions import db
@@ -93,6 +117,26 @@ def _mark_task_failed(task_id: str, detail: str) -> None:
     except Exception:  # pragma: no cover - defensive
         db.session.rollback()
         logger.exception("Failed to mark task %s failed after dispatch error", task_id)
+
+
+def _mark_workflow_failed(run_id: str, detail: str) -> None:
+    from app.core.extensions import db
+    from domain.repositories.workflows import SyncWorkflowRepository
+
+    try:
+        repo = SyncWorkflowRepository(db.session)
+        if repo.transition_run(
+            run_id,
+            ("planning", "executing"),
+            "failed",
+            error_detail=detail[:500],
+        ):
+            db.session.commit()
+    except Exception:  # pragma: no cover - defensive
+        db.session.rollback()
+        logger.exception(
+            "Failed to mark workflow %s failed after dispatch error", run_id
+        )
 
 
 def dispatch_chat_task(task_id: str, app) -> str:
@@ -119,4 +163,36 @@ def dispatch_chat_task(task_id: str, app) -> str:
         logger.info("Shadow mode: remote runtime ready=%s for task %s", ready, task_id)
         return "shadow"
 
+    return "embedded"
+
+
+def dispatch_workflow(
+    run_id: str,
+    app,
+    goal: str,
+    context: dict | None = None,
+) -> str:
+    """Route a workflow command through embedded/shadow/remote mode."""
+    mode = _mode()
+    if mode == "remote":
+        try:
+            _dispatch_remote_workflow(run_id)
+        except Exception as exc:
+            logger.exception("Remote workflow dispatch failed for %s", run_id)
+            _mark_workflow_failed(
+                run_id, f"remote workflow dispatch failed: {exc}"
+            )
+        return "remote"
+
+    import workers.workflow as workflow_worker
+
+    workflow_worker.submit_workflow(run_id, app, goal, context)
+    if mode == "shadow":
+        ready = _probe_remote_ready()
+        logger.info(
+            "Shadow mode: remote runtime ready=%s for workflow %s",
+            ready,
+            run_id,
+        )
+        return "shadow"
     return "embedded"

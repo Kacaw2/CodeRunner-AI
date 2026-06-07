@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from agent_runtime.api import chat_tasks, health
+from agent_runtime.api import chat_tasks, health, workflows
 
 
 def create_app() -> FastAPI:
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(chat_tasks.router)
+    app.include_router(workflows.router)
     return app
 
 

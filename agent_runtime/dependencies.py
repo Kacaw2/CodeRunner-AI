@@ -95,3 +95,20 @@ def require_task_token(task_id: str, authorization: Optional[str] = Header(defau
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid service token: {exc}",
         ) from exc
+
+
+def require_workflow_token(
+    workflow_run_id: str,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """Bind an internal service token to one workflow run."""
+    token = _extract_bearer(authorization)
+    try:
+        return verify_service_token(
+            token, expected_task_id=workflow_run_id
+        )
+    except ServiceTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid service token: {exc}",
+        ) from exc

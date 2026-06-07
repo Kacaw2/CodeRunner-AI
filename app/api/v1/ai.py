@@ -2078,10 +2078,11 @@ def create_workflow():
     steps = data.get("steps") or []
 
     try:
-        from app.models.workflow import WorkflowRun, WorkflowStep
-        from workers.workflow import submit_workflow
+        from app.services.agent_runtime_dispatcher import dispatch_workflow
+        from domain.repositories.workflows import SyncWorkflowRepository
 
-        run = WorkflowRun(
+        repo = SyncWorkflowRepository(db.session)
+        run = repo.create_run(
             user_id=user.id,
             conversation_id=conversation_id,
             goal=goal,
@@ -2091,12 +2092,11 @@ def create_workflow():
             timeout_seconds=int(data.get("timeout_seconds", 300)),
             total_steps=len(steps),
         )
-        db.session.add(run)
         db.session.flush()
 
         plan_steps = []
         for idx, step_input in enumerate(steps):
-            step = WorkflowStep(
+            step = repo.create_step(
                 workflow_run_id=run.id,
                 step_index=idx,
                 step_type=step_input.get("step_type", "agent_call"),
@@ -2107,7 +2107,6 @@ def create_workflow():
                 depends_on=step_input.get("depends_on"),
                 status="pending",
             )
-            db.session.add(step)
             plan_steps.append({
                 "step_index": idx,
                 "step_type": step.step_type,
@@ -2125,7 +2124,12 @@ def create_workflow():
         }
         db.session.commit()
 
-        submit_workflow(run.id, current_app._get_current_object(), goal, context)
+        dispatch_workflow(
+            run.id,
+            current_app._get_current_object(),
+            goal,
+            context,
+        )
 
         rl_headers = _rate_limit_headers(rl_info)
         resp = jsonify({
@@ -2152,21 +2156,24 @@ def create_workflow():
 def list_workflows():
     """List the current user's workflow runs."""
     user = get_current_user_or_401()
-    from app.models.workflow import WorkflowRun
+    from domain.repositories.workflows import SyncWorkflowRepository
 
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
     status = request.args.get("status")
     workflow_type = request.args.get("type")
 
-    query = WorkflowRun.query.filter_by(user_id=user.id)
-    if status:
-        query = query.filter_by(status=status)
-    if workflow_type:
-        query = query.filter_by(workflow_type=workflow_type)
-
-    total = query.count()
-    runs = query.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit).all()
+    repo = SyncWorkflowRepository(db.session)
+    total = repo.count_runs_for_user(
+        user.id, status=status, workflow_type=workflow_type
+    )
+    runs = repo.list_runs_for_user(
+        user.id,
+        status=status,
+        workflow_type=workflow_type,
+        offset=offset,
+        limit=limit,
+    )
 
     return jsonify({
         "workflows": [r.to_dict() for r in runs],
@@ -2179,9 +2186,10 @@ def list_workflows():
 def get_workflow(workflow_run_id):
     """Get detailed status of a workflow run including all steps."""
     user = get_current_user_or_401()
-    from app.models.workflow import WorkflowRun
+    from domain.repositories.workflows import SyncWorkflowRepository
 
-    run = db.session.get(WorkflowRun, workflow_run_id)
+    repo = SyncWorkflowRepository(db.session)
+    run = repo.get_run(workflow_run_id)
     if not run:
         return _error_response("not_found", "Workflow not found", 404)
     if run.user_id != user.id:
@@ -2191,7 +2199,7 @@ def get_workflow(workflow_run_id):
 
     return jsonify({
         "run": run.to_dict(),
-        "steps": [step.to_dict() for step in run.steps.all()],
+        "steps": [step.to_dict() for step in repo.list_steps(workflow_run_id)],
     })
 
 
@@ -2200,9 +2208,9 @@ def get_workflow(workflow_run_id):
 def stream_workflow(workflow_run_id):
     """SSE stream for workflow events. Supports catch-up via ?last_event=N."""
     user = get_current_user_or_401()
-    from app.models.workflow import WorkflowRun
+    from domain.repositories.workflows import SyncWorkflowRepository
 
-    run = db.session.get(WorkflowRun, workflow_run_id)
+    run = SyncWorkflowRepository(db.session).get_run(workflow_run_id)
     if not run:
         return _error_response("not_found", "Workflow not found", 404)
     if run.user_id != user.id:
@@ -2267,8 +2275,9 @@ def approve_workflow_step(workflow_run_id):
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
-    from app.models.workflow import WorkflowRun
-    run = WorkflowRun.query.get(workflow_run_id)
+    from domain.repositories.workflows import SyncWorkflowRepository
+
+    run = SyncWorkflowRepository(db.session).get_run(workflow_run_id)
     if not run:
         return _error_response("not_found", "Workflow not found", 404)
     if run.user_id != user.id:
