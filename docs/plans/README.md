@@ -14,6 +14,10 @@
 
 ## Active
 
+### Shared Domain / FastAPI Agent Runtime
+
+- [2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md](active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md) — 保留已完成的 Agent Host 清理，废止 Flask-only Phase 2；按 User/Auth、Chat、Workflow、Trace/Eval、MCP 纵切迁移到唯一 SQLAlchemy 2.0 Domain，并在其上重建独立 FastAPI Agent Runtime。
+
 ### Agent Platform 后续提升
 
 - [2026-06-05-agent-platform-remaining-improvements-plan.md](active/2026-06-05-agent-platform-remaining-improvements-plan.md) — 从 Claude Code-inspired 架构升级路线中抽取的未实现真实提升项：Context/Memory、EvalOps/Replay、streaming workflow、replay/idempotency、ToolRuntime 运维级 guardrails。
@@ -32,6 +36,8 @@
 ### 已完成：数据库 / Schema 基础设施
 
 - [2026-06-04-dual-orm-single-schema-source-plan.md](archive/2026-06-04-dual-orm-single-schema-source-plan.md)
+- [2026-06-06-dual-orm-convergence-plan.md](archive/2026-06-06-dual-orm-convergence-plan.md) — Phase 0 历史基线；后续重复业务映射已由 Phase 1 删除。
+- [2026-06-06-dual-orm-collapse-flask.md](archive/2026-06-06-dual-orm-collapse-flask.md) — Phase 1 已完成；原 Flask-only Phase 2 已被 shared Domain / FastAPI Runtime 路线替代。
 
 ### 历史计划
 

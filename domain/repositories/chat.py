@@ -17,7 +17,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.core.timezone import now_china
+from core.timezone import now_china
 from domain.models.chat import AIConversation, AIMessage, ChatTask
 from domain.statements.chat import (
     select_conversation_by_id,

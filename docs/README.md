@@ -27,16 +27,20 @@
 
 ## 架构
 
-| 文档 | 用途 |
-|---|---|
-| [architecture/overview.md](architecture/overview.md) | 分层架构、请求流、领域模型和数据库结构 |
-| [architecture/auth.md](architecture/auth.md) | JWT、Flask-Login、RBAC、密码和 token 设计 |
-| [architecture/executor.md](architecture/executor.md) | 代码执行沙箱、执行模式、资源限制和状态码 |
-| [architecture/ai-agents.md](architecture/ai-agents.md) | AI Agent 当前架构、接口和运行流程 |
-| [architecture/agent-runtime-core.md](architecture/agent-runtime-core.md) | Agent、Router、Orchestrator 的运行时核心逻辑 |
-| [architecture/mcp-runtime.md](architecture/mcp-runtime.md) | MCP 运行时架构、ToolRuntime、gateway 和 guard 流水线 |
-| [architecture/tools-mcp-rag.md](architecture/tools-mcp-rag.md) | Tools、MCP、RAG、文档处理、向量检索和工具权限边界 |
-| [architecture/2026-06-03-memory-module-comparison.md](architecture/2026-06-03-memory-module-comparison.md) | memory 模块与 Claude Code / Codex 做法的对比分析 |
+架构文档已按编号组织，入口见 [architecture/README.md](architecture/README.md)。
+
+| 编号 | 文档 | 用途 |
+|---|---|---|
+| 00 | [architecture/README.md](architecture/README.md) | 架构文档索引与阅读顺序 |
+| 01 | [architecture/overview.md](architecture/overview.md) | 系统总览：分层架构、请求流、领域模型、数据库结构 |
+| 02 | [architecture/ai-agents.md](architecture/ai-agents.md) | AI Agent 平台：设计、运行时核心、Router/Orchestrator、工具与记忆 |
+| 03 | [architecture/data-state-memory.md](architecture/data-state-memory.md) | 数据、状态与记忆：数据模型、短/中/长期记忆、RAG 状态 |
+| 04 | [architecture/tools-mcp-rag.md](architecture/tools-mcp-rag.md) | 工具、MCP 与知识库：Tool 调用、MCP 边界、scope/identity、RAG、权限 |
+| 05 | [architecture/executor.md](architecture/executor.md) | 代码执行沙箱：隔离执行、资源限制、状态码 |
+| 06 | [architecture/security-permissions-reliability.md](architecture/security-permissions-reliability.md) | 安全、认证与权限：认证/JWT、RBAC、数据隔离、注入防护、限流审计 |
+| 07 | [architecture/eval-trace-observability-deployment.md](architecture/eval-trace-observability-deployment.md) | 可观测性、评测与部署：Trace、Eval、metrics、服务拓扑、CI/CD |
+
+> 研究类对比分析见 [research/2026-06-03-memory-module-comparison.md](research/2026-06-03-memory-module-comparison.md)。
 
 ## API
 
@@ -77,8 +81,8 @@
 ## 推荐阅读顺序
 
 1. 快速跑起来：`guides/installation.md`
-2. 理解整体设计：`architecture/overview.md` -> `architecture/auth.md` -> `architecture/executor.md`
-3. 理解 AI/MCP：`architecture/ai-agents.md` -> `architecture/mcp-runtime.md` -> `api/ai-api.md`
+2. 理解整体设计：`architecture/overview.md` -> `architecture/security-permissions-reliability.md` -> `architecture/executor.md`
+3. 理解 AI/MCP：`architecture/ai-agents.md` -> `architecture/tools-mcp-rag.md` -> `api/ai-api.md`
 4. 调用 API：`api/rest-api.md` + 运行时 `/swagger-ui`
 5. 做验证或回归：`validation/testing.md` -> `validation/mcp-validation.md`
 6. 看计划：`plans/README.md`

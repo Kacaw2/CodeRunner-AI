@@ -10,7 +10,7 @@ from typing import Optional
 from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.timezone import now_china
+from core.timezone import now_china
 from domain.base import DomainBase
 
 _CHINA_TZ = timezone(timedelta(hours=8))

@@ -1,9 +1,11 @@
 # 双层 ORM 数据模型问题报告
 
 **识别日期:** 2026-06-04
-**状态:** 部分解决(2026-06-06 更新:迁移基线、Alembic 全量 metadata、生产 `create_all()` 兜底已关闭;URL 已单源化、重复映射已加漂移护栏;进程内双 engine 暂缓、重复 mapped class 仍为后续架构债)
-**范围:** 数据持久层 —— Flask-SQLAlchemy 与 runtime-neutral SQLAlchemy 并存
-**核验:** 已按当前代码和 `docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md` 更新
+**状态:** ✅ 已关闭(2026-06-07):双层 ORM 已收敛为唯一 `domain/base.py:DomainBase` registry,每张表只有一个 mapped class;重复映射、跨 registry 边界 blur、跨层 URL 双算均已消除。最终形态是 **"shared Domain + process-local sessions"**,即统一模型/metadata/事务接口/schema 契约,而**不是**让所有进程共享 Flask context 或共享连接池。
+**范围:** 数据持久层 —— 原 Flask-SQLAlchemy 与 runtime-neutral SQLAlchemy 并存
+**核验:** 已按 `docs/plans/active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md`(Task 1-9)的实际代码状态更新
+
+> **收口说明(2026-06-07):** 下文第二节起的"两套并存"描述属**历史记录**,反映 2026-06-04~06 的中间态。当前已收敛:`app/models/{user,ai_conversation,chat_task,eval_run,workflow}.py`、`app/models/_query_compat.py` 与 `core/db/models/{agent_trace,mcp_api_key,mcp_approval,mcp_audit_log}.py` 均已删除,唯一 mapped class 落在 `domain/models/*`,sync/async 经 `domain/repositories/*` 访问。embedded worker(`workers/chat.py`/`workflow.py`)已移除,Agent 执行经 FastAPI Runtime(`agent_runtime/`)remote 路径(`AGENT_RUNTIME_MODE` 默认 `remote`)。仍待实跑验证:`python -m pytest -q` 全绿与 Docker `web + agent_runtime` smoke。
 
 ---
 
@@ -102,7 +104,7 @@ Flask 引擎和 core 引擎是两个连接池、两套事务。一次业务流�
 
 ## 四、一句话总结
 
-迁移和可重建性 P1 已关闭;剩下的真实问题是**两套 ORM 共用一个库,但事务不互通、URL 各算各的、还有 7 张表被定义两遍**。这会影响一致性和长期可维护性,但不再阻止空库部署或 migration baseline。
+~~迁移和可重建性 P1 已关闭;剩下的真实问题是**两套 ORM 共用一个库,但事务不互通、URL 各算各的、还有 7 张表被定义两遍**。~~ **(2026-06-07 已关闭)** 两套 ORM 已收敛为唯一 `DomainBase` registry,7 张重复映射表各自只剩一个 mapped class;跨层 URL 双算与 core/Flask 边界 blur 均已消除。剩下的"跨进程多 engine"是按设计的 process-local session,不是缺陷。
 
 ---
 

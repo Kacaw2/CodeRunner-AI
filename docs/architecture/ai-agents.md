@@ -1,8 +1,8 @@
-# AI Agents 设计文档
+# 2026-06-07 · CodeRunner-AI 架构 02｜AI Agent 平台
 
-本文档描述 CodeRunner-AI 的 AI Agent 模块设计与实现现状。该模块在现有评测平台基础上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。
+> 文档编号 02 ｜ 最后更新 2026-06-07 ｜ 范围: Agent 设计、运行时核心流程、Router/Orchestrator、工具与记忆集成、数据模型、API 与配置
 
-> 最后更新: 2026-06-02
+本文档描述 CodeRunner-AI 的 AI Agent 模块设计与运行时实现现状：在评测平台之上集成多 Agent 编排系统，为学生和教师提供智能辅导、代码审查、自动出题和学习分析能力。全文分两部分——先用「运行时核心流程速览」给出请求如何在 Router / Orchestrator / Agent / 工具之间流转的快速地图，其后是各能力的详细设计。
 
 ### 项目定位
 
@@ -31,6 +31,98 @@
 | Subagent 隔离 | ❌ Agent 共享上下文 | 独立上下文窗口和工具权限 |
 | 多模型路由 | ✅ tier 抽象，单 provider | 多 provider + 动态路由策略 |
 | Observability | ✅ runtime-neutral trace/eval（`agent_trace_*` / `eval_*`）+ Harness 单 trace + Report/Regression | 统一 trace/audit/approval 关联 |
+
+---
+
+## 〇、运行时核心流程速览（Runtime Core）
+
+> 本节是运行时的快速地图，按当前真实代码描述请求如何在 Router / Orchestrator / Agent / Tool 之间流转；逐项细节见后文「五、Orchestrator 编排流程」「六、四个 Agent 详细设计」「七、BaseAgent 统一管道」「八、Tool 层设计」。
+
+### 代码入口
+
+| 模块 | 当前职责 |
+|---|---|
+| `app/api/v1/ai.py` | Flask 主业务 API：同步聊天、流式聊天、异步任务创建/读取、生成、分析、trace/eval 等入口 |
+| `graph/runner.py` | 普通同步聊天的 Router + LangGraph Orchestrator |
+| `agents/base.py` | 四个 specialist agent 的共享 LLM/tool loop、trace、handoff、失败处理 |
+| `agents/{tutor,reviewer,generator,analytics}/agent.py` | 具体 Agent 的 system context、知识库预取和特定输出逻辑 |
+| `core/definitions.py` | Agent 声明式定义：角色权限、工具白名单、输入字段、输出格式 |
+| `agents/executor.py` | Agent 调 MCP 工具的客户端边界 |
+| `tools/protocol/runtime.py` | ToolRuntime：工具目录、schema、权限 guard、审计、实际 transport 调用 |
+| `knowledge/store.py` | Chroma 知识库：题目相似度、知识点、错误模式 |
+| `evals/harness/agent_harness.py` | remote/eval 路径的一次逻辑 trace + handoff 编排 |
+| `agent_runtime/` | FastAPI Agent Runtime：`AGENT_RUNTIME_MODE=remote`(默认)下的 chat/workflow 执行边界 |
+| `graph/supervisor.py` / `graph/engine.py` | 多步 workflow 的规划与执行编排 |
+
+### 请求流转图
+
+```mermaid
+flowchart TD
+    U["用户 / 前端"] --> F["Flask AI API\napp/api/v1/ai.py"]
+
+    F --> SEC["输入安全处理\n检测 prompt injection\nsanitize_user_input\n按真实 agent 限流"]
+    SEC --> CONV["读取或创建 AIConversation\n写入 user AIMessage\n加载历史消息"]
+
+    CONV --> SYNC{"同步 /api/v1/ai/chat ?"}
+    SYNC -->|是| ORCH["AgentOrchestrator\nLangGraph: route -> agent -> respond"]
+    ORCH --> ROUTER["Router\n_auto 或空 agent_type 时用 FAST LLM 分类\n按角色 can_route_to 校验"]
+    ROUTER --> AGENT["Specialist Agent\nTutor / Reviewer / Generator / Analytics"]
+    AGENT --> BASE["BaseAgent LLM/tool loop\nsystem context + memory + trace"]
+    BASE --> TOOLS{"LLM 是否请求工具?"}
+    TOOLS -->|是| EXEC["ToolCallExecutor\nBeforeToolCall allowlist\nMCPClientIdentity"]
+    EXEC --> MCP["MCP Tool Client / ToolRuntime\nschema -> guard -> sanitize identity -> transport -> audit"]
+    MCP --> BASE
+    TOOLS -->|否| HANDOFF{"是否输出 [HANDOFF]?"}
+    HANDOFF -->|是| ORCH
+    HANDOFF -->|否| RESP["respond\nOutputValidationHook\n必要时最多重试 2 次"]
+    RESP --> SAVE["过滤输出 filter_output\n写 assistant AIMessage\n触发摘要生成"]
+    SAVE --> U
+
+    SYNC -->|否, SSE| STREAM["Flask stream 手动编排\n先路由再直接实例化 Agent"]
+    STREAM --> AGENT
+    STREAM --> SAVE
+
+    F --> ASYNC["FastAPI Agent Runtime（remote 默认）\nagent_runtime/api/chat_tasks.py\nagent_runtime/services/chat_runner.py"]
+    ASYNC --> SUP{"Supervisor 判断是否 workflow"}
+    SUP -->|普通单 Agent| HARNESS["AgentHarness\n单一逻辑 trace\nstream + handoff"]
+    HARNESS --> AGENT
+    SUP -->|多步任务| WF["SupervisorAgent + WorkflowEngine\nplan -> step handler -> agent/tool/human_gate"]
+    WF --> AGENT
+    WF --> MCP
+```
+
+### AgentState（运行时统一载体）
+
+Agent 运行时围绕 `AgentState` 传递数据：`messages`、`agent_type`、`user_id`、`user_role`、`context`（`conversation_id`/`question_id`/`submission_id`/`code`/`language`/`topic`/`difficulty`/`target_student_id`/`period` 等）、`tool_results`、`final_response`、`trace_id`、`handoff_*`。输入契约由 `agents/contracts.py` 做 warn-only 校验（只记录漂移，不阻断）。流式路径输出 `start`/`route`/`token`/`tool_call`/`tool_result`/`handoff_start`/`replace`/`done`/`error` 等 SSE event。
+
+### 失败处理总览
+
+| 层级 | 失败类型 | 当前处理 |
+|---|---|---|
+| API 输入层 | 空消息 | 返回 400 |
+| API 输入层 | prompt injection 命中 | 记录审计，并对输入 sanitize；不直接阻断 |
+| API 限流层 | Redis 可用且超限 | 返回 429 |
+| API 限流层 | Redis 失败 | 当前 fail-open，记录 warning 后放行 |
+| Router | 分类失败、非法 agent、无权访问 | 按角色回退到默认 agent |
+| Agent loop | LLM 临时错误 | `_llm_invoke` / `_llm_stream` 带 retry；首轮失败可能向上抛出或流式 error |
+| Agent loop | tool loop 超限 | 返回 `AgentExecutionLimitError.user_message`，trace 标为 `limit_exceeded` |
+| Agent loop | trace 级 LLM 调用预算耗尽 | 终止 loop，按 limit exceeded 处理 |
+| Tool 边界 | 工具不在 agent 白名单 | `ToolAllowlistHook` 阻断，返回 `TOOL_NOT_ALLOWED` ToolMessage |
+| ToolRuntime | 参数 schema 错误、权限/risk guard 拒绝、工具不存在 | 返回 MCP error envelope；approval required 会返回 `approval_id` |
+| Output validation | JSON schema 不通过 | Graph respond 最多重试 2 次；耗尽后带 warning 返回 |
+| Handoff | 目标非法、自己转自己、角色无权、重复目标、超过次数 | 阻止 handoff，直接 respond |
+| Knowledge Base | Chroma/embedding 初始化失败或 collection 为空 | 直接预取路径返回空上下文；健康检查为 degraded |
+| Remote 执行 | FastAPI Runtime chat task 异常 | `ChatTask.status=failed`，Redis 推送 `error` |
+| Workflow | 超时、step handler 缺失、step 重试耗尽、human gate 拒绝 | workflow failed / cancelled / waiting_approval |
+
+### 运行时边界判断
+
+1. **Router 是 agent 选择器，不是业务执行器。** 它只修改 `state.agent_type`，不调用工具、不访问知识库、不保存消息。
+2. **Orchestrator 是执行图或执行链控制器。** 同步路径使用 LangGraph，流式路径使用手动循环，remote/eval 使用 AgentHarness，多步任务使用 Supervisor + WorkflowEngine。
+3. **Agent 是业务推理单元。** 每个 agent 负责构造自己的 system context、声明模型 tier、选择是否预取知识库，并通过共享 BaseAgent 调 LLM/工具。
+4. **工具调用是 MCP 边界。** Agent 不直接执行工具；工具执行经过 allowlist、MCP identity、ToolRuntime guard、schema、audit。
+5. **知识库不是所有 agent 的通用上下文。** 当前只有 tutor 和 generator 直接预取 Chroma 内容；reviewer 不访问知识库，analytics 主要通过业务统计工具和 memory context。
+6. **同步与流式路径并不完全相同。** 同步聊天进入 `AgentOrchestrator`；Flask SSE 手动编排；remote/eval 使用 `AgentHarness` 统一 trace。后续如要收敛复杂度，应优先统一这些编排路径。
 
 ---
 
@@ -84,7 +176,7 @@
      │ mcp_gateway → ToolRuntime guard      │
      │ (RBAC · scope · risk · audit · schema)│
      │ → LocalTransport handler             │
-     │ 详见 mcp-runtime.md                  │
+     │ 详见 tools-mcp-rag.md §3.3           │
      └──────────────┬─────────────────────┘
                     │
      ┌──────────────▼─────────────────────┐
@@ -673,11 +765,12 @@ LLM 生成题目 + 测试用例 + 参考答案
 | error | TEXT | |
 
 > **runtime 边界（重要）**：`agent_runs` / `agent_run_steps` 是 **Flask-SQLAlchemy** 旧模型，
-> 仅供历史查询。新的 trace/eval 持久化已迁出 Flask，落到下面这套 **runtime-neutral** 表
-> （plain SQLAlchemy，声明在 `core.db.session.Base`），由 workers / MCP gateway / evals 直接写入，
+> 仅供历史查询。新的 trace/eval 持久化落到下面这套表，现已统一到唯一的 SQLAlchemy 2.0
+> Domain（`domain/models/observability.py`，声明在 `domain.base.DomainBase`）；Flask、FastAPI
+> Agent Runtime、MCP gateway、evals 通过各自进程内 session 共享同一组 mapped class，
 > 不再触发 Flask mapper（根除旧的 `TRACE_SAVE_FAIL`）。
 
-### 完整 Trace（runtime-neutral，`core/db/models/agent_trace.py`）
+### 完整 Trace（shared Domain，`domain/models/observability.py`）
 
 一次 agent 执行 / eval case / handoff 链 = **一条逻辑 trace**。`AgentHarness` 拥有该 trace 生命周期，
 `BaseAgent` 作为执行单元向当前 ambient trace 写 span/event。
@@ -862,7 +955,7 @@ LLM 生成题目 + 测试用例 + 参考答案
 | 架构 Phase E | MCP 唯一工具边界（删除 LangChain `@tool` 兼容层）| ✅ 完成 |
 | 架构 Phase E2 | 顶层目录拆分（agent_host / mcp 独立顶层）| ✅ 完成 |
 | **架构 Phase 6** | **顶层目录重组**：消除双 mcp 冲突，agent_host 拆为 agents/graph/memory/knowledge/models/workers | ✅ 完成 |
-| **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 mcp-runtime.md） | ✅ 完成 |
+| **MCP 架构修复** | **MCP-native 边界**：内部 Agent 经 MCP client 跨 transport；external_client scope 强制；per-request 鉴权；check_approval 入 catalog（详见 tools-mcp-rag.md §3.3） | ✅ 完成 |
 | 架构 Phase D | Education Orchestrator 多步编排 | ❌ 未开始 |
 | 架构 Phase F | Human Gate 与 AgentTask 状态机打通（部分完成）| ⚠️ 进行中 |
 | 架构 Phase G | Observability 和评估闭环 | ✅ 完成 |
@@ -879,7 +972,8 @@ LLM 生成题目 + 测试用例 + 参考答案
 - 集成修复计划：[2026-05-23-agent-module-integration.md](../plans/archive/superpowers/2026-05-23-agent-module-integration.md)
 - Agent 架构成熟化计划（历史）：[AGENT_ARCHITECTURE_MATURITY_PLAN.md](../plans/archive/AGENT_ARCHITECTURE_MATURITY_PLAN.md)
 - 架构重构计划（Phase 6）：[2026-05-28-architecture-refactor-plan.md](../plans/archive/2026-05-28-architecture-refactor-plan.md)
-- MCP 运行时架构（工具边界 / scope / 身份隔离）：[mcp-runtime.md](mcp-runtime.md)
+- 工具、MCP 与知识库（工具边界 / scope / 身份隔离 / RAG）：[tools-mcp-rag.md](tools-mcp-rag.md)
+- 安全、认证与权限：[security-permissions-reliability.md](security-permissions-reliability.md)
 - 系统架构总览：[overview.md](overview.md)
 - 现有 REST API：[../api/rest-api.md](../api/rest-api.md)
 - 代码沙箱：[executor.md](executor.md)

@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import DynamicMapped, Mapped, mapped_column, relationship
 
-from app.core.timezone import now_china
+from core.timezone import now_china
 from domain.base import DomainBase
 
 

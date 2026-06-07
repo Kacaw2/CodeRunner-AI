@@ -1,6 +1,19 @@
 # Dual-ORM Collapse onto Flask `db.Model` — Delete the FastAPI Agent Host
 
-**Status:** active
+> **Status: archived / partially superseded (2026-06-06).**
+>
+> - **Phase 1 remains valid and completed** in commit `f1f0a9f`: the old
+>   FastAPI Agent Host, proxy branches, worker service, and seven duplicate
+>   business-table mappings were removed.
+> - **The original Phase 2 is cancelled.** Do not move trace/eval/MCP and every
+>   headless process into a Flask application context, and do not delete the
+>   runtime-neutral session capability in favor of a Flask-only ORM.
+> - The replacement route is
+>   [`2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md`](../active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md):
+>   one shared SQLAlchemy 2.0 model graph, process-local sync/async sessions,
+>   and a newly designed FastAPI Agent Runtime.
+
+**Status:** Phase 1 completed; Phase 2 superseded
 **Phase 1:** completed 2026-06-06
 **Created:** 2026-06-06
 **Owner:** (assign)

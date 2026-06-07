@@ -1,5 +1,10 @@
 # Dual-ORM Convergence — Phase 0 (Make Duplication Safe) Implementation Plan
 
+> **Status: archived (2026-06-06).** The URL single-source and drift-safety
+> work is historical baseline. The seven duplicate business mappings were
+> subsequently removed by commit `f1f0a9f`; the next active route is the
+> [shared SQLAlchemy 2.0 Domain and FastAPI Agent Runtime plan](../active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Eliminate the two genuinely dangerous symptoms of the dual-ORM split — (1) two independent DB-URL builders that can silently point at different databases, and (2) a second engine/connection-pool living inside the Flask web process — and add a CI guardrail that stops the 7 duplicate table mappings from silently drifting apart. This does NOT delete the duplicate model classes (that is gated work — see "Phase 1 and beyond").
@@ -73,7 +78,7 @@ Expected: it may PASS today by coincidence (same env). To prove the test has tee
 
 - [ ] **Step 3: Replace the duplicated URL block with an import from core**
 
-In [app/core/config.py](../../app/core/config.py), replace the base-class URL construction (lines 10-27, the `_db_url = os.environ.get("DATABASE_URL")` block through the `SQLALCHEMY_DATABASE_URI = (...f-string...)` else branch) with a single delegation. Keep `import os` and any `TESTING`/`DEBUG` flags untouched:
+In [app/core/config.py](../../../app/core/config.py), replace the base-class URL construction (lines 10-27, the `_db_url = os.environ.get("DATABASE_URL")` block through the `SQLALCHEMY_DATABASE_URI = (...f-string...)` else branch) with a single delegation. Keep `import os` and any `TESTING`/`DEBUG` flags untouched:
 
 ```python
 class Config:
@@ -211,7 +216,7 @@ git commit -m "test(db): pin dual-mapped tables against dangerous drift"
 
 - [ ] **Step 4: Update the issue doc**
 
-In [docs/issues/2026-06-04-dual-orm-database-issues.md](../../docs/issues/2026-06-04-dual-orm-database-issues.md), under 五、治理方向, update #2 to note that Phase 0 unified the URL source and the in-Flask-process engine (commits above), and that #3/#4 remain gated on the FastAPI Agent Host decision (see this plan's "Phase 1 and beyond"). List any `ACCEPTED_TYPE_MISMATCH` entries found in Task 3.
+In [docs/issues/2026-06-04-dual-orm-database-issues.md](../../issues/2026-06-04-dual-orm-database-issues.md), under 五、治理方向, update #2 to note that Phase 0 unified the URL source and the in-Flask-process engine (commits above), and that #3/#4 remain gated on the FastAPI Agent Host decision (see this plan's "Phase 1 and beyond"). List any `ACCEPTED_TYPE_MISMATCH` entries found in Task 3.
 
 ```bash
 git add docs/issues/2026-06-04-dual-orm-database-issues.md

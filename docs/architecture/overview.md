@@ -1,6 +1,6 @@
-# 系统架构
+# 2026-06-07 · CodeRunner-AI 架构 01｜系统总览
 
-> 最后更新: 2026-05-28
+> 文档编号 01 ｜ 最后更新 2026-06-07 ｜ 范围: 技术栈、分层结构、请求流、领域模型、配置真源、容器化
 
 CodeRunner 是一个面向编程教学的在线评测平台。本文档描述系统分层、请求流、领域模型与数据库结构。
 
@@ -316,10 +316,14 @@ CodeRunner/
 
 ## 八、相关文档
 
-- AI Agent 模块设计：[ai-agents.md](ai-agents.md)
+- 架构文档索引：[README.md](README.md)
+- AI Agent 平台（02）：[ai-agents.md](ai-agents.md)
+- 数据、状态与记忆（03）：[data-state-memory.md](data-state-memory.md)
+- 工具、MCP 与知识库（04）：[tools-mcp-rag.md](tools-mcp-rag.md)
+- 代码执行沙箱（05）：[executor.md](executor.md)
+- 安全、认证与权限（06）：[security-permissions-reliability.md](security-permissions-reliability.md)
+- 可观测性、评测与部署（07）：[eval-trace-observability-deployment.md](eval-trace-observability-deployment.md)
 - AI API 端点参考：[../api/ai-api.md](../api/ai-api.md)
-- 认证机制详细设计：[auth.md](auth.md)
-- 代码沙箱实现：[executor.md](executor.md)
 - REST API 参考：[../api/rest-api.md](../api/rest-api.md)
 - 部署：[../guides/installation.md](../guides/installation.md)
 - 测试：[../validation/testing.md](../validation/testing.md)

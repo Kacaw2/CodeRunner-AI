@@ -1,8 +1,8 @@
-# 安全、权限与可靠性
+# 2026-06-07 · CodeRunner-AI 架构 06｜安全、认证与权限
 
-> 最后更新: 2026-06-03
+> 文档编号 06 ｜ 最后更新 2026-06-07 ｜ 范围: 用户认证（双轨装饰器/三源 token/JWT）、RBAC、数据隔离、Agent 工具权限、Prompt Injection 防护、敏感信息保护、异常处理与降级、限流与审计
 
-本章覆盖 CodeRunner 的安全与可靠性设计：用户认证、角色权限、数据隔离、Agent 工具权限、Prompt Injection 防护、敏感信息保护、异常处理与降级、限流与审计日志。
+本章覆盖 CodeRunner 的安全与可靠性设计：用户认证（含 JWT 与双轨装饰器细节）、角色权限、数据隔离、Agent 工具权限、Prompt Injection 防护、敏感信息保护、异常处理与降级、限流与审计日志。
 
 作为**教育类多 Agent 平台**，本项目有几条不可妥协的安全红线，贯穿全章：
 
@@ -21,9 +21,12 @@
 
 ## 5.1 用户认证设计
 
-CodeRunner 同时服务浏览器（Jinja2 HTML 页面）和 REST API 客户端，两者认证语义不同：网页期望未登录跳转登录页，API 期望返回 JSON 401。项目采用**双轨装饰器 + 三源 token 解析**统一两套需求。
+CodeRunner 同时服务浏览器（Jinja2 HTML 页面）和 REST API 客户端，两者认证语义不同：网页期望未登录跳转登录页，API 期望返回 JSON 401。项目采用**双轨装饰器 + 三源 token 解析**统一两套需求——两套装饰器（`app/auth/decorators.py` + `app/auth/web_decorators.py`）共享底层 token 解析，但响应格式不同。
 
-> 认证子系统已有独立详档，见 [认证与授权](auth.md)。本节给出与安全章相关的要点。
+| 客户端 | 登录态来源 | 未认证响应 |
+|---|---|---|
+| 浏览器（Web 路由） | Flask-Login session **或** Cookie `auth_token`（JWT）**或** `Authorization: Bearer` | 302 redirect 到 `/auth/login?next=<原 URL>` |
+| AJAX / API 客户端 | 同上三源 | JSON 401 / 403 |
 
 ### Token 三源解析
 
@@ -35,14 +38,26 @@ CodeRunner 同时服务浏览器（Jinja2 HTML 页面）和 REST API 客户端�
 3. Cookie            -> request.cookies['auth_token']     (浏览器表单登录)
 ```
 
-任一来源命中即返回 `User` 并写入 `g.current_user`，同请求内复用，避免重复解析。
+任一来源命中即返回 `User` 并写入 `g.current_user`，同请求内复用，避免重复解析。`web_decorators.py` 用同一原理但顺序略调整（Flask-Login → Cookie → Header），并把 401 改成 redirect。
+
+**为什么 Cookie 用 JWT 而非直接 session**：Flask 默认 session 是签名 cookie，改用 JWT 让 token 内容可被独立服务（如未来分离的 executor）验证；`HttpOnly + SameSite=Lax` 在防御 XSS/CSRF 的同时让浏览器自动携带，无需前端 JS 操作；JS 显式登录的客户端则把 token 放进 `Authorization: Bearer` 头，与同源限制脱钩。
 
 ### JWT 与密码
 
-- **JWT 签发** `app/auth/utils.py:generate_auth_token()`：HS256，payload 含 `user_id / username / role / exp / iat`；登录态 token 有效期 24h，Cookie 7 天。
+- **JWT 签发** `app/auth/utils.py:generate_auth_token()`：HS256，payload 含 `user_id / username / role / exp / iat`。函数默认 `expires_in=3600`，但登录/刷新路径（`app/services/auth_service.py`）用 `expires_in=86400` 签发 **24h** token；Cookie `max_age` 为 **7 天**（`app/api/v1/auth.py`），`secure` 由 `AUTH_COOKIE_SECURE` 控制（默认 `False`）。
 - **校验** `verify_auth_token()` 对 `ExpiredSignatureError` / `InvalidTokenError` / 其他异常统一返回 `None`，认证层绝不向上抛错。
+- **登录双写**：登录成功同时在响应体返回 `{ token, user }`（供 JS 客户端存储）并 `Set-Cookie: auth_token`（供浏览器自动携带）。`POST /api/v1/auth/refresh` 带旧 token 校验通过后签新 token + 刷新 Cookie；`POST /api/v1/auth/logout` 把 Cookie 置空并 `expires=0`。
 - **密码存储** Werkzeug `generate_password_hash`（PBKDF2-SHA256 + 自带 salt），明文永不入库、永不进日志。
-- **Cookie 属性** `HttpOnly` + `SameSite=Lax`，防御 XSS / CSRF。
+
+### 注册流程
+
+`POST /api/v1/auth/register`：`RegisterIn` schema 校验（username 1–64、password 6–128、email 可选、role ∈ {student, teacher}）→ username/email 唯一性校验 → `hash_password` 写库 → **注册不自动登录**，返回 201 + 用户信息，前端再走 `/login`。
+
+> 安全约定：注册接口当前**允许直接传 `role: teacher`**——这是教学环境约定，生产场景应改为“申请-审批”或邀请码模式。
+
+### `g.current_user` 与请求上下文
+
+所有装饰器认证通过后写入 `g.current_user`（Flask 请求级上下文），下游业务统一从此取人，不重复解 token；也保证同一请求内即使 user 被业务改动，认证信息仍指向登录时快照。
 
 ### 内部 Agent 的身份
 
@@ -52,7 +67,7 @@ CodeRunner 同时服务浏览器（Jinja2 HTML 页面）和 REST API 客户端�
 
 | 当前实现 | 风险与建议 |
 |---|---|
-| Cookie `secure=False`（默认） | 生产须 `secure=True` 并跑在 HTTPS 后 |
+| Cookie `secure=False`（默认，由 `AUTH_COOKIE_SECURE` 控制） | 生产须置 `True` 并跑在 HTTPS 后 |
 | `SECRET_KEY` 默认 `dev-secret-key-change-in-production` | 启动前必须 env 注入正确值 |
 | JWT 用对称 HS256 | 分离服务时改 RS256 + 公钥分发 |
 | 无登录失败计数 / 锁定 | 暴力破解防御依赖上游网关 / WAF |
@@ -296,7 +311,10 @@ Redis 不可用时**降级而非阻断**：限流检查直接返回 `allowed=Tru
 | 文件 | 职责 |
 |---|---|
 | `app/auth/utils.py` | 密码 hash + JWT 签发 / 校验 |
-| `app/auth/decorators.py` / `web_decorators.py` | API / Web RBAC 装饰器 |
+| `app/auth/decorators.py` / `web_decorators.py` | API / Web RBAC 装饰器（三源 token 解析） |
+| `app/api/v1/auth.py` | `/register / /login / /me / /refresh / /logout` 端点 + Cookie 写入 |
+| `app/services/auth_service.py` | 业务层：注册、登录、token 刷新、用户信息封装 |
+| `app/schemas/user_schema.py` | `RegisterIn / LoginIn / LoginOut / UserOut / RefreshOut` |
 | `core/definitions.py` | Agent 定义（allowed_roles / allowed_tools / risk_level） |
 | `tools/protocol/policies/guard.py` | 工具权限统一 guard（四道检查） |
 | `tools/protocol/policies/rbac.py` / `scopes.py` / `risk.py` | 工具级角色 / scope / 风险策略 |

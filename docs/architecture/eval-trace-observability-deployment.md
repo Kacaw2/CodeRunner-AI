@@ -1,6 +1,6 @@
-# 评测、日志与部署：Eval、Trace、Observability、Deployment
+# 2026-06-07 · CodeRunner-AI 架构 07｜可观测性、评测与部署
 
-> 最后更新: 2026-06-04
+> 文档编号 07 ｜ 最后更新 2026-06-07 ｜ 范围: Trace、Evaluation、Logging/Metrics、性能成本、服务拓扑、CI/CD、配置密钥
 
 本章描述 CodeRunner 作为**教育类多 Agent 平台**如何上线、监控与持续优化：每次执行如何被追踪（Trace）、答案质量如何被量化（Evaluation）、运行态如何被观测（Logging / Metrics / Monitoring）、性能与成本如何被计量，以及系统的服务拓扑、CI/CD 流水线与配置/密钥管理。
 
@@ -12,7 +12,7 @@
 | **运行时中立** | Trace / Eval 落库不依赖 Flask app context，Worker、MCP 网关、Eval harness、CI 均可写入 | `core/observability/trace_schema.py`、`core/db/session.py` |
 | **不静默放行** | 未实现/不可用的判分器返回显式失败而非默默 pass，质量门禁宁可误报不漏报 | `evals/graders/base.py:error_result()` |
 
-相关章节：Agent 运行时见 [agent-runtime-core.md](agent-runtime-core.md)，数据落库见 [data-state-memory.md](data-state-memory.md)，工具与 RAG 见 [tools-mcp-rag.md](tools-mcp-rag.md)，安全红线见 [security-permissions-reliability.md](security-permissions-reliability.md)。
+相关章节：Agent 运行时见 [ai-agents.md](ai-agents.md)，数据落库见 [data-state-memory.md](data-state-memory.md)，工具与 RAG 见 [tools-mcp-rag.md](tools-mcp-rag.md)，安全红线见 [security-permissions-reliability.md](security-permissions-reliability.md)。
 
 ---
 

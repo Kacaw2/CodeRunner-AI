@@ -1,8 +1,10 @@
-# 工具与知识模块：Tools、MCP、RAG
+# 2026-06-07 · CodeRunner-AI 架构 04｜工具、MCP 与知识库
 
-最后更新：2026-06-03
+> 文档编号 04 ｜ 最后更新 2026-06-07 ｜ 范围: Tool 调用体系、Tool Registry、MCP 边界与运行时、scope/identity 模型、RAG 知识库、文档处理、检索重排、工具权限控制
 
-本文按当前真实代码状态说明 CodeRunner-AI 的工具调用、MCP gateway、RAG 知识库、文档处理、向量检索和权限控制。判断依据以源码为准，重点入口包括 `core/definitions.py`、`agents/base.py`、`agents/executor.py`、`tools/protocol/`、`mcp_gateway/`、`knowledge/store.py`、`tools/knowledge_search/search.py`、`app/api/v1/ai.py` 和根目录 `compose.yaml`。
+本章按当前真实代码状态说明 CodeRunner-AI 的工具调用、MCP gateway、ToolRuntime 运行时边界、RAG 知识库、文档处理、向量检索和权限控制。判断依据以源码为准，重点入口包括 `core/definitions.py`、`agents/base.py`、`agents/executor.py`、`tools/protocol/`、`mcp_gateway/`、`knowledge/store.py`、`tools/knowledge_search/search.py`、`app/api/v1/ai.py` 和根目录 `compose.yaml`。
+
+核心结论先行：CodeRunner-AI 只有**一条生产工具调用边界**。内部 Agent 和外部 API-key client 都以同一方式到达工具——跨 MCP transport，进入 FastMCP gateway，最后才进入 `ToolRuntime`。内部 Agent 在生产路径**不得**直接调用 `ToolRuntime`；它们使用 MCP client adapter（`mcp_gateway/client.py`），在任何工具执行前跨 MCP transport。`bootstrap_tool_runtime()` 运行在 MCP server 进程内，不在 Agent 生产调用路径上。
 
 ## 3.1 Tool 调用体系
 
@@ -73,7 +75,9 @@ Descriptor 里的 input schema 是强约束：参数不符合 schema 会返回 `
 
 Registry 本身不是权限边界。权限边界在 Agent 白名单、MCP 身份、scope/RBAC/risk guard 和参数覆盖。
 
-## 3.3 MCP 模块设计
+## 3.3 MCP 边界与运行时
+
+### 模块组成
 
 当前 MCP 模块由三部分组成：
 
@@ -83,28 +87,86 @@ Registry 本身不是权限边界。权限边界在 Agent 白名单、MCP 身份
 | MCP gateway | `mcp_gateway/server.py`、`generated_tools.py`、`middleware/` | FastMCP server，注册工具和 prompt resources，解析 caller，限流并进入 `ToolRuntime`。 |
 | ToolRuntime | `tools/protocol/runtime.py` | Gateway 后端执行引擎，负责 schema、guard、身份参数覆盖、audit、approval 和 handler dispatch。 |
 
-生产部署里，`compose.yaml` 配置 `workers` 默认使用：
+### 边界角色与职责
+
+跨边界的“谁能做什么”一页地图。每个角色的 “May NOT” 列由结构强制，不靠约定。
+
+| 角色 | 是什么 | 可以做 | 不可以做 |
+|---|---|---|---|
+| Flask app（`app/`） | 主业务应用 | 提供 UI/API、发起用户请求 | 直接执行工具 |
+| FastAPI Agent Runtime（`agent_runtime/`，compose 服务 `agent_runtime`） | Agent 运行时 / 调度服务 | 运行 Agent、签发内部 capability token | 绕过 `ToolRuntime` policy |
+| Agents（`agents/`） | 内部业务逻辑，MCP *client* | 通过 `MCPToolClient` 调用工具 | import 工具实现或 `ToolRuntime` |
+| DeepSeek | 外部 LLM provider | 产出 tool-call 请求 | 控制身份/scope（参数会被 sanitize） |
+| `mcp_gateway` | 外部 transport 边界 | 认证、限流、transport | 工具 policy（委托给 `ToolRuntime`） |
+| `ToolRuntime`（`tools/protocol/`） | 唯一 policy 核心 | schema、RBAC/scope/risk、human-gate、sanitize、audit、trace | — |
+
+两条不变量把边界钉死，防止漂移：
+
+- **跨路径语义一致**：同一工具、同一有效身份下，进程内 agent 路径与 gateway 外部路径得到相同 guard 裁决、emit 相同 envelope 形状——由 `tests/test_mcp_boundary_consistency.py` 守护。
+- **两层 allowlist 只在 agent 路径**：per-agent allowlist hook（`BEFORE_TOOL_CALL`）控制*这个 agent 能用哪些工具*；RBAC 控制*这个角色能用哪些工具*。外部 API-key caller 没有 agent，因此只走 RBAC + scope——由 `tests/test_mcp_gateway_external_rbac.py::test_external_path_has_no_agent_allowlist_layer` 守护。
+
+### 调用路径
+
+**内部 Agent 路径**：
 
 ```text
-MCP_AGENT_TRANSPORT=streamable-http
-MCP_GATEWAY_URL=http://mcp_gateway:8200/mcp
+Agent (agents/base.py)
+  -> MCPToolClient (mcp_gateway/client.py)
+  -> MCP transport（生产 streamable-http；本地 dev inproc/stdio）
+  -> mcp_gateway FastMCP server
+  -> ToolRuntime.call_sync(actor_type="agent_host", agent_type=...)
+  -> guard: RBAC + scope + risk + audit + schema validation
+  -> LocalTransport handler
+  -> app/service implementation
 ```
 
-这意味着 Agent Host 每次工具调用都会通过 `StreamableHTTPMCPToolClient` 跨 HTTP MCP transport 到 `mcp_gateway`。Agent Host 使用 `MCP_INTERNAL_SIGNING_KEY` 生成短期 EdDSA capability token，gateway 用 `MCP_INTERNAL_VERIFY_KEY` 校验。token claims 包含 `user_id`、`role`、`agent_type`、`scopes`、`task_id`、`conversation_id`、`trace_id`；gateway 只信任签名 claims，不信任 LLM 参数或普通 header 自报身份。
+内部 `agent_host` 身份**经 MCP transport 认证**，不是由进程内 Python 调用隐含。Agent Runtime 每次调用用 Ed25519 私钥（`MCP_INTERNAL_SIGNING_KEY`，见 `mcp_gateway/internal_auth.py`）签一个短期 EdDSA capability token，claims 含 `user_id`、`role`、`agent_type`、`scopes`、`task_id`、`conversation_id`、`trace_id`；gateway 用公钥（`MCP_INTERNAL_VERIFY_KEY`）校验签名，并从*签名 claims* 构造 caller，绝不从请求 header 取身份。Agent 不能自抬角色，也没有 scope bypass：`agent_host` caller 只携带其工具所需的最小 scope（`scopes_for_agent`），与所有人一样受 scope 强制。
 
-本地/测试路径在未设置 `MCP_AGENT_TRANSPORT` 或设置为 `inproc` 时使用 `InProcessMCPToolClient`。它不跨真实 transport，但仍把 `ToolRuntime` 依赖限制在 client 模块内部，Agent 代码不直接执行工具。
+**外部 MCP client 路径**：
 
-### MCP 暴露范围
+```text
+External MCP client
+  -> FastMCP transport（per-request/per-session 认证）
+  -> verify_api_key() -> set_caller_info(scopes=...)
+  -> mcp_gateway catalog wrapper (mcp_gateway/generated_tools.py)
+  -> call_via_runtime() -> ToolRuntime.call_sync(actor_type="external_client", granted_scopes=...)
+  -> 与 agent 调用相同的 guard/runtime/implementation handler
+```
 
-工具 surface 由 `mcp_gateway/tool_map.py` 定义，包括知识库、题目、提交、学生摘要、代码执行、analytics、trace、保存生成题目和审批检查。
+外部 caller 永远是 `actor_type="external_client"`，必须传 descriptor 的 `required_scopes`，从不使用 `agent_host`。
 
-MCP resource 当前只暴露只读 prompt 资源：
+transport 选择由 `mcp_gateway/client.py` 读 `MCP_AGENT_TRANSPORT`（默认 `inproc`）决定：设为 `streamable-http` 时用 `StreamableHTTPMCPToolClient` 跨 HTTP 到 `MCP_GATEWAY_URL`（默认 `http://mcp_gateway:8200/mcp`），并强制要求 `MCP_INTERNAL_SIGNING_KEY`；未设置或 `inproc` 时用 `InProcessMCPToolClient`，不跨真实 transport，但仍把 `ToolRuntime` 依赖限制在 client 模块内部，Agent 代码不直接执行工具。
 
-- `prompt://agents/{agent}`
-- `prompt://addenda/security`
-- `prompt://addenda/handoff`
+### Scope 模型
 
-RAG 知识库内容没有作为 MCP resource 直接暴露；必须通过 `search_knowledge`、`search_similar_problems`、`search_error_patterns` 这类工具检索，并经过工具权限链路。
+Canonical scope 词表（descriptor `required_scopes` 取值）：`problem:read`、`problem:write`、`submission:read`、`student:read`、`code:execute`、`knowledge:read`、`analytics:read`、`trace:read`。
+
+- **内部 `agent_host`**：经 transport 认证，携带其工具所需最小 scope（`scopes_for_agent`），与其他 actor 一样受 scope 强制（RBAC 和 per-agent allowlist 同样适用），无 scope bypass。
+- **外部 `external_client`**：必须传 descriptor `required_scopes`，缺失 → `MCP_SCOPE_DENIED`。
+- **legacy tool-name scope**（如 `search_knowledge`）由 `mcp_gateway/scopes.py` `normalize_scopes()` 归一化为 canonical scope，在 API-key 创建（`app/api/v1/mcp_keys.py`）和校验时（`mcp_gateway/middleware/auth.py`）都应用——normalize-on-read/write，无批量迁移。
+
+外部 client 的 RBAC：`_ROLE_OVERRIDES` 对所有 actor 守护角色受限工具（student API key 即使有 scope 也拿不到 `get_student_summary`，返回 `MCP_PERMISSION_DENIED`）；per-`agent_type` allowlist 只对内部 `agent_host` 生效（`external_client` 的 `agent_type=""`，该分支跳过）。无 role override 的工具因此仅由 scope 守护——这是经测试的刻意选择，可接受因为外部访问按 API key 逐一限定 scope。
+
+### 身份隔离
+
+`mcp_gateway/middleware/core.py` 用 `contextvars.ContextVar` 存 caller info 做 per-request 隔离。生产认证是 per-request/per-session：每个请求必须用 `Authorization: Bearer <mcp-api-key>` 独立认证。启动用 `MCP_API_KEY` 是**仅开发**的，仅在 `MCP_ALLOW_STARTUP_KEY_DEV_MODE=true` 时激活，且拒绝非 local transport。caller info 在每次工具调用后的 `finally` 中清除，不会跨请求泄露。
+
+### MCP 暴露范围与术语
+
+每个 `TOOL_CATALOG` 条目都在 `mcp_gateway/tool_map.py` 映射并注册到 MCP server——工具*列举*不再是隐私边界，访问由 `required_scopes`、role override（`tools/protocol/policies/rbac.py` `_ROLE_OVERRIDES`）和 approval policy 控制。surface 覆盖知识库、题目、提交、学生摘要、代码执行、analytics、trace、保存生成题目和审批检查（详见 §3.1 canonical tools 与 §3.7 权限链路）。
+
+MCP resource 当前只暴露只读 prompt 资源：`prompt://agents/{agent}`、`prompt://addenda/security`、`prompt://addenda/handoff`。RAG 知识库内容不作为 MCP resource 直接暴露，必须通过 `search_knowledge`、`search_similar_problems`、`search_error_patterns` 这类工具检索并经过工具权限链路。
+
+术语对齐：
+
+| 术语 | 含义 | 不是 |
+|---|---|---|
+| `ToolRuntime` | MCP server 背后的服务端执行引擎 | 面向 Agent 的 API 或 transport |
+| `TOOL_CATALOG` | 每个被服务工具的 canonical descriptor 源 | 私有的 internal-only 列表 |
+| `mcp_gateway` | 把 catalog 工具经 transport 暴露的 FastMCP server | 直接调用外的可选装饰 |
+| `agent_host` actor | 经 transport 携带的可信内部 caller 身份 | 绕过 transport 的理由 |
+| `external_client` actor | 经 transport 的第三方 MCP API-key caller | 内部 agent 身份 |
+| `MCP client` | Agent 调用工具所用接口 | 直接 Python `ToolRuntime` 调用 |
 
 ## 3.4 RAG 知识库设计
 
