@@ -1,7 +1,7 @@
 from app.core.extensions import db
 from app.models.problem import Problem
 from app.models.question import Question, TestCase
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 
 
 def test_public_problem_list_returns_language_variants(client, app):

@@ -39,18 +39,11 @@ def main():
     logger.info("Database connected")
 
     # ── Register all ORM models ──
-    # The gateway runs outside the Flask app factory, so it never imports the
-    # blueprints that populate the shared SQLAlchemy registry. McpApiKey has a
-    # relationship("User"), and User pulls in the rest of the model graph; an
-    # incomplete registry makes mapper configuration fail at first query
-    # (e.g. external API-key verification). Import every app.models submodule
-    # (including ones app/models/__init__ omits, like ai_conversation) so the
-    # Flask `db` registry is complete, then configure mappers eagerly.
-    import importlib
-    import pkgutil
-    import app.models as _app_models
-    for _m in pkgutil.iter_modules(_app_models.__path__):
-        importlib.import_module(f"app.models.{_m.name}")
+    # The gateway runs outside the Flask app factory. Import the shared domain
+    # mappings directly, plus the still-unmigrated non-agent business mappings
+    # referenced by User relationships, then configure mappers eagerly.
+    import domain.models  # noqa: F401
+    import app.models  # noqa: F401
     from sqlalchemy.orm import configure_mappers
     configure_mappers()
     logger.info("ORM models registered")
@@ -110,8 +103,8 @@ def main():
         )
 
     # Knowledge base loads lazily on first knowledge tool call. Pre-warming here
-    # would block the embedding-model download before uvicorn binds its port,
-    # leaving the gateway unhealthy and stalling dependents (workers).
+    # would block the embedding-model download before the gateway binds its
+    # port, leaving the service unhealthy and stalling dependents.
 
     # ── Create & run server ──
     from mcp_gateway.server import create_mcp_server

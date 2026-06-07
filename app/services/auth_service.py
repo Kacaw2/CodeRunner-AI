@@ -1,13 +1,14 @@
 # app/services/auth_service.py
 """Authentication service layer"""
 from flask_smorest import abort
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from app.core.extensions import db
 from app.auth.utils import (
     hash_password,
     verify_password,
     generate_auth_token
 )
+from domain.repositories.users import SyncUserRepository
 
 class AuthService:
     """Authentication service class"""
@@ -29,12 +30,14 @@ class AuthService:
         Raises:
             400: Username already exists, email already registered, or role is invalid
         """
+        user_repo = SyncUserRepository(db.session)
+
         # Check if the username already exists
-        if User.query.filter_by(username=username).first():
+        if user_repo.get_by_username(username):
             abort(400, message="Username already exists")
-        
+
         # Check if the email already exists
-        if email and User.query.filter_by(email=email).first():
+        if email and user_repo.get_by_email(email):
             abort(400, message="Email already registered")
         
         # Parse role — only student and teacher are allowed via registration
@@ -76,10 +79,8 @@ class AuthService:
             401: Invalid credentials
         """
         # Look up user by username or email
-        user = User.query.filter(
-            (User.username == username) | (User.email == username)
-        ).first()
-        
+        user = SyncUserRepository(db.session).get_by_username_or_email(username)
+
         if not user or not verify_password(password, user.password):
             abort(401, message="Invalid credentials")
         

@@ -1,311 +1,370 @@
-# 数据与状态：Database、Session、Memory
+# 2026-06-07 · CodeRunner-AI 架构 03｜数据、状态与记忆
 
-> 最后更新: 2026-06-03
+> 文档编号 03 ｜ 最后更新 2026-06-07 ｜ 范围: 数据模型、会话与业务状态、短期/中期/长期记忆、RAG 状态、缓存限流降级
 
-本章描述 CodeRunner 如何保存数据、上下文与用户状态。系统的数据按**生命周期与信任级别**分为四类，贯穿全章：
+本章按当前代码状态说明 CodeRunner-AI 如何保存业务数据、对话上下文、Agent 运行状态和记忆。这里描述的是**现状**；仍待演进的治理项见 [Agent Platform Remaining Improvements Plan](../plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md) 与 [memory-module-comparison](../research/2026-06-03-memory-module-comparison.md)。
 
-| 分类 | 含义 | 存储 | 典型对象 |
+系统数据按生命周期和权威性分为五类：
+
+| 分类 | 含义 | 当前存储 | 典型对象 |
 |---|---|---|---|
-| **短期状态** | 当前对话上下文，会话结束即可丢弃 | 运行时消息列表 + Redis buffer | 消息窗口、SSE 事件流 |
-| **长期记忆** | 学习偏好、历史薄弱点、教师设置 | MySQL（profile 表） | `StudentProfile`、`TeacherPreference`、`AIConversation.summary` |
-| **业务数据** | 平台核心实体，权威事实 | MySQL | 用户、班级、题目、作业、提交、成绩 |
-| **运行数据** | 每次执行的可观测记录 | MySQL（运行时中立模型） | `agent_trace_runs / spans / events`、eval 记录 |
+| **短期状态** | 单次请求、当前消息窗口、可重连 SSE 缓冲 | 运行时内存 + Redis | `AgentSession.messages`、`chat_task:*:buffer`、`workflow:*:buffer` |
+| **中期记忆** | 跨当前对话可复用的自然语言摘要 | MySQL | `AIConversation.summary` |
+| **长期画像** | 学生学习档案、教师偏好、班级薄弱点 | MySQL | `StudentProfile`、`TeacherPreference` |
+| **业务数据** | 平台权威事实 | MySQL | 用户、班级、Problem、Question variant、测例、提交、测验、草稿 |
+| **运行数据** | Agent / workflow / eval 的可观测与审计记录 | MySQL | `agent_trace_*`、`workflow_*`、`eval_*`、MCP audit/approval |
 
-存储分工：**MySQL**（业务 + 长期记忆 + 运行数据）、**Redis**（短期状态 + 限流 + SSE 缓冲）、**ChromaDB**（RAG 向量库，见 [tools-mcp-rag.md](tools-mcp-rag.md)）。
+存储分工：
 
-> 记忆模块的成熟度对标分析见 [memory-module-comparison](2026-06-03-memory-module-comparison.md)。本章描述"现状如何"，该文档讨论"应演进到何处"。
+- **MySQL**：业务数据、中长期记忆、workflow/trace/eval/MCP 审计。
+- **Redis**：AI 限流、MCP rate limit、短期 SSE 缓冲和任务状态；不可用时多数路径 fail-open 或返回空缓冲。
+- **ChromaDB**：RAG 向量库，包含 `questions`、`knowledge_points`、`error_patterns` 三个 collection；详见 [tools-mcp-rag.md](tools-mcp-rag.md)。
 
 ---
 
-## 4.1 数据模型设计
+## 4.1 数据模型与迁移状态
 
-### 双层 ORM
+### 单一 SQLAlchemy 2.0 Domain（双层 ORM 已收敛）
 
-项目刻意采用**两套模型**，对应两种运行上下文：
+项目已收敛到唯一的 mapped-class registry：`domain/base.py:DomainBase(DeclarativeBase)` 承载唯一 registry 和 metadata，Flask-SQLAlchemy 通过 `SQLAlchemy(model_class=DomainBase)` 复用同一 registry。每张表只有一个 mapped class。
 
-| 层 | 目录 | ORM | 适用场景 |
-|---|---|---|---|
-| 业务模型 | `app/models/` | Flask-SQLAlchemy（`db.Model`） | 主应用、HTTP 请求上下文 |
-| 运行时中立模型 | `core/db/models/` | 纯 SQLAlchemy 2.0 | Worker / MCP 网关 / 无 Flask 上下文的后台服务 |
+| 关注点 | 当前形态 |
+|---|---|
+| 唯一基类 | `domain/base.py:DomainBase` |
+| mapped classes | `domain/models/*`（user、chat、workflow、observability、mcp），不 import Flask/FastAPI |
+| sync/async 访问 | `domain/repositories/*` 提供 Sync/Async repository；`core/db/session.py`（sync）与 `core/db/async_session.py`（async）各自建 engine |
+| Flask adapter | `app/core/extensions.py` 用 `SQLAlchemy(model_class=DomainBase)`；`app/models/__init__.py` 直接从 `domain.models` 导入已迁移模型 |
 
-运行数据（trace / eval）放在 `core/db/models/`，因为它们由 Flask API、Worker、MCP Gateway **多源写入**，不能依赖 Flask 应用上下文。
+最终形态是 **“shared Domain + process-local sessions”**：统一的是模型、metadata、事务接口和 schema 契约，而**不是**跨进程共享连接池，也**不是**让所有进程共享 Flask context。Flask、FastAPI Agent Runtime、MCP Gateway、Eval CLI 各自拥有进程内 engine/session，但导入同一组 mapped class。
 
-### 基础设施
+P1 迁移基线（早先已关闭）保持有效：
 
-- **数据库**：MySQL 8.0（业务层），通过 `DATABASE_URL` 亦支持 PostgreSQL。
-- **连接池**：`core/config.py` `pool_size=5`、`pool_recycle=3600`。
-- **时间戳**：统一用 `app/core/timezone.py:now_china()`，所有表 `created_at / updated_at` 时区感知。
-- **迁移**：Alembic / Flask-Migrate，`migrations/versions/`。关键迁移：会话摘要（`add_conversation_summary`）、异步任务（`add_chat_tasks`）、工作流（`add_workflow_tables`）、MCP（`add_mcp_tables`）、完整 trace/eval（`complete_traces_evals`）。
+- `migrations/versions/e21895a59f7d_baseline_full_schema.py` 是完整 schema baseline，`down_revision = None`。
+- `migrations/env.py` 通过 `core/db/metadata.py:build_target_metadata()`（现直接返回 `DomainBase.metadata`）暴露目标 metadata。
+- `app/__init__.py:_ensure_tables()` 只检查必要表并提示 `flask db upgrade head`，不再调用 `db.create_all()` 作为生产兜底。
+- `tests/test_migration_full_schema.py` 与 `tests/test_single_domain_registry.py` 守住“单 registry + 空库可 `upgrade head`”。
 
-> 注：迁移链当前无 baseline，schema 仍部分依赖 `create_all()`；演进策略见全局记忆 *Migration-first schema strategy*。
+收敛路线见 [shared-domain plan](../plans/active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md) 与已关闭的 [dual-orm-database-issues](../issues/2026-06-04-dual-orm-database-issues.md)。
 
-### 实体关系概览
+### 核心实体关系
 
+```text
+users
+  ├─ classrooms ─ enrollments ─ users(student)
+  ├─ ai_conversations ─ ai_messages
+  │                    └─ chat_tasks
+  ├─ student_profiles
+  ├─ teacher_preferences
+  ├─ submissions ─ questions(language variant) ─ problems
+  │               └─ test_results ─ test_cases(problem-level)
+  ├─ quiz_attempts ─ quizzes ─ quiz_problems ─ problems
+  └─ generated_question_drafts
+
+workflow_runs ─ workflow_steps
+              └─ workflow_approvals
+
+agent_trace_runs
+  ├─ agent_trace_spans
+  ├─ agent_trace_events
+  ├─ agent_trace_artifacts
+  └─ agent_trace_links
+
+eval_runs ─ eval_case_runs ─ eval_case_grader_results
 ```
-users ─┬─ 1:N classrooms (teacher_id) ─ 1:N enrollments ─ N:1 users(student)
-       ├─ 1:N submissions ─ N:1 questions ─ N:1 problems
-       │                    └─ 1:N test_results ─ N:1 test_cases
-       ├─ 1:N ai_conversations ─┬─ 1:N ai_messages
-       │                        └─ 1:N chat_tasks
-       ├─ 1:N quiz_attempts ─ N:1 quizzes ─ N:M problems (quiz_problems)
-       ├─ 1:1 student_profiles          (长期记忆)
-       └─ 1:1 teacher_preferences       (长期记忆)
 
-agent_trace_runs ─ 1:N agent_trace_spans ─ 1:N agent_trace_events   (运行数据)
-                 ├─ 1:N agent_trace_artifacts
-                 └─ 1:N agent_trace_links ─ (target_table, target_id) → 业务数据
-```
+当前公开题目单位已经是 **Problem**，`Question` 是语言维度的可执行 variant；提交仍保存 `question_id`，API 响应同时返回 `problem_id`、`question_id` 和 `language`，用于兼顾用户可见题目与执行/历史追踪。
 
 ---
 
-## 4.2 用户与角色模型
+## 4.2 用户、会话与业务状态
 
 ### User 与角色
 
-`app/models/user.py`：
+`domain/models/user.py` 定义三类角色：
 
 ```python
 class UserRole(Enum):
-    STUDENT = "student"; TEACHER = "teacher"; ADMIN = "admin"
-
-class User(db.Model):  # __tablename__ = "users"
-    id, username(unique, indexed), email(unique, nullable),
-    password,            # PBKDF2-SHA256 hash，见 auth.md
-    role(Enum), created_at, updated_at
+    STUDENT = "student"
+    TEACHER = "teacher"
+    ADMIN = "admin"
 ```
 
-角色驱动整个权限体系（见 [security-permissions-reliability.md](security-permissions-reliability.md)）。
+角色同时影响 Web/API 权限、Agent 路由、MCP tool RBAC、teacher-only 写工具审批等边界。认证、权限与可靠性见 [security-permissions-reliability.md](security-permissions-reliability.md)。
 
-### 学生学习档案 —— StudentProfile（长期记忆）
+### Web session 与 API token
 
-`app/models/student_profile.py`，与 user 一对一（`student_id` unique）：
+`session` 在本章中只表示身份会话，不承载 AI 对话历史：
 
-| 字段 | 类型 | 语义 | 写入路径 |
-|---|---|---|---|
-| `error_patterns` | JSON dict | `{WA, RE, CE, TLE, AC}` 计数 | ✅ `MemoryService.update_student_profile()`（近 50 次提交聚合） |
-| `recent_questions` | JSON list | 最近 10 个题目 id | ✅ 同上 |
-| `recent_topics` | JSON list | 近期接触主题 | ⚠️ 部分维护 |
-| `knowledge_map` | JSON dict | `{topic: 掌握度 0~1}` | ❌ **读取但无自动写入** |
-| `current_hint_level` | JSON dict | `{topic: 提示级别}` | ❌ **读取但无自动写入** |
-| `learning_summary` | Text | 自然语言学习总结 | ❌ **读取但无自动写入** |
-| `preferred_language` | String | 偏好语言（默认 python） | 手动 |
-
-> ⚠️ 重要现状：`knowledge_map / current_hint_level / learning_summary` 在 prompt 构建时被读取（见 4.5），但缺少稳健的自动写入路径——schema 看似成熟，实际可能长期为空。详见 [memory-module-comparison](2026-06-03-memory-module-comparison.md) 第 3 节。
-
-### 教师偏好 —— TeacherPreference（长期记忆）
-
-与 user 一对一（`teacher_id` unique）：
-
-| 字段 | 默认 | 自动学习来源 |
+| 客户端 | 身份机制 | 对话状态来源 |
 |---|---|---|
-| `preferred_difficulty` / `preferred_language` | medium / python | `memory/preference.py:learn_from_generation()`（出题成功后） |
-| `preferred_topics` | `[]` | 同上，最多保留若干 |
-| `style_notes` | null | `refresh_teacher_style_summary()`（LLM 从近期已发布草稿推断风格） |
-| `class_weak_areas` | `[]` | `analyze_class_weak_areas()`（聚合班级学生档案薄弱点） |
-| `class_level` | intermediate | 手动 |
+| Web 页面 | Flask-Login session cookie | `ai_conversations`、`ai_messages`、Redis SSE buffer |
+| API / 移动端 | JWT bearer 或 `auth_token` cookie | 同上 |
+| MCP 外部 client | API key / signed internal token | MCP caller context + audit logs |
 
-教师偏好是**模型推断 + 显式设置混合**的数据，当前未区分二者来源（治理边界弱，见对比文档第 1 节）。
+### Problem / Question / Submission
+
+当前数据边界：
+
+- `Problem` 是 dashboard、quiz、problem runner 展示的父题目，包含标题、描述、难度、分值、创建者。
+- `Question` 是 `Problem` 下的语言 variant，保存 `programming_language`、`starter_code`、`solution`、`solution_explanation`。
+- `TestCase` 绑定 `problem_id`，是 problem-level 测例，被所有语言 variant 共享。
+- `Submission` 绑定 `question_id`，因为提交执行必须落到具体语言 variant；服务层会通过 `question.problem_id` 回填用户可见题目。
+
+`SubmissionService.submit_problem_code()` 先按语言选择 variant，再进入 `submit_code()` 创建提交、运行测例、写入 `TestResult`，最后异步触发学生画像更新。
 
 ---
 
-## 4.3 会话与消息存储（短期状态 + 中期记忆）
+## 4.3 对话、异步任务与短期状态
 
-### 对话头与消息
+### AIConversation / AIMessage
 
-`app/models/ai_conversation.py`：
+`domain/models/chat.py`：
 
 ```python
-class AIConversation(db.Model):   # ai_conversations
-    id, user_id(FK), agent_type, context_type, context_id,
-    title, summary(Text),          # summary = 中期记忆
-    created_at, updated_at
+class AIConversation(DomainBase):
+    id, user_id, agent_type, context_type, context_id,
+    title, summary, created_at, updated_at
 
-class AIMessage(db.Model):        # ai_messages
-    id, conversation_id(FK), role,          # "user" / "assistant"
-    content(Text), tool_calls(JSON),        # Agent 调用的工具
+class AIMessage(DomainBase):
+    id, conversation_id, role, content, tool_calls,
     tokens_used, created_at
 ```
 
-- `context_type / context_id`：可选业务锚点（如 `problem / 123`）。
-- `summary`：对话摘要，由 LLM 生成（见 4.5），是**跨对话的中期记忆**。
-- `AIMessage` 是短期上下文的持久化形态；查询按 `conversation_id` + `order by id`。
+- `AIMessage` 是持久化后的对话消息，不等同于本次 LLM 调用的完整上下文窗口。
+- `AIConversation.summary` 是中期记忆，由 `MemoryService.generate_conversation_summary()` 在消息数达到阈值后异步生成。
+- 当前 summary 生成触发点主要在 `app/api/v1/ai.py`（同步路径）和 `agent_runtime/services/chat_runner.py`（remote 异步路径），阈值为消息数 `>= 10` 且当前 conversation 还没有 summary。
 
-### Session 的两种语义
+### ChatTask 与 Redis SSE buffer
 
-| 客户端 | 登录态 | 机制 |
-|---|---|---|
-| Web 前台 | Flask-Login `session`（`session_protection="strong"`） | 服务端签名 cookie + `current_user` |
-| API / 移动端 | **不用 Flask session**，改 JWT | `Authorization: Bearer` / `auth_token` cookie |
+异步聊天使用 `ChatTask` 持久化任务生命周期：
 
-认证细节见 [auth.md](auth.md)。本章关注的是 session 仅承载**身份**，对话状态由 DB + Redis 承载。
-
-### 异步任务与 SSE 缓冲（短期状态）
-
-聊天走异步：`ChatTask`（`chat_tasks` 表，UUID 主键）记录 `pending → processing → completed | failed`，并把进度写入 Redis。
-
-`workers/redis_buffer.py` 的键模式：
-
-```
-chat_task:{task_id}:status   String   任务状态
-chat_task:{task_id}:buffer   List     有序 SSE 事件（客户端可断线重连续读）
-chat_task:{task_id}:agent    String   路由到的 agent
-workflow:{run_id}:status     String   工作流状态
-workflow:{run_id}:buffer     List     工作流 SSE 事件
+```text
+pending -> processing -> completed | failed
 ```
 
-- TTL 统一 `TASK_BUFFER_TTL`（默认 3600s）。
-- Redis 中的事件流是**短期、可丢弃**的；权威结果落 DB（`ChatTask.result_message_id` / `error_detail`）。
-- Redis 不可用时所有读写静默降级（返回空/None），不阻断主流程。
+DB 中保存权威结果字段，例如 `status`、`routed_agent`、`result_message_id`、`error_detail`。Redis 只保存可丢弃的实时状态与 SSE buffer：
+
+```text
+chat_task:{task_id}:status
+chat_task:{task_id}:buffer
+chat_task:{task_id}:agent
+workflow:{run_id}:status
+workflow:{run_id}:buffer
+```
+
+`TASK_BUFFER_TTL` 默认 3600 秒。Redis 不可用时，buffer 读写返回空或 `None`，主流程不因此中断；这意味着 Redis 不是权威状态源。
 
 ---
 
-## 4.4 Agent 执行状态（运行数据 + 状态机）
+## 4.4 Agent Runtime 与 Workflow 状态
 
-执行状态有三个层级：单 Agent 任务（`AgentTask`）、多步工作流（`WorkflowRun/Step`）、细粒度 trace（`agent_trace_*`）。
+### AgentSession 是单次运行的内存载体
 
-### AgentTask 状态机
+当前 Agent 不再只依赖松散的 raw state dict。`agents/session.py:AgentSession` 是单次 Agent run 的内存载体：
 
-`app/models/agent_task.py`（`agent_tasks`，UUID）记录单个 Agent 任务；状态机在 `core/task_state.py` 显式声明并校验转移：
+| 字段 | 含义 |
+|---|---|
+| `agent_name`、`user_id`、`user_role` | 当前运行身份 |
+| `messages` | 本次 LLM 调用可见消息窗口 |
+| `context` | 页面/业务上下文，如 `conversation_id`、`question_id`、`workflow_run_id` |
+| `trace_id`、`trace` | 运行 trace 绑定 |
+| `definition`、`budget` | 来自 `core/definitions.py` 的 agent 定义和预算配置 |
+| `extra_state` | handoff 等历史状态的兼容承载 |
 
-```
-PENDING ──→ PLANNING ──→ EXECUTING ──→ VALIDATING ─┬─→ COMPLETED
-   │            │            ↑              │        ├─→ REVIEW ──→ REVISING ──→ (回 VALIDATING)
-   └─→ CANCELLED│            └──────────────┘        └─→ FAILED ──→ (可回 PENDING 重试)
-```
+`AgentRuntime` 负责同步和流式 loop：获取 trace、绑定工具 schema、压缩消息、调用 LLM、执行工具、记录 token/latency/artifact，并在结束时 finalize trace。`LLMRunner.compact()` 调用 `MemoryService.compact_messages()`，因此通用 runtime path 已有短期消息压缩。
 
-`validate_transition(current, target)` 拒绝非法跳转。关键字段：`plan_steps(JSON)`、`current_step`、`attempt/max_attempts`、`review_status/review_feedback`（人工审查）。
+### Tool-based handoff
 
-### WorkflowRun / WorkflowStep
+handoff 当前是结构化工具调用，不是自由文本 marker：
 
-`app/models/workflow.py` 支持多步编排：
-
-```python
-WorkflowRun:   goal, workflow_type, status,        # planning→executing→validating→completed|failed|cancelled，外加 waiting_approval
-               plan_json, current_step_index, total_steps,
-               max_steps(10), max_retries_per_step(2), timeout_seconds(300),
-               total_tokens_used, total_latency_ms
-
-WorkflowStep:  step_index, step_type,              # agent_call / tool_call / validation / llm_call / human_gate
-               status,                             # pending→running→completed|failed|skipped|waiting_approval
-               risk_level, requires_approval,      # 人工审批门
-               input_data, output_data,
-               attempt/max_attempts(2),
-               depends_on(JSON)                    # 步骤依赖（支持 DAG）
+```text
+LLM -> coderunner.agent.delegate
+    -> ToolCallExecutor
+    -> MCP client/gateway/ToolRuntime
+    -> mcp_gateway.bootstrap delegate handler
+    -> graph.handoff.validate_handoff_target()
+    -> handoff_to / handoff_reason / handoff_summary
 ```
 
-`waiting_approval` 是**有意暂停**（人工 gate），不是 orphan；崩溃恢复时不会被误判（见 [security-permissions-reliability.md](security-permissions-reliability.md) 5.7）。每步记 `tokens_used / latency_ms`，汇总到 run 级别。
+关键边界：
 
-### Trace 模型（运行数据）
+- `core/definitions.py` 为每个 Agent 声明 `handoff_targets`。
+- `coderunner.agent.delegate` 是 `internal_only=True`，外部 API key client 不能直接调用。
+- delegate handler 使用 caller identity 中的 source agent 和 role 做校验，不信任 LLM 参数自报身份。
+- `graph/handoff.py` 将下一位 Agent 的消息重建为“原始用户请求 + 上一 Agent 摘要”，`HANDOFF_SUMMARY_LIMIT = 1500`，`MAX_HANDOFFS = 2`。
 
-`core/db/models/agent_trace.py`，运行时中立，多源写入：
+这已经比早期 marker-based handoff 更可审计，但仍未形成完整的 context/memory policy：handoff summary、tool residue、长期记忆注入和 eval replay snapshot 还没有统一治理。
 
-| 表 | 粒度 | 关键字段 |
-|---|---|---|
-| `agent_trace_runs` | 一次 Agent 运行 | `trace_id(unique)`、source、agent_type、关联 id（conversation/chat_task/workflow_run/eval_run）、tokens、`cost_cny`、分项 latency（llm/tool/mcp/sandbox） |
-| `agent_trace_spans` | 子操作 | parent_span_id、span_type、sequence、tokens、latency |
-| `agent_trace_events` | 细粒度事件 | event_type、payload_json |
-| `agent_trace_artifacts` | 中间产物 | artifact_type、storage_uri、preview_text |
-| `agent_trace_links` | 与业务数据关联 | `(target_table, target_id)` → 如 trace→submission |
-| `eval_runs / eval_case_runs / eval_case_grader_results` | 质量评估 | pass_rate、grader 评分 |
+### WorkflowRun / WorkflowStep / WorkflowApproval
 
-trace 的可见性与脱敏见安全章 5.3 / 5.6。
+显式多步任务进入 `WorkflowEngine`，而普通单轮流式对话和 bounded handoff 继续留在 streaming agent path。这个边界在 `graph/supervisor.py` 中按任务形态判断。
+
+`domain/models/workflow.py` 当前包含：
+
+| 模型 | 职责 |
+|---|---|
+| `WorkflowRun` | 目标、计划、状态、当前 step、结果、token/latency 汇总 |
+| `WorkflowStep` | step 类型、agent/tool 指令、依赖、审批要求、input/output、trace_id、attempt |
+| `WorkflowApproval` | human gate 的不可变审批审计记录 |
+
+Workflow 状态支持：
+
+```text
+planning -> executing -> validating -> completed | failed | cancelled
+executing -> waiting_approval -> executing | cancelled
+```
+
+`WorkflowEngine.select_step_outputs()` 已经避免把所有上游 step residue 无差别传给下游：声明了 `depends_on` 的 step 才拿完整上游输出；未声明依赖的 step 只拿截断摘要。这是上下文治理的一部分，但不是完整 memory architecture。
+
+当前恢复语义是“从最后完成 step 之后继续”，不是任意 step replay。任意 step replay 仍需要幂等键、写工具去重、approval/replay 关系等基础设施。
+
+### Trace / Eval 运行数据
+
+`domain/models/observability.py` 是 shared-Domain trace/eval 映射（sync 走 `domain/repositories/traces.py`、`evals.py`，FastAPI Runtime 走对应 async repository），主要表：
+
+| 表 | 粒度 |
+|---|---|
+| `agent_trace_runs` | 一次 Agent run，含 `trace_id`、source、agent、conversation/task/workflow/eval 关联、token、cost、latency |
+| `agent_trace_spans` | LLM/tool/MCP/sandbox 等子操作 |
+| `agent_trace_events` | 细粒度事件 |
+| `agent_trace_artifacts` | 代码执行结果、生成题等中间产物 |
+| `agent_trace_links` | trace 到业务表的逻辑关联 |
+| `eval_runs / eval_case_runs / eval_case_grader_results` | Eval 执行与 grader 结果 |
+
+Trace 当前已经能绑定 workflow step 和 MCP tool audit，但 EvalOps/replay 还没有成为所有 prompt/model/tool/runtime 改动的强质量门禁。
 
 ---
 
 ## 4.5 Memory 机制
 
-记忆分三层，**注入点统一在系统 prompt**：
+当前记忆分三层注入 system prompt：
 
+```text
+短期：MemoryService.compact_messages()
+中期：AIConversation.summary
+长期：StudentProfile / TeacherPreference
+        |
+        v
+MemoryService.get_memory_context()
+        |
+        v
+各 Agent _build_system_context()
 ```
-短期：compact_messages()        运行时消息列表（超窗压缩）
-中期：AIConversation.summary     跨对话摘要
-长期：StudentProfile / TeacherPreference   业务画像
-                    │
-                    ▼
-       get_memory_context() 拼成字符串 → 注入 system prompt
-```
 
-实现集中在 `memory/service.py:MemoryService` 与 `memory/preference.py`。
+### 短期：消息压缩
 
-### 短期：消息压缩 `compact_messages()`
+`MemoryService.compact_messages(messages, max_messages=20)`：
 
-`memory/service.py:153`。当消息数 > `max_messages`（默认 20）时：保留 system 消息 + 最近 20 条，中间早期消息用 FAST 档 LLM 压缩成摘要；LLM 失败则降级为简单截断拼接。
+- 消息数未超过阈值时原样返回。
+- 超过阈值时保留 system message + 最近 20 条消息。
+- 中间早期消息用 FAST LLM 压缩成 summary；LLM 失败时用简单截断拼接兜底。
 
-- 调用点：`agents/base.py` 的 `_invoke_with_mcp_tools()` / `_stream_with_mcp_tools()`。
-- ⚠️ 一致性风险：`GeneratorAgent.stream()` 自组装消息列表，**未走** `compact_messages()`，长生成对话可能绕过压缩（对比文档第 4 节）。
+`AgentRuntime` 通过 `LLMRunner.compact()` 在通用工具 loop 中调用该压缩逻辑。需要注意：某些专用 Agent 自定义 stream 路径若绕开通用 runtime，仍可能绕开统一压缩；这是后续 context/memory治理需要继续收敛的点。
 
 ### 中期：对话摘要
 
-- **生成** `generate_conversation_summary()`（`memory/service.py:12`）：消息数 ≥ 4 时，取最近 10 条用 FAST LLM 生成 2-3 句摘要，写入 `AIConversation.summary`。由 `app/api/v1/ai.py:_maybe_generate_summary()` 异步触发。
-- **回放** `_recent_conversation_summaries()`（`:74`）：取该用户最近 3 条有摘要的历史对话，**排除当前对话**避免自我引用。
+`MemoryService.generate_conversation_summary(conversation_id)`：
 
-### 长期画像注入 `get_memory_context()`
+- 少于 4 条消息直接返回空。
+- 取最近 10 条消息，用 FAST LLM 生成 2-3 句 tutoring conversation summary。
+- `MemoryService._recent_conversation_summaries()` 取同一用户最近 3 条非空 summary，并排除当前 conversation，避免自我引用。
 
-`memory/service.py:97`，按角色拼接：
+### 长期：学生画像与教师偏好
 
-- **学生**：`learning_summary` / `error_patterns` / `knowledge_map`(<0.5 的弱项) / `current_hint_level`。
-- **教师**：`style_notes` / `class_weak_areas`。
-- 二者都附加 **Recent Sessions**（中期摘要）。
+`StudentProfile`：
 
-整段 try/except 包裹——profile 表未迁移时返回空串，**优雅降级**不报错。
+| 字段 | 当前写入状态 |
+|---|---|
+| `error_patterns` | `update_student_profile()` 从最近 50 次提交重建 `{WA, RE, CE, TLE, AC}` |
+| `recent_questions` | `update_student_profile()` 保存最近 10 个 `question_id` |
+| `recent_topics` | 字段存在，当前自动维护较弱 |
+| `knowledge_map` | 会被读取用于 weak areas，但缺少稳定自动写入 |
+| `current_hint_level` | 会被读取，但缺少稳定自动写入 |
+| `learning_summary` | 会被读取，但缺少稳定自动写入 |
+| `preferred_language` | 字段存在，默认 `python` |
 
-> 当前所有记忆被**扁平拼成一个字符串**注入，未区分"必须遵守的规则 / 用户可编辑偏好 / 模型推断画像 / 弱上下文摘要"，也无注入审计（哪段记忆进了哪次运行）。这是与成熟 Agent 平台的主要差距，目标形态见对比文档第 164 行起。
+`TeacherPreference`：
 
-### 教师偏好学习 `memory/preference.py`
+| 字段 | 当前来源 |
+|---|---|
+| `preferred_difficulty`、`preferred_language` | `learn_from_generation()` 根据生成结果/请求参数更新 |
+| `preferred_topics` | `learn_from_generation()` 累积最近 topic，最多保留 20 个 |
+| `style_notes` | `refresh_teacher_style_summary()` 从最近生成草稿用 LLM 总结 |
+| `class_weak_areas` | `analyze_class_weak_areas()` 聚合班级学生画像 |
+| `class_level` | 字段存在，默认 `intermediate` |
 
-`learn_from_generation()`（出题后更新语言/难度/主题）、`refresh_teacher_style_summary()`（LLM 推断 `style_notes`）、`analyze_class_weak_areas()`（`Counter` 聚合班级学生薄弱点，取 top 项）。
+`get_memory_context()` 当前按角色拼接自然语言字符串：
+
+- 学生：`learning_summary`、`error_patterns`、`knowledge_map` 中掌握度 `< 0.5` 的弱项、`current_hint_level`。
+- 教师：`style_notes`、`class_weak_areas`。
+- 二者都会追加 recent conversation summaries。
+
+当前主要缺口不是“没有 memory 字段”，而是治理不足：所有记忆仍被扁平拼接为字符串，没有按 agent 目标、来源可信度、用户可编辑偏好、模型推断画像、强/弱上下文进行结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。
 
 ---
 
-## 4.6 学习进度数据（业务数据）
+## 4.6 RAG 与知识状态
 
-### 提交与成绩
+`knowledge/store.py` 使用 SentenceTransformer + ChromaDB：
 
-`app/models/submission.py`：
+| Collection | 写入来源 | 读取者 |
+|---|---|---|
+| `questions` | `index_all_problems()` 将 `Problem` 标题/描述按 chunk 写入，metadata 记录语言、难度、创建者 | `GeneratorAgent`、`search_similar_problems` |
+| `knowledge_points` | `scripts/seed_knowledge.py`、教师知识库接口 | `TutorAgent`、`search_knowledge` |
+| `error_patterns` | seed 脚本和教师新增错误模式 | `TutorAgent`、`search_error_patterns` |
 
-```python
-Submission:  student_id(FK), question_id(FK), code, score,
-             status,            # pending → running → completed | error
-             error_message, execution_time, memory_used, submitted_at
-TestResult:  submission_id(FK), test_case_id(FK), passed,
-             actual_output, error_message, execution_time
+关键配置来自 `core/config.py`：
+
+```text
+RAG_EMBED_MODEL=all-MiniLM-L6-v2
+RAG_RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+RAG_RERANK_ENABLED=False
+RAG_CHUNK_SIZE=512
+RAG_CHUNK_OVERLAP=64
+RAG_CANDIDATE_K=20
+RAG_FINAL_K=5
+RAG_DEDUP_THRESHOLD=0.8
 ```
 
-`SubmissionService.submit_code()`：建记录 → 执行（ExecutorService）→ 跑全部测试用例 → 计分 → **触发档案更新**（同一学生 60s cooldown，`_PROFILE_UPDATE_COOLDOWN`，避免高频重算）。
+RAG 当前既被 Agent 直接消费，也通过 MCP 工具暴露给 Agent/tool path：
 
-### 统计现状
+- `TutorAgent` 根据 error status、代码片段、topic 或最近用户消息预取知识点和错误模式。
+- `GeneratorAgent` 使用相似题检索做生成参考和去重。
+- `coderunner.knowledge.search*` 工具经 ToolRuntime/MCP 边界提供结构化检索。
+- startup 可通过 `ENABLE_KB_STARTUP_INDEX` 触发后台索引。
 
-`TeacherStatsService.get_teacher_stats()` 提供基础计数：题目数 / 班级数 / 学生数（去重）/ 提交数。
-
-❌ 尚未实现的进度指标：`acceptance_rate`（通过率）、`streak`（连续天数）、`mastery`（量化掌握度，依赖未填充的 `knowledge_map`）。Analytics Agent 目前只做基础聚合。
-
----
-
-## 4.7 缓存设计
-
-无传统进程内缓存（极少量 `@lru_cache` 用于静态映射，如工具白名单），缓存职责交给外部系统：
-
-| 用途 | 介质 | 键 / 机制 | TTL |
-|---|---|---|---|
-| 异步任务状态 / SSE 流 | Redis | `chat_task:* / workflow:*`（见 4.3） | `TASK_BUFFER_TTL`(3600s) |
-| 限流计数 | Redis | `ai_rate:{user_id}:{agent_type}` | 60s（见安全章 5.8） |
-| RAG 向量检索 | ChromaDB | `all-MiniLM-L6-v2` 嵌入，HTTP/persistent | 持久化 |
-
-RAG 参数（`core/config.py`）：`RAG_CHUNK_SIZE=512`、`RAG_CHUNK_OVERLAP=64`、`RAG_CANDIDATE_K=20`、`RAG_FINAL_K=5`、`RAG_DEDUP_THRESHOLD=0.8`、rerank 默认关闭（避免冷启动）。检索与索引细节见 [tools-mcp-rag.md](tools-mcp-rag.md)。
-
-**降级原则**：Redis 故障一律 fail-open（限流放行、buffer 读空），保证核心链路可用——可观测性与限流可暂时退化，但用户请求不被阻断。
+RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主请求。
 
 ---
 
-## 数据分层小结
+## 4.7 缓存、限流与降级
 
-| 维度 | 短期状态 | 中/长期记忆 | 业务数据 | 运行数据 |
-|---|---|---|---|---|
-| 介质 | Redis / 运行时 | MySQL | MySQL | MySQL |
-| 生命周期 | 会话 / 1h TTL | 永久 | 永久 | 永久（可归档） |
-| 权威性 | 可丢弃 | 弱（含推断） | 强（事实） | 审计/可观测 |
-| 代表 | 消息窗口、SSE | `summary`、`StudentProfile`、`TeacherPreference` | 用户/班级/题目/提交/成绩 | `agent_trace_*`、eval |
-| 成熟度 | 高 | 中（画像字段部分未填充、无注入审计） | 高 | 高 |
+当前没有大量进程内业务缓存；短期状态和限流主要交给 Redis：
+
+| 用途 | key / 机制 | TTL / 行为 |
+|---|---|---|
+| AI 请求限流 | `ai_rate:{user_id}:{agent_type}` | 60s 窗口；Redis 不可用时放行 |
+| MCP gateway rate limit | `mcp_rate:{api_key_id}` | 60s 窗口；Redis 不可用时 fail-open |
+| MCP internal token replay 防护 | jti claim | Redis 不可用时 fail-open |
+| Chat SSE buffer | `chat_task:*` | `TASK_BUFFER_TTL` 默认 3600s |
+| Workflow SSE buffer | `workflow:*` | `TASK_BUFFER_TTL` 默认 3600s |
+| RAG 向量检索 | ChromaDB | 持久化或 HTTP 模式 |
+
+降级原则：Redis 和 RAG 故障不应让核心 Web/API 请求不可用；代价是限流、实时重连、知识增强或可观测性可能暂时退化。
+
+---
+
+## 当前成熟度总结
+
+| 维度 | 当前状态 | 主要缺口 |
+|---|---|---|
+| 业务数据 | Problem/variant/submission/quiz/classroom 主链路较完整 | 仍有历史 Question 兼容面需要持续审计 |
+| Schema 迁移 | 完整 Alembic baseline 已落地；ORM 已收敛为单一 `DomainBase` registry | 跨进程仍是 process-local engine（按设计），非进程内双池 |
+| 短期状态 | AgentSession、Redis SSE buffer、message compaction 已存在 | 专用 stream path 与统一 compaction/context policy 仍需收敛 |
+| 中长期记忆 | summary/profile/preference 可读写 | 画像字段自动填充不均衡，记忆注入缺少结构化策略和审计 |
+| Agent 状态 | AgentRuntime、trace、tool-based handoff、bounded context rebuild 已落地 | handoff/workflow/eval 的 context snapshot 尚未形成统一治理 |
+| Workflow 状态 | 持久化 step、approval audit、resume from breakpoint 已存在 | 任意 step replay、幂等和写工具去重仍未完成 |
+| RAG | ChromaDB 三 collection + Agent/MCP 消费路径存在 | 检索质量门禁和 eval replay 仍需产品化 |
 
 ---
 
@@ -313,15 +372,23 @@ RAG 参数（`core/config.py`）：`RAG_CHUNK_SIZE=512`、`RAG_CHUNK_OVERLAP=64`
 
 | 文件 | 职责 |
 |---|---|
-| `app/models/user.py` | User + UserRole |
-| `app/models/student_profile.py` | StudentProfile / TeacherPreference（长期记忆） |
-| `app/models/ai_conversation.py` | AIConversation / AIMessage（对话 + 中期摘要） |
-| `app/models/agent_task.py` / `core/task_state.py` | 单 Agent 任务 + 状态机 |
-| `app/models/workflow.py` | WorkflowRun / WorkflowStep（多步编排） |
-| `app/models/submission.py` | Submission / TestResult（学习进度） |
-| `core/db/models/agent_trace.py` | trace / eval（运行数据，运行时中立） |
-| `memory/service.py` | 短/中/长期记忆：压缩、摘要、画像注入 |
-| `memory/preference.py` | 教师偏好与班级薄弱点学习 |
-| `workers/redis_buffer.py` | Redis 任务状态 + SSE 缓冲 |
-| `app/services/submission_service.py` | 提交执行 + 档案更新触发 |
-| `knowledge/store.py` | ChromaDB 向量库 |
+| `domain/base.py` | 唯一 `DomainBase` registry / metadata |
+| `domain/models/user.py` | User / UserRole |
+| `app/models/problem.py`、`app/models/question.py` | Problem 父题与 Question 语言 variant（未迁移业务模型，仍在 `app/models`） |
+| `app/models/submission.py` | Submission / TestResult |
+| `domain/models/chat.py` | Conversation / Message / summary / ChatTask |
+| `app/models/student_profile.py` | StudentProfile / TeacherPreference |
+| `memory/service.py` | 对话摘要、学生画像更新、memory context、消息压缩 |
+| `memory/preference.py` | 教师偏好、风格摘要、班级薄弱点 |
+| `agents/session.py`、`agents/runtime.py`、`agents/llm_runner.py` | Agent 单次运行状态、LLM/tool loop、压缩入口 |
+| `core/definitions.py` | Agent 定义、工具白名单、handoff target、预算/限流 |
+| `graph/handoff.py` | tool-based handoff 校验后的上下文重建 |
+| `graph/engine.py` | WorkflowEngine、step 输出选择、resume |
+| `domain/models/workflow.py` | WorkflowRun / WorkflowStep / WorkflowApproval |
+| `domain/models/observability.py` | trace / eval shared-Domain 映射 |
+| `domain/repositories/*` | Sync/Async repository（user/chat/workflow/traces/evals/mcp） |
+| `agent_runtime/` | FastAPI Agent Runtime（chat/workflow remote 执行） |
+| `knowledge/store.py` | ChromaDB RAG store |
+| `workers/redis_buffer.py` | Redis SSE buffer |
+| `migrations/versions/e21895a59f7d_baseline_full_schema.py` | 当前完整 schema baseline |
+| `core/db/metadata.py` | Alembic 合并 metadata bridge |

@@ -5,8 +5,9 @@ import time
 from flask import Blueprint, request, jsonify, Response, stream_with_context, current_app
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
-from app.models.ai_conversation import AIConversation, AIMessage
-from agents.config import AGENT_RATE_LIMITS
+from domain.models.chat import AIConversation, AIMessage
+from domain.repositories.chat import SyncChatRepository
+from core.definitions import get_definition
 from core.exceptions import AIError, RateLimitError, ConfigError
 from core.security import detect_injection, sanitize_user_input, filter_output
 
@@ -24,7 +25,8 @@ def _normalize_chat_agent_type(_data=None) -> str:
 
 def _check_rate_limit(user_id: int, agent_type: str = "tutor") -> dict:
     """Check per-user, per-agent rate limit. Returns {allowed, limit, remaining, retry_after}."""
-    limit = AGENT_RATE_LIMITS.get(agent_type, 20)
+    defn = get_definition(agent_type)
+    limit = defn.rate_limit if defn is not None else 20
     window = 60
 
     if not redis_client:
@@ -154,8 +156,9 @@ def _maybe_index_problem(problem):
 def _maybe_generate_summary(conv_id: int):
     """Trigger async conversation summary when message count >= 10 and no summary exists."""
     try:
-        msg_count = AIMessage.query.filter_by(conversation_id=conv_id).count()
-        conv = AIConversation.query.get(conv_id)
+        repo = SyncChatRepository(db.session)
+        msg_count = repo.count_messages(conv_id)
+        conv = repo.get_conversation(conv_id)
         if msg_count >= 10 and conv and not conv.summary:
             app = current_app._get_current_object()
 
@@ -165,7 +168,7 @@ def _maybe_generate_summary(conv_id: int):
                         from memory.service import MemoryService
                         summary = MemoryService.generate_conversation_summary(cid)
                         if summary:
-                            c = AIConversation.query.get(cid)
+                            c = SyncChatRepository(db.session).get_conversation(cid)
                             if c:
                                 c.summary = summary
                                 db.session.commit()
@@ -190,24 +193,24 @@ def _build_context(data: dict) -> dict:
 
 
 def _get_or_create_conversation(user_id, agent_type, conversation_id, context):
+    repo = SyncChatRepository(db.session)
     if conversation_id:
-        conv = AIConversation.query.filter_by(id=conversation_id, user_id=user_id).first()
+        conv = repo.get_conversation_for_user(conversation_id, user_id)
         if conv:
             return conv
-    conv = AIConversation(
+    conv = repo.create_conversation(
         user_id=user_id,
         agent_type=agent_type,
         context_type="question" if context.get("question_id") else None,
         context_id=context.get("question_id"),
     )
-    db.session.add(conv)
     db.session.flush()
     return conv
 
 
 def _load_history(conversation_id: int) -> list:
     from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
-    rows = AIMessage.query.filter_by(conversation_id=conversation_id).order_by(AIMessage.id).all()
+    rows = SyncChatRepository(db.session).get_messages_ordered(conversation_id)
     msgs = []
     for r in rows:
         if r.role == "user":
@@ -331,8 +334,8 @@ def chat():
         context["conversation_id"] = conv.id
         history = _load_history(conv.id) if data.get("conversation_id") else []
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=message)
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
@@ -352,8 +355,7 @@ def chat():
         resolved_agent_type = state.get("agent_type", resolved_agent_type)
         response_text = filter_output(state.get("final_response", ""), resolved_agent_type, user_role)
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(conv.id, role="assistant", content=response_text)
         conv.title = conv.title or message[:80]
         conv.agent_type = resolved_agent_type
         db.session.commit()
@@ -420,8 +422,8 @@ def chat_stream():
         conv = _get_or_create_conversation(user.id, agent_type, data.get("conversation_id"), context)
         history = _load_history(conv.id) if data.get("conversation_id") else []
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
-        db.session.add(user_msg)
+        user_msg = SyncChatRepository(db.session).add_message(
+            conv.id, role="user", content=message)
         db.session.flush()
         db.session.commit()
     except Exception as e:
@@ -435,15 +437,8 @@ def chat_stream():
 
     def generate():
         from langchain_core.messages import HumanMessage
-        from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
-        from graph.runner import MAX_HANDOFFS
-
-        _AGENT_MAP = {
-            "tutor": TutorAgent,
-            "reviewer": ReviewerAgent,
-            "generator": GeneratorAgent,
-            "analytics": AnalyticsAgent,
-        }
+        from agents.registry import get_agent_instance
+        from graph.handoff import stream_with_handoffs
 
         # Phase 3: the concrete agent was already resolved (and rate-limited)
         # before the response started streaming.
@@ -464,15 +459,22 @@ def chat_stream():
         if resolved_agent_type != agent_type:
             yield f"data: {json.dumps({'type': 'route', 'agent_type': resolved_agent_type})}\n\n"
 
-        agent_cls = _AGENT_MAP.get(resolved_agent_type, TutorAgent)
-        agent = agent_cls()
         full_response = ""
         last_event_time = time.monotonic()
-        handoff_count = 0
-        previous_agents = []
+
+        def _stream_agent(agent_type, run_state):
+            agent = get_agent_instance(agent_type, default="tutor")
+            yield from agent.stream(run_state)
+
         try:
-            for event in agent.stream(state):
-                if event["type"] == "token":
+            # Single agent plus bounded intra-turn delegation, driven by the
+            # shared streaming-handoff loop (see graph.handoff.stream_with_handoffs).
+            # Reset the token buffer on each handoff_start: every delegated agent
+            # produces a fresh response.
+            for event in stream_with_handoffs(state, stream_fn=_stream_agent):
+                if event.get("type") == "handoff_start":
+                    full_response = ""
+                elif event["type"] == "token":
                     full_response += event["content"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 now = time.monotonic()
@@ -480,47 +482,15 @@ def chat_stream():
                     yield ": heartbeat\n\n"
                 last_event_time = now
 
-            # ── Handle handoff: invoke the target agent if requested ──
-            previous_agents.append(resolved_agent_type)
-            while (state.get("handoff_to")
-                   and handoff_count < MAX_HANDOFFS
-                   and state["handoff_to"] in _AGENT_MAP
-                   and state["handoff_to"] not in previous_agents):
-
-                target_type = state["handoff_to"]
-                handoff_reason = state.get("handoff_reason", "")
-                state["handoff_to"] = None
-                state["handoff_reason"] = None
-                state["agent_type"] = target_type
-
-                # Notify frontend of the handoff
-                yield f"data: {json.dumps({'type': 'handoff_start', 'target': target_type, 'reason': handoff_reason})}\n\n"
-
-                target_agent_cls = _AGENT_MAP.get(target_type, TutorAgent)
-                target_agent = target_agent_cls()
-
-                # Continue with accumulated messages from the previous agent
-                full_response = ""
-                for event in target_agent.stream(state):
-                    if event["type"] == "token":
-                        full_response += event["content"]
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                    now = time.monotonic()
-                    if now - last_event_time > 10:
-                        yield ": heartbeat\n\n"
-                    last_event_time = now
-
-                previous_agents.append(target_type)
-                resolved_agent_type = target_type
-                handoff_count += 1
-
+            resolved_agent_type = state.get("agent_type", resolved_agent_type)
             if not full_response:
                 full_response = state.get("final_response", "")
 
             filtered_response = filter_output(full_response, resolved_agent_type, user_role)
-            assistant_msg = AIMessage(conversation_id=conv_id, role="assistant", content=filtered_response)
-            db.session.add(assistant_msg)
-            _conv = AIConversation.query.get(conv_id)
+            _repo = SyncChatRepository(db.session)
+            assistant_msg = _repo.add_message(
+                conv_id, role="assistant", content=filtered_response)
+            _conv = _repo.get_conversation(conv_id)
             if _conv and not _conv.title:
                 _conv.title = message[:80]
             if _conv:
@@ -584,8 +554,6 @@ def chat_async():
 
     The frontend should subscribe to /chat/task/<task_id>/stream for SSE events.
     """
-    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_create
-
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
@@ -614,24 +582,15 @@ def chat_async():
     context = _build_context(data)
     rl_headers = _rate_limit_headers(rl_info)
 
-    if is_proxy_enabled():
-        proxied_payload = dict(data)
-        proxied_payload["message"] = message
-        # Pass the already-resolved agent so the remote host skips re-routing
-        # (and can't bypass the per-agent limit we just enforced).
-        proxied_payload["agent_type"] = resolved_agent_type
-        return proxy_chat_create(proxied_payload, extra_headers=rl_headers)
-
     try:
         conv = _get_or_create_conversation(
             user.id, agent_type, data.get("conversation_id"), context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=message)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=message)
         db.session.flush()
 
-        from app.models.chat_task import ChatTask
-        task = ChatTask(
+        task = repo.create_task(
             conversation_id=conv.id,
             user_id=user.id,
             user_message_id=user_msg.id,
@@ -639,13 +598,12 @@ def chat_async():
             routed_agent=resolved_agent_type,
             status="pending",
         )
-        db.session.add(task)
         db.session.flush()
         db.session.commit()
 
-        # Submit to background worker
-        from workers.chat import submit_chat_task
-        submit_chat_task(task.id, current_app._get_current_object())
+        # Persist first, then send one signed command to the remote runtime.
+        from app.services.agent_runtime_dispatcher import dispatch_chat_task
+        dispatch_chat_task(task.id, current_app._get_current_object())
 
         resp = jsonify({
             "task_id": task.id,
@@ -668,23 +626,16 @@ def chat_async():
 @require_auth
 def chat_task_stream(task_id):
     """SSE stream for an async chat task. Supports catch-up via ?last_event=N."""
-    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_stream
-    if is_proxy_enabled():
-        return proxy_chat_stream(task_id)
-
     user = get_current_user_or_401()
 
-    from app.models.chat_task import ChatTask
-    task = ChatTask.query.filter_by(id=task_id, user_id=user.id).first()
+    task = SyncChatRepository(db.session).get_task_for_user(task_id, user.id)
     if not task:
         return _error_response("not_found", "Task not found", 404)
 
     last_event = request.args.get("last_event", 0, type=int)
 
     def generate():
-        from workers.chat import (
-            get_task_events, get_task_event_count, get_task_status_from_redis,
-        )
+        from workers.redis_buffer import ct_get_events, ct_get_status
 
         cursor = last_event
         done = False
@@ -692,7 +643,7 @@ def chat_task_stream(task_id):
         max_idle = 300  # 5 minutes max wait
 
         while not done and idle_count < max_idle:
-            events = get_task_events(task_id, start=cursor)
+            events = ct_get_events(task_id, start=cursor)
 
             if events:
                 idle_count = 0
@@ -705,12 +656,12 @@ def chat_task_stream(task_id):
                         break
             else:
                 # Check if task is already finished (DB fallback)
-                redis_info = get_task_status_from_redis(task_id)
+                redis_info = ct_get_status(task_id)
                 redis_status = redis_info.get("status")
 
                 if redis_status in ("completed", "failed"):
                     # Drain any remaining events
-                    remaining = get_task_events(task_id, start=cursor)
+                    remaining = ct_get_events(task_id, start=cursor)
                     for evt in remaining:
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
                         cursor += 1
@@ -741,14 +692,10 @@ def chat_task_stream(task_id):
 @require_auth
 def chat_task_status(task_id):
     """Poll the status of an async chat task."""
-    from app.api.v1.ai_proxy import is_proxy_enabled, proxy_chat_status
-    if is_proxy_enabled():
-        return proxy_chat_status(task_id)
-
     user = get_current_user_or_401()
 
-    from app.models.chat_task import ChatTask
-    task = ChatTask.query.filter_by(id=task_id, user_id=user.id).first()
+    repo = SyncChatRepository(db.session)
+    task = repo.get_task_for_user(task_id, user.id)
     if not task:
         return _error_response("not_found", "Task not found", 404)
 
@@ -756,7 +703,7 @@ def chat_task_status(task_id):
 
     # Include the final response content if completed
     if task.status == "completed" and task.result_message_id:
-        result_msg = AIMessage.query.get(task.result_message_id)
+        result_msg = repo.get_message(task.result_message_id)
         if result_msg:
             result["response"] = result_msg.content
 
@@ -773,15 +720,14 @@ def list_conversations():
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
 
-    query = AIConversation.query.filter_by(user_id=user.id)
-    if agent_type:
-        query = query.filter_by(agent_type=agent_type)
-    total = query.count()
-    convs = query.order_by(AIConversation.updated_at.desc()).offset(offset).limit(limit).all()
+    repo = SyncChatRepository(db.session)
+    total = repo.count_conversations_for_user(user.id, agent_type=agent_type)
+    convs = repo.list_conversations_for_user(
+        user.id, agent_type=agent_type, offset=offset, limit=limit)
 
     items = []
     for c in convs:
-        msg_count = AIMessage.query.filter_by(conversation_id=c.id).count()
+        msg_count = repo.count_messages(c.id)
         items.append({
             "id": c.id,
             "agent_type": c.agent_type,
@@ -801,11 +747,12 @@ def list_conversations():
 @require_auth
 def get_conversation(conv_id):
     user = get_current_user_or_401()
-    conv = AIConversation.query.filter_by(id=conv_id, user_id=user.id).first()
+    repo = SyncChatRepository(db.session)
+    conv = repo.get_conversation_for_user(conv_id, user.id)
     if not conv:
         return _error_response("not_found", "Conversation not found", 404)
 
-    msgs = AIMessage.query.filter_by(conversation_id=conv.id).order_by(AIMessage.id).all()
+    msgs = repo.get_messages_ordered(conv.id)
     return jsonify({
         "id": conv.id,
         "agent_type": conv.agent_type,
@@ -827,7 +774,7 @@ def get_conversation(conv_id):
 @require_auth
 def delete_conversation(conv_id):
     user = get_current_user_or_401()
-    conv = AIConversation.query.filter_by(id=conv_id, user_id=user.id).first()
+    conv = SyncChatRepository(db.session).get_conversation_for_user(conv_id, user.id)
     if not conv:
         return _error_response("not_found", "Conversation not found", 404)
     db.session.delete(conv)
@@ -861,15 +808,16 @@ def review_code():
     try:
         conv = _get_or_create_conversation(user.id, "reviewer", None, context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user",
-                             content=f"Please review this code:\n```\n{code}\n```")
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(
+            conv.id, role="user",
+            content=f"Please review this code:\n```\n{code}\n```")
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents import ReviewerAgent
+        from agents.registry import get_agent_instance
 
-        agent = ReviewerAgent()
+        agent = get_agent_instance("reviewer")
         state = {
             "messages": [HumanMessage(content="Please review the code provided in the context.")],
             "agent_type": "reviewer",
@@ -882,8 +830,8 @@ def review_code():
         state = agent.invoke(state)
         response_text = state.get("final_response", "")
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(
+            conv.id, role="assistant", content=response_text)
         conv.title = conv.title or "Code Review"
         db.session.commit()
 
@@ -938,14 +886,14 @@ def generate_question():
     try:
         conv = _get_or_create_conversation(user.id, "generator", None, context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=prompt)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=prompt)
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents import GeneratorAgent
+        from agents.registry import get_agent_instance
 
-        agent = GeneratorAgent()
+        agent = get_agent_instance("generator")
         state = {
             "messages": [HumanMessage(content=prompt)],
             "agent_type": "generator",
@@ -958,8 +906,8 @@ def generate_question():
         state = agent.invoke(state)
         response_text = state.get("final_response", "")
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(
+            conv.id, role="assistant", content=response_text)
         conv.title = conv.title or f"AI Generate: {prompt[:60]}"
         db.session.commit()
 
@@ -1016,14 +964,12 @@ def save_generated_question():
     if not conv_id:
         return _error_response("invalid_request", "conversation_id is required", 400)
 
-    conv = AIConversation.query.filter_by(id=conv_id, user_id=user.id, agent_type="generator").first()
+    repo = SyncChatRepository(db.session)
+    conv = repo.get_conversation_for_user(conv_id, user.id, agent_type="generator")
     if not conv:
         return _error_response("not_found", "Generator conversation not found", 404)
 
-    last_assistant = (AIMessage.query
-                      .filter_by(conversation_id=conv.id, role="assistant")
-                      .order_by(AIMessage.id.desc())
-                      .first())
+    last_assistant = repo.get_last_message_by_role(conv.id, "assistant")
     if not last_assistant:
         return _error_response("not_found", "No generated question found", 404)
 
@@ -1362,7 +1308,7 @@ def _publish_draft(draft, created_by: int):
 
 def _trigger_revision(draft):
     """Use the Generator agent to revise based on teacher feedback."""
-    from agents.generator.agent import GeneratorAgent
+    from agents.registry import get_agent_instance
     from langchain_core.messages import HumanMessage as LCHumanMessage
 
     original_json = json.dumps(draft.question_data, indent=2, ensure_ascii=False)
@@ -1374,7 +1320,7 @@ def _trigger_revision(draft):
         f"complete updated JSON."
     )
 
-    agent = GeneratorAgent()
+    agent = get_agent_instance("generator")
     state = {
         "messages": [LCHumanMessage(content=revision_prompt)],
         "agent_type": "generator",
@@ -1525,14 +1471,14 @@ def analytics_report(student_id):
     try:
         conv = _get_or_create_conversation(user.id, "analytics", None, context)
 
-        user_msg = AIMessage(conversation_id=conv.id, role="user", content=prompt)
-        db.session.add(user_msg)
+        repo = SyncChatRepository(db.session)
+        user_msg = repo.add_message(conv.id, role="user", content=prompt)
         db.session.flush()
 
         from langchain_core.messages import HumanMessage
-        from agents import AnalyticsAgent
+        from agents.registry import get_agent_instance
 
-        agent = AnalyticsAgent()
+        agent = get_agent_instance("analytics")
         state = {
             "messages": [HumanMessage(content=prompt)],
             "agent_type": "analytics",
@@ -1545,8 +1491,8 @@ def analytics_report(student_id):
         state = agent.invoke(state)
         response_text = state.get("final_response", "")
 
-        assistant_msg = AIMessage(conversation_id=conv.id, role="assistant", content=response_text)
-        db.session.add(assistant_msg)
+        assistant_msg = repo.add_message(
+            conv.id, role="assistant", content=response_text)
         conv.title = conv.title or f"Analytics: Student {student_id}"
         db.session.commit()
 
@@ -1916,9 +1862,11 @@ def run_evals():
             results = [report_to_dict(report)]
 
         # Persist eval run results
-        from app.models.eval_run import EvalRun
+        from domain.repositories.evals import SyncEvalRepository
+
+        repo = SyncEvalRepository(db.session)
         for r in results:
-            run = EvalRun(
+            repo.create_run(
                 suite_name=r["suite_name"],
                 model_name=data.get("model_name", "deepseek"),
                 total_cases=r["total"],
@@ -1927,7 +1875,6 @@ def run_evals():
                 results_json=r["results"],
                 duration_seconds=r["duration_seconds"],
             )
-            db.session.add(run)
         db.session.commit()
 
         return jsonify({"reports": results})
@@ -1999,13 +1946,14 @@ def _eval_harness_report_to_dict(report) -> dict:
 @require_teacher
 def eval_history():
     """List past eval runs."""
-    from app.models.eval_run import EvalRun
+    from domain.repositories.evals import SyncEvalRepository
+
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
 
-    query = EvalRun.query.order_by(EvalRun.run_at.desc())
-    total = query.count()
-    runs = query.offset(offset).limit(limit).all()
+    repo = SyncEvalRepository(db.session)
+    total = repo.count_runs()
+    runs = repo.list_runs(offset=offset, limit=limit)
     return jsonify({"runs": [r.to_dict() for r in runs], "total": total})
 
 
@@ -2031,22 +1979,14 @@ def eval_run_report(run_id: int):
 def eval_case_by_trace(trace_id: str):
     """Eval case + grader results bound to a trace (for the trace Eval tab)."""
     from core.db.session import db_session
-    from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
+    from domain.repositories.evals import SyncEvalRepository
 
     with db_session() as session:
-        case = (
-            session.query(EvalCaseRun)
-            .filter_by(trace_id=trace_id)
-            .order_by(EvalCaseRun.created_at.desc())
-            .first()
-        )
+        repo = SyncEvalRepository(session)
+        case = repo.get_case_by_trace(trace_id)
         if case is None:
             return jsonify({"case": None})
-        graders = (
-            session.query(EvalCaseGraderResult)
-            .filter_by(case_run_id=case.id)
-            .all()
-        )
+        graders = repo.list_grader_results([case.id])
         payload = {
             "case_id": case.case_id,
             "case_type": case.case_type,
@@ -2102,15 +2042,13 @@ def promote_regression():
 @bp.route("/workflows", methods=["POST"])
 @require_auth
 def create_workflow():
-    """Create and execute a multi-step workflow via the Supervisor agent."""
+    """Create a workflow run and submit it for background execution."""
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
     goal = (data.get("goal") or data.get("message") or "").strip()
     if not goal:
         return _error_response("invalid_request", "goal is required", 400)
-
-    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
 
     try:
         rl_info = _rate_limit_or_abort(user.id, "generator")
@@ -2126,29 +2064,69 @@ def create_workflow():
     context["prompt"] = goal
 
     conversation_id = data.get("conversation_id")
+    workflow_type = data.get("workflow_type", "general")
+    steps = data.get("steps") or []
 
     try:
-        from graph import SupervisorAgent
+        from app.services.agent_runtime_dispatcher import dispatch_workflow
+        from domain.repositories.workflows import SyncWorkflowRepository
 
-        supervisor = SupervisorAgent()
-        state = supervisor.run_workflow(
+        repo = SyncWorkflowRepository(db.session)
+        run = repo.create_run(
             user_id=user.id,
-            user_role=user_role,
-            goal=goal,
-            context=context,
             conversation_id=conversation_id,
+            goal=goal,
+            workflow_type=workflow_type,
+            status="planning",
+            max_steps=int(data.get("max_steps", 10)),
+            timeout_seconds=int(data.get("timeout_seconds", 300)),
+            total_steps=len(steps),
+        )
+        db.session.flush()
+
+        plan_steps = []
+        for idx, step_input in enumerate(steps):
+            step = repo.create_step(
+                workflow_run_id=run.id,
+                step_index=idx,
+                step_type=step_input.get("step_type", "agent_call"),
+                agent_type=step_input.get("agent_type"),
+                instruction=step_input.get("instruction", ""),
+                risk_level=step_input.get("risk_level", "low"),
+                requires_approval=bool(step_input.get("requires_approval", False)),
+                depends_on=step_input.get("depends_on"),
+                status="pending",
+            )
+            plan_steps.append({
+                "step_index": idx,
+                "step_type": step.step_type,
+                "agent_type": step.agent_type,
+                "instruction": step.instruction,
+                "risk_level": step.risk_level,
+                "requires_approval": step.requires_approval,
+                "depends_on": step.depends_on,
+            })
+
+        run.plan_json = {
+            "goal": goal,
+            "workflow_type": workflow_type,
+            "steps": plan_steps,
+        }
+        db.session.commit()
+
+        dispatch_workflow(
+            run.id,
+            current_app._get_current_object(),
+            goal,
+            context,
         )
 
         rl_headers = _rate_limit_headers(rl_info)
         resp = jsonify({
-            "workflow_run_id": state.get("workflow_run_id"),
-            "status": state.get("status"),
-            "workflow_type": state.get("workflow_type"),
-            "result": state.get("final_result"),
-            "error": state.get("error"),
-            "events": state.get("_events", []),
+            "workflow_id": run.id,
+            "status": run.status,
         })
-        resp.status_code = 201 if state.get("status") != "failed" else 500
+        resp.status_code = 202
         for k, v in rl_headers.items():
             resp.headers[k] = v
         return resp
@@ -2168,21 +2146,24 @@ def create_workflow():
 def list_workflows():
     """List the current user's workflow runs."""
     user = get_current_user_or_401()
-    from app.models.workflow import WorkflowRun
+    from domain.repositories.workflows import SyncWorkflowRepository
 
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = int(request.args.get("offset", 0))
     status = request.args.get("status")
     workflow_type = request.args.get("type")
 
-    query = WorkflowRun.query.filter_by(user_id=user.id)
-    if status:
-        query = query.filter_by(status=status)
-    if workflow_type:
-        query = query.filter_by(workflow_type=workflow_type)
-
-    total = query.count()
-    runs = query.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit).all()
+    repo = SyncWorkflowRepository(db.session)
+    total = repo.count_runs_for_user(
+        user.id, status=status, workflow_type=workflow_type
+    )
+    runs = repo.list_runs_for_user(
+        user.id,
+        status=status,
+        workflow_type=workflow_type,
+        offset=offset,
+        limit=limit,
+    )
 
     return jsonify({
         "workflows": [r.to_dict() for r in runs],
@@ -2195,21 +2176,86 @@ def list_workflows():
 def get_workflow(workflow_run_id):
     """Get detailed status of a workflow run including all steps."""
     user = get_current_user_or_401()
-    from graph import SupervisorAgent
+    from domain.repositories.workflows import SyncWorkflowRepository
 
-    supervisor = SupervisorAgent()
-    result = supervisor.get_workflow_status(workflow_run_id)
-
-    if result.get("error"):
-        return _error_response("not_found", result["error"], 404)
-
-    run_data = result.get("run", {})
-    if run_data.get("user_id") != user.id:
+    repo = SyncWorkflowRepository(db.session)
+    run = repo.get_run(workflow_run_id)
+    if not run:
+        return _error_response("not_found", "Workflow not found", 404)
+    if run.user_id != user.id:
         user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
         if user_role not in ("teacher", "admin"):
             return _error_response("forbidden", "Access denied", 403)
 
-    return jsonify(result)
+    return jsonify({
+        "run": run.to_dict(),
+        "steps": [step.to_dict() for step in repo.list_steps(workflow_run_id)],
+    })
+
+
+@bp.route("/workflows/<workflow_run_id>/stream", methods=["GET"])
+@require_auth
+def stream_workflow(workflow_run_id):
+    """SSE stream for workflow events. Supports catch-up via ?last_event=N."""
+    user = get_current_user_or_401()
+    from domain.repositories.workflows import SyncWorkflowRepository
+
+    run = SyncWorkflowRepository(db.session).get_run(workflow_run_id)
+    if not run:
+        return _error_response("not_found", "Workflow not found", 404)
+    if run.user_id != user.id:
+        user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        if user_role not in ("teacher", "admin"):
+            return _error_response("forbidden", "Access denied", 403)
+
+    last_event = request.args.get("last_event", 0, type=int)
+
+    def generate():
+        from workers import redis_buffer
+
+        cursor = last_event
+        idle_count = 0
+        max_idle = 300
+
+        while idle_count < max_idle:
+            events = redis_buffer.wf_get_events(workflow_run_id, start=cursor)
+
+            if events:
+                idle_count = 0
+                for evt in events:
+                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    cursor += 1
+
+                    if evt.get("type") in ("workflow_done", "workflow_error"):
+                        yield "data: [DONE]\n\n"
+                        return
+            else:
+                workflow_status = redis_buffer.wf_get_status(workflow_run_id)
+                if workflow_status in ("completed", "failed") or run.status in (
+                    "completed",
+                    "failed",
+                    "cancelled",
+                ):
+                    for evt in redis_buffer.wf_get_events(workflow_run_id, start=cursor):
+                        yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                yield ": heartbeat\n\n"
+                idle_count += 1
+                time.sleep(0.5)
+
+        yield "data: [DONE]\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @bp.route("/workflows/<workflow_run_id>/approve", methods=["POST"])
@@ -2219,8 +2265,9 @@ def approve_workflow_step(workflow_run_id):
     user = get_current_user_or_401()
     data = request.get_json(silent=True) or {}
 
-    from app.models.workflow import WorkflowRun
-    run = WorkflowRun.query.get(workflow_run_id)
+    from domain.repositories.workflows import SyncWorkflowRepository
+
+    run = SyncWorkflowRepository(db.session).get_run(workflow_run_id)
     if not run:
         return _error_response("not_found", "Workflow not found", 404)
     if run.user_id != user.id:
@@ -2237,7 +2284,9 @@ def approve_workflow_step(workflow_run_id):
     try:
         from graph import SupervisorAgent
         supervisor = SupervisorAgent()
-        state = supervisor.resume_workflow(workflow_run_id, approved, feedback)
+        state = supervisor.resume_workflow(
+            workflow_run_id, approved, feedback, approver_user_id=user.id
+        )
 
         return jsonify({
             "workflow_run_id": workflow_run_id,

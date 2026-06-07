@@ -5,10 +5,12 @@ Provides global statistics without requiring authentication
 """
 from datetime import datetime, timedelta
 from flask import jsonify
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, select
 from app.api.public import public_bp
+from app.core.extensions import db
 from app.core.timezone import now_china
-from app.models import User, Quiz, Problem, Question, Submission
+from app.models import Quiz, Problem, Question, Submission
+from domain.models.user import User
 
 @public_bp.route('/metrics/overview', methods=['GET'])
 def get_overview():
@@ -24,7 +26,9 @@ def get_overview():
     """
     try:
         # Totals
-        total_users = User.query.count()
+        total_users = db.session.scalar(
+            select(func.count()).select_from(User)
+        )
         # only published quizzes
         total_quizzes = Quiz.query.filter_by(is_published=True).count()  
         total_questions = Problem.query.count()
@@ -87,7 +91,7 @@ def get_latest_submissions():
         items = []
         for sub in submissions:
             # Fetch username and question title
-            user = User.query.get(sub.student_id) if sub.student_id else None
+            user = db.session.get(User, sub.student_id) if sub.student_id else None
             question = Question.query.get(sub.question_id) if sub.question_id else None
             
             items.append({

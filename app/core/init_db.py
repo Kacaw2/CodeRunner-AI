@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from app import create_app
 from app.core.extensions import db
 from app.core.timezone import now_china
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from app.models.classroom import Classroom, Enrollment
 from app.models.problem import Problem
 from app.models.quiz import Quiz, QuizProblem, ClassroomQuiz

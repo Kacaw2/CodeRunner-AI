@@ -4,13 +4,10 @@ import logging
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session
 
 from core.config import get_settings
-
 logger = logging.getLogger(__name__)
-
-Base = declarative_base()
 
 _engine = None
 _SessionLocal = None

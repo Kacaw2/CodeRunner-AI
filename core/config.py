@@ -24,11 +24,34 @@ def _build_database_url() -> str:
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4"
 
 
+def _build_async_database_url(sync_url: str) -> str:
+    """Derive the async SQLAlchemy URL.
+
+    Computed LAZILY (only when the async engine is actually requested) so that
+    importing config on the Flask/SQLite test path never raises. An explicit
+    ``DATABASE_ASYNC_URL`` wins; otherwise only ``mysql+pymysql://`` -> asyncmy
+    conversion is supported. Any other dialect requires an explicit async URL.
+    """
+    explicit = os.environ.get("DATABASE_ASYNC_URL", "").strip()
+    if explicit:
+        return explicit
+    if sync_url.startswith("mysql+pymysql://"):
+        return sync_url.replace("mysql+pymysql://", "mysql+asyncmy://", 1)
+    raise RuntimeError(
+        "DATABASE_ASYNC_URL is required for non-MySQL async database access"
+    )
+
+
 class Settings:
     # ── Database ────────────────────────────────────────────────
     DB_URL: str = _build_database_url()
     DB_POOL_SIZE: int = 5
     DB_POOL_RECYCLE: int = 3600
+
+    @property
+    def DB_ASYNC_URL(self) -> str:
+        """Lazily-derived async database URL (never built at import time)."""
+        return _build_async_database_url(self.DB_URL)
 
     # ── Redis ───────────────────────────────────────────────────
     REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -100,6 +123,29 @@ class Settings:
     MCP_HOST: str = os.environ.get("MCP_HOST", "127.0.0.1")
     MCP_PORT: int = int(os.environ.get("MCP_PORT", "8200"))
     MCP_API_KEY: str = os.environ.get("MCP_API_KEY", "")
+
+    # ── FastAPI Agent Runtime (Task 5) ──────────────────────────
+    # Compatibility setting retained for deployment visibility. Agent command
+    # dispatch is remote-only after the runtime cutover.
+    AGENT_RUNTIME_MODE: str = os.environ.get("AGENT_RUNTIME_MODE", "remote")
+    # Base URL the Flask dispatcher uses to reach the runtime's internal command
+    # API (e.g. http://agent_runtime:8100).
+    AGENT_RUNTIME_URL: str = os.environ.get(
+        "AGENT_RUNTIME_URL", "http://localhost:8100"
+    )
+    # HTTP timeout (seconds) for the dispatcher's internal command calls.
+    AGENT_RUNTIME_TIMEOUT: float = float(
+        os.environ.get("AGENT_RUNTIME_TIMEOUT", "10")
+    )
+    # Dedicated audience + TTL for the short-lived internal service JWT. This is
+    # NOT the user JWT audience; the runtime rejects any token without it.
+    SERVICE_TOKEN_AUDIENCE: str = os.environ.get(
+        "SERVICE_TOKEN_AUDIENCE", "agent-runtime-internal"
+    )
+    SERVICE_TOKEN_ISSUER: str = os.environ.get(
+        "SERVICE_TOKEN_ISSUER", "coderunner-web"
+    )
+    SERVICE_TOKEN_TTL: int = int(os.environ.get("SERVICE_TOKEN_TTL", "60"))
 
     @property
     def database_url(self) -> str:

@@ -2,6 +2,7 @@ import logging
 
 from app.core.extensions import db
 from app.core.timezone import now_china
+from sqlalchemy import select, update
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,15 @@ def recover_orphaned_workflows():
     effects), so orphaned runs and their in-flight steps are marked failed rather
     than retried. Returns the number of workflow runs recovered.
     """
-    from app.models.workflow import WorkflowRun, WorkflowStep
+    from domain.models.workflow import WorkflowRun, WorkflowStep
 
-    orphaned = WorkflowRun.query.filter(
-        WorkflowRun.status.in_(_ORPHAN_WORKFLOW_STATES)
-    ).all()
+    orphaned = list(
+        db.session.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.status.in_(_ORPHAN_WORKFLOW_STATES)
+            )
+        ).scalars()
+    )
 
     if not orphaned:
         return 0
@@ -60,17 +65,16 @@ def recover_orphaned_workflows():
         run.error_detail = f"Server restart during execution (was {run.status})"
         run.completed_at = now_china()
 
-        (
-            WorkflowStep.query
-            .filter_by(workflow_run_id=run.id)
-            .filter(WorkflowStep.status.in_(["pending", "running"]))
-            .update(
-                {
-                    "status": "failed",
-                    "error_detail": "Server restart during execution",
-                    "completed_at": now_china(),
-                },
-                synchronize_session=False,
+        db.session.execute(
+            update(WorkflowStep)
+            .where(
+                WorkflowStep.workflow_run_id == run.id,
+                WorkflowStep.status.in_(["pending", "running"]),
+            )
+            .values(
+                status="failed",
+                error_detail="Server restart during execution",
+                completed_at=now_china(),
             )
         )
 

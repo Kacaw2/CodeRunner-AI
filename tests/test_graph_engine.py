@@ -1,11 +1,44 @@
 """Tests for Supervisor workflow persistence behavior."""
 
+from sqlalchemy import func, select
+from types import SimpleNamespace
+
+
+def test_workflow_tool_call_grants_agent_scopes(monkeypatch):
+    from graph.node_registry import _handle_tool_call
+
+    captured = {}
+
+    class FakeRuntime:
+        def call_sync(self, tool_name, args, ctx):
+            captured["tool_name"] = tool_name
+            captured["args"] = args
+            captured["ctx"] = ctx
+            return SimpleNamespace(ok=True, data={"status": "ok"})
+
+    monkeypatch.setattr(
+        "tools.protocol.get_tool_runtime", lambda: FakeRuntime()
+    )
+
+    result = _handle_tool_call(
+        {
+            "tool_name": "coderunner.code.execute_internal",
+            "tool_args": {"code": "print(2 + 2)", "language": "python"},
+            "agent_type": "generator",
+        },
+        {"user_id": 2, "user_role": "teacher"},
+    )
+
+    assert result["success"] is True
+    assert captured["ctx"].granted_scopes
+    assert "code:execute_internal" in captured["ctx"].granted_scopes
+
 
 def test_workflow_engine_can_execute_into_existing_run(app, db_session, teacher_user):
     with app.app_context():
         from graph.engine import WorkflowEngine
         from graph.node_registry import register_step_handler
-        from app.models.workflow import WorkflowRun, WorkflowStep
+        from domain.models.workflow import WorkflowRun, WorkflowStep
 
         run = WorkflowRun(
             id="existing-workflow-run",
@@ -40,8 +73,14 @@ def test_workflow_engine_can_execute_into_existing_run(app, db_session, teacher_
         )
 
         assert state["workflow_run_id"] == run.id
-        assert WorkflowRun.query.count() == 1
-        assert WorkflowStep.query.filter_by(workflow_run_id=run.id).count() == 1
+        assert db_session.scalar(
+            select(func.count()).select_from(WorkflowRun)
+        ) == 1
+        assert db_session.scalar(
+            select(func.count())
+            .select_from(WorkflowStep)
+            .where(WorkflowStep.workflow_run_id == run.id)
+        ) == 1
 
         db_session.refresh(run)
         assert run.goal == "new goal"
@@ -56,7 +95,7 @@ def test_workflow_aborts_when_wall_clock_timeout_exceeded(
         from graph import engine as engine_module
         from graph.engine import WorkflowEngine
         from graph.node_registry import register_step_handler
-        from app.models.workflow import WorkflowRun
+        from domain.models.workflow import WorkflowRun
 
         register_step_handler(
             "timeout_noop",
@@ -106,7 +145,7 @@ def test_workflow_aborts_when_wall_clock_timeout_exceeded(
 class TestWorkflowCrashRecovery:
     def test_recovers_orphaned_workflow(self, app, db_session, teacher_user):
         with app.app_context():
-            from app.models.workflow import WorkflowRun, WorkflowStep
+            from domain.models.workflow import WorkflowRun, WorkflowStep
             from graph.recovery import recover_orphaned_workflows
 
             run = WorkflowRun(
@@ -135,12 +174,16 @@ class TestWorkflowCrashRecovery:
             assert run.status == "failed"
             assert run.error_detail and "restart" in run.error_detail.lower()
 
-            step = WorkflowStep.query.filter_by(workflow_run_id="orphan-run").first()
+            step = db_session.execute(
+                select(WorkflowStep).where(
+                    WorkflowStep.workflow_run_id == "orphan-run"
+                )
+            ).scalar_one_or_none()
             assert step.status == "failed"
 
     def test_preserves_waiting_approval(self, app, db_session, teacher_user):
         with app.app_context():
-            from app.models.workflow import WorkflowRun
+            from domain.models.workflow import WorkflowRun
             from graph.recovery import recover_orphaned_workflows
 
             run = WorkflowRun(

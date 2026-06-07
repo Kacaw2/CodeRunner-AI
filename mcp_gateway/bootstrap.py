@@ -29,6 +29,7 @@ def bootstrap_tool_runtime(*, session_factory=None) -> ToolRuntime:
     _register_code_handlers(transport)
     _register_knowledge_handlers(transport)
     _register_analytics_handlers(transport, session_factory)
+    _register_agent_handlers(transport)
     _register_approval_handlers(transport, registry)
 
     _assert_rbac_consistent(registry)
@@ -52,12 +53,14 @@ class _DbApprovalStore:
             return ""
 
         from app.core.timezone import now_china
-        from core.db.models.mcp_approval import McpToolApproval
+        from domain.models.mcp import McpToolApproval
+        from domain.repositories.mcp import SyncMcpRepository
 
         session = self._session_factory()
+        repository = SyncMcpRepository(session)
         approval_id = str(uuid.uuid4())
         try:
-            approval = McpToolApproval(
+            repository.create_approval(
                 id=approval_id,
                 api_key_id=caller.api_key_id,
                 user_id=caller.user_id,
@@ -68,9 +71,14 @@ class _DbApprovalStore:
                 expires_at=McpToolApproval.default_expiry(),
                 created_at=now_china(),
             )
-            session.add(approval)
             session.commit()
             return approval_id
+        except Exception:
+            rollback = getattr(session, "rollback", None)
+            if rollback:
+                rollback()
+            logger.exception("Failed to create approval row for tool=%s", descriptor.name)
+            return ""
         finally:
             close = getattr(session, "close", None)
             if close:
@@ -238,6 +246,8 @@ def _execute_approved_tool(approval, *, transport, registry) -> dict:
     stored args are overwritten with the trusted approval identity.
     """
     from tools.protocol.runtime import ToolRuntime
+    from tools.protocol.errors import MCPError
+    from tools.protocol.policies.guard import check_internal_only, check_rbac
     from mcp_gateway.tool_map import EXTERNAL_TOOL_MAP
 
     raw_name = approval.tool_name
@@ -248,9 +258,23 @@ def _execute_approved_tool(approval, *, transport, registry) -> dict:
         logger.error("approved tool has no registered handler: name=%s", raw_name)
         return {"error": f"Unknown high-risk tool: {raw_name}"}
 
+    # Re-validate the still-applicable policy gates at execution time, so an
+    # approval grant cannot bypass internal-only / RBAC rules that may have
+    # tightened after the request was queued. We deliberately skip:
+    #   * risk policy — it would re-raise MCPApprovalRequired (infinite loop);
+    #   * scope check — the original granted scopes are not stored on the
+    #     approval row, so there is no scope context to re-check here.
+    caller = _approved_caller_context(approval)
+    try:
+        check_internal_only(descriptor, caller)
+        check_rbac(descriptor, caller)
+    except MCPError as exc:
+        logger.warning("approved tool re-check denied: tool=%s err=%s", tool_name, exc)
+        return {"error": f"Approved tool no longer permitted: {exc}"}
+
     # Registered handlers manage their own DB session (via session_factory),
     # exactly as on the live call path — no session is threaded in here.
-    args = ToolRuntime._sanitize_args(approval.tool_args or {}, _approved_caller_context(approval))
+    args = ToolRuntime._sanitize_args(approval.tool_args or {}, caller)
 
     try:
         return transport.invoke(tool_name, args)
@@ -259,14 +283,47 @@ def _execute_approved_tool(approval, *, transport, registry) -> dict:
         return {"error": f"Tool execution failed: {exc}"}
 
 
+def _register_agent_handlers(transport: LocalTransport) -> None:
+    from graph.handoff import HANDOFF_SUMMARY_LIMIT, validate_handoff_target
+    from tools.protocol.errors import MCPPermissionDenied
+
+    def delegate(
+        target: str,
+        reason: str,
+        summary: str = "",
+        _caller_agent_type: str = "",
+        _caller_role: str = "student",
+        **_kw,
+    ) -> dict:
+        # RBAC at the boundary: the source/target edge and the caller's role are
+        # validated here, never trusted from LLM text. Identity comes from the
+        # sanitized caller context (_caller_*), not from tool args.
+        error = validate_handoff_target(_caller_agent_type, target, _caller_role)
+        if error:
+            raise MCPPermissionDenied(error)
+        return {
+            "handoff_to": target,
+            "handoff_reason": reason,
+            "handoff_source": _caller_agent_type,
+            "handoff_summary": (summary or "")[:HANDOFF_SUMMARY_LIMIT],
+        }
+
+    transport.register_handler("coderunner.agent.delegate", delegate)
+
+
 def _register_approval_handlers(transport: LocalTransport, registry: ToolRegistry) -> None:
     from core.db.session import get_session
-    from core.db.models.mcp_approval import McpToolApproval
+    from domain.repositories.mcp import SyncMcpRepository
 
     def approval_check(approval_id: str, **_kw) -> dict:
         session = get_session()
         try:
-            approval = session.get(McpToolApproval, approval_id)
+            # Row lock so two concurrent checks cannot both see result is None
+            # and execute the approved tool twice. On MySQL this is SELECT ...
+            # FOR UPDATE held until commit/rollback; SQLite ignores it harmlessly.
+            approval = SyncMcpRepository(session).get_approval(
+                approval_id, for_update=True
+            )
             if not approval:
                 return {"status": "not_found", "message": "Approval not found"}
 

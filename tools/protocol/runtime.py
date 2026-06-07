@@ -19,8 +19,9 @@ from tools.protocol.errors import (
     MCPApprovalRequired,
     MCPInternalError,
     MCPArgumentInvalid,
+    MCPSchemaInvalid,
 )
-from core.observability.audit import AuditEntry, emit_audit
+from core.observability.audit import AuditEntry, emit_audit, log_tool_call
 from tools.protocol.policies.guard import run_guard
 from tools.protocol.registry import ToolRegistry, get_registry
 from tools.protocol.schemas.descriptors import ToolDescriptor
@@ -29,6 +30,14 @@ from tools.protocol.transports.inproc import LocalTransport
 logger = logging.getLogger(__name__)
 
 _GLOBAL_RUNTIME: ToolRuntime | None = None
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _output_schema_enforced() -> bool:
+    """Read MCP_OUTPUT_SCHEMA_ENFORCE at call time so the toggle is live."""
+    import os
+    return os.environ.get("MCP_OUTPUT_SCHEMA_ENFORCE", "").strip().lower() in _TRUTHY
 
 
 @dataclass
@@ -121,13 +130,14 @@ class ToolRuntime:
             self._validate_input(descriptor, args, trace_id)
         except MCPError as exc:
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="error", error_code=exc.code.value)
+                       status="error", error_code=exc.code.value, args=args)
             return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
 
         guard = run_guard(descriptor, caller, granted_scopes=context.granted_scopes)
         if guard.rejected:
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="rejected", error_code=guard.error.code.value if guard.error else "")
+                       status="rejected", error_code=guard.error.code.value if guard.error else "",
+                       args=args)
             if isinstance(guard.error, MCPApprovalRequired):
                 approval_id = guard.error.approval_id
                 if self._approval_store is not None:
@@ -145,11 +155,11 @@ class ToolRuntime:
 
         try:
             sanitized = self._sanitize_args(args, caller)
-            raw = await self._transport.call(tool_name, sanitized, timeout_ms=descriptor.timeout_ms)
+            raw = await self._call_with_retry(descriptor, tool_name, sanitized)
             elapsed = self._elapsed(start)
 
             self._validate_output(descriptor, raw, trace_id)
-            self._emit(descriptor, caller, tool_call_id, start, status="success")
+            self._emit(descriptor, caller, tool_call_id, start, status="success", args=args)
 
             return ToolResult(
                 ok=True,
@@ -162,13 +172,16 @@ class ToolRuntime:
 
         except MCPError as exc:
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="error", error_code=exc.code.value)
+                       status="error", error_code=exc.code.value, args=args)
             return self._error_result(tool_name, exc, tool_call_id=tool_call_id)
         except Exception as exc:
-            logger.exception("tool=%s unexpected error", tool_name)
-            mcp_err = MCPInternalError(str(exc), trace_id=trace_id)
+            # Never surface raw exception text to the caller — it can leak stack
+            # internals, paths, or secrets. The full detail (with traceback) goes
+            # to the log/audit stream above; the envelope gets a generic message.
+            logger.exception("tool=%s unexpected error: %s", tool_name, exc)
+            mcp_err = MCPInternalError("internal tool error", trace_id=trace_id)
             self._emit(descriptor, caller, tool_call_id, start,
-                       status="error", error_code=mcp_err.code.value)
+                       status="error", error_code=mcp_err.code.value, args=args)
             return self._error_result(tool_name, mcp_err, tool_call_id=tool_call_id)
 
     def call_sync(
@@ -191,6 +204,39 @@ class ToolRuntime:
                 return future.result()
         return asyncio.run(self.call(tool_name, args, context))
 
+    async def _call_with_retry(
+        self,
+        descriptor: ToolDescriptor,
+        tool_name: str,
+        sanitized: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run the transport call with bounded retry on *retryable* errors only.
+
+        ``max_attempts`` is the number of retries after the initial attempt, so
+        ``max_attempts=0`` (today's default for every descriptor) makes exactly
+        one attempt — the wiring is behavior-preserving until a tool opts in.
+        Only ``retryable`` MCP errors (rate-limit / transport / timeout) are
+        retried; a schema or permission fault is not transient and propagates
+        immediately. Wraps the transport execution alone — guard, input and
+        output validation stay outside the retry loop.
+        """
+        import asyncio
+
+        policy = descriptor.retry_policy
+        attempt = 0
+        while True:
+            try:
+                return await self._transport.call(
+                    tool_name, sanitized, timeout_ms=descriptor.timeout_ms
+                )
+            except MCPError as exc:
+                if exc.code.retryable and attempt < policy.max_attempts:
+                    attempt += 1
+                    if policy.backoff_ms > 0:
+                        await asyncio.sleep(policy.backoff_ms / 1000)
+                    continue
+                raise
+
     @staticmethod
     def _sanitize_args(args: dict[str, Any], caller: CallerContext) -> dict[str, Any]:
         """Strip identity fields that the LLM should not control."""
@@ -204,6 +250,7 @@ class ToolRuntime:
             sanitized["teacher_id"] = caller.user_id
         sanitized["_caller_user_id"] = caller.user_id
         sanitized["_caller_role"] = caller.role
+        sanitized["_caller_agent_type"] = caller.agent_type
         return sanitized
 
     @staticmethod
@@ -226,11 +273,13 @@ class ToolRuntime:
         result: Any,
         trace_id: str,
     ) -> None:
-        """Warn-only output_schema check (schema 先松后紧).
+        """output_schema check, warn-only by default (schema 先松后紧).
 
-        Logs a warning on mismatch but never fails the call, so completing the
-        catalog's output_schemas can't turn previously-working tools into
-        ``MCPSchemaInvalid`` errors. Flip to enforce once schemas are complete.
+        Default behavior logs a warning on mismatch but never fails the call.
+        Setting ``MCP_OUTPUT_SCHEMA_ENFORCE`` truthy flips a mismatch into an
+        ``MCPSchemaInvalid`` error — a single ops decision once the catalog's
+        schemas are trusted, not a code change. The default stays off so that
+        completing schemas cannot turn a previously-working tool into an error.
         """
         if not descriptor.output_schema:
             return
@@ -238,10 +287,17 @@ class ToolRuntime:
             import jsonschema
             jsonschema.validate(result, descriptor.output_schema)
         except jsonschema.ValidationError as exc:
+            if _output_schema_enforced():
+                raise MCPSchemaInvalid(
+                    f"output_schema mismatch for tool '{descriptor.name}': {exc.message}",
+                    trace_id=trace_id,
+                ) from exc
             logger.warning(
                 "output_schema mismatch tool=%s trace_id=%s: %s",
                 descriptor.name, trace_id, exc.message,
             )
+        except MCPSchemaInvalid:
+            raise
         except Exception:  # noqa: BLE001 — observability must never block a tool result
             logger.exception("output_schema validation crashed tool=%s", descriptor.name)
 
@@ -254,7 +310,9 @@ class ToolRuntime:
         *,
         status: str = "success",
         error_code: str = "",
+        args: dict[str, Any] | None = None,
     ) -> None:
+        latency_ms = self._elapsed(start)
         emit_audit(AuditEntry(
             trace_id=caller.trace_id,
             task_id=caller.task_id or "",
@@ -266,9 +324,27 @@ class ToolRuntime:
             user_id=caller.user_id,
             role=caller.role,
             status=status,
-            latency_ms=self._elapsed(start),
+            latency_ms=latency_ms,
             error_code=error_code,
         ))
+        # Persist to the McpAuditLog table so audit survives beyond the log
+        # stream. Best-effort: log_tool_call swallows and rolls back on failure,
+        # so a tool result is never blocked by an audit write.
+        log_tool_call(
+            api_key_id=getattr(caller, "api_key_id", None),
+            user_id=caller.user_id,
+            tool_name=tool.name,
+            tool_args=self._audit_args(args),
+            status=status,
+            latency_ms=latency_ms,
+        )
+
+    @staticmethod
+    def _audit_args(args: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Drop injected caller-identity fields before persisting tool args."""
+        if not args:
+            return None
+        return {k: v for k, v in args.items() if not k.startswith("_caller_")}
 
     @staticmethod
     def _elapsed(start: float) -> int:

@@ -13,6 +13,20 @@ def _make_llm_response(content="test response", tool_calls=None):
 
 
 class TestBaseAgent:
+    def test_legacy_tool_name_xml_tag_parses_to_canonical_tool(self):
+        from agents.base import _parse_legacy_function_text
+
+        call = _parse_legacy_function_text(
+            "Let me inspect it.\n\n<get_problem_detail>\n</get_problem_detail>",
+            ["coderunner.problem.get_detail"],
+        )
+
+        assert call == {
+            "name": "coderunner.problem.get_detail",
+            "args": {},
+            "id": "legacy_coderunner_problem_get_detail",
+        }
+
     def test_sanitize_args_strips_identity(self):
         from tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext
@@ -66,7 +80,7 @@ class TestToolLoopExhaustion:
     """Phase 1: an exhausted tool loop must be explicit, never a blank success."""
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_sync_exhaustion_is_explicit(self, mock_config, mock_save, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -112,7 +126,7 @@ class TestToolLoopExhaustion:
             assert "completed" not in statuses
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_stream_exhaustion_yields_error(self, mock_config, mock_save, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -166,7 +180,7 @@ class TestToolLoopExhaustion:
 class TestSystemContextIsolation:
     """Phase 2: the injected system prompt must never be persisted into history."""
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_strips_system_message(self, mock_config, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -241,7 +255,7 @@ class TestSystemContextIsolation:
 
 
 class TestTutorAgent:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -267,7 +281,7 @@ class TestTutorAgent:
             assert result["final_response"] == "Here's a hint about your loop."
             assert len(result["messages"]) > 1
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_with_tool_calls(self, mock_config, app):
         with app.app_context():
             from agents.tutor.agent import TutorAgent
@@ -312,7 +326,7 @@ class TestTutorAgent:
 
 
 class TestReviewerAgent:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_returns_review(self, mock_config, app):
         with app.app_context():
             from agents.reviewer.agent import ReviewerAgent
@@ -440,7 +454,7 @@ class TestGeneratorAgent:
             from langchain_core.messages import HumanMessage
             from agents.generator.agent import GeneratorAgent
             from core.observability.tracing import TraceCollector
-            from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+            from domain.models.observability import AgentTraceRun, AgentTraceSpan
             from core.db.session import db_session as core_db_session
 
             class Chunk:
@@ -515,7 +529,7 @@ class TestGeneratorAgent:
 
 
 class TestAnalyticsAgent:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_invoke_returns_report(self, mock_config, app):
         with app.app_context():
             from agents.analytics.agent import AnalyticsAgent
@@ -542,7 +556,7 @@ class TestAnalyticsAgent:
             assert "progress" in result["final_response"]
 
     @patch("core.observability.tracing.TraceCollector.save")
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_stream_executes_legacy_function_text_without_leaking_it(self, mock_config, mock_save, app):
         with app.app_context():
             from agents.analytics.agent import AnalyticsAgent
@@ -713,7 +727,7 @@ class TestOrchestrator:
             assert result["agent_type"] == "analytics"
             assert result.get("auto_routed") is True
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_run_agent_catches_ai_error(self, mock_config, app):
         with app.app_context():
             from graph.runner import _run_agent
@@ -734,7 +748,7 @@ class TestOrchestrator:
             result = _run_agent("tutor", state)
             assert "temporarily unavailable" in result["final_response"]
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_run_agent_catches_unexpected_error(self, mock_config, app):
         with app.app_context():
             from graph.runner import _run_agent
@@ -820,10 +834,13 @@ class TestCrashRecovery:
     def test_recovers_orphaned_tasks(self, db_session, app):
         with app.app_context():
             from app.models.agent_task import AgentTask
-            from app.models.user import User, UserRole
+            from domain.models.user import User, UserRole
+            from domain.repositories.users import SyncUserRepository
             from graph.recovery import recover_orphaned_tasks
 
-            user = User.query.filter_by(username="recovery_test_user").first()
+            user = SyncUserRepository(db_session).get_by_username(
+                "recovery_test_user"
+            )
             if not user:
                 user = User(username="recovery_test_user", password="x", email="recov@test.com", role=UserRole.TEACHER)
                 db_session.add(user)
@@ -851,10 +868,13 @@ class TestCrashRecovery:
     def test_fails_exhausted_tasks(self, db_session, app):
         with app.app_context():
             from app.models.agent_task import AgentTask
-            from app.models.user import User, UserRole
+            from domain.models.user import User, UserRole
+            from domain.repositories.users import SyncUserRepository
             from graph.recovery import recover_orphaned_tasks
 
-            user = User.query.filter_by(username="recovery_test_user2").first()
+            user = SyncUserRepository(db_session).get_by_username(
+                "recovery_test_user2"
+            )
             if not user:
                 user = User(username="recovery_test_user2", password="x", email="recov2@test.com", role=UserRole.TEACHER)
                 db_session.add(user)
@@ -882,8 +902,8 @@ class TestCrashRecovery:
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():
-            from app.models.ai_conversation import AIConversation
-            from app.models.user import User, UserRole
+            from domain.models.chat import AIConversation
+            from domain.models.user import User, UserRole
             from memory.service import MemoryService
 
             user = User(username="mem_replay_user", password="x",
@@ -920,7 +940,7 @@ class TestCrossAgentCallGuardrail:
             pass
         assert trace.llm_call_count == 2
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_guardrail_aborts_when_shared_budget_exhausted(self, mock_config, app):
         with app.app_context():
             from agents.config import MAX_LLM_CALLS_PER_TRACE

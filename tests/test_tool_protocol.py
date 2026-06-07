@@ -118,6 +118,7 @@ class TestToolCatalog:
             "coderunner.analytics.problem_difficulty",
             "coderunner.trace.get_agent_trace",
             "coderunner.approval.check",
+            "coderunner.agent.delegate",
         }
         assert expected == set(TOOL_CATALOG.keys())
 
@@ -128,6 +129,19 @@ class TestToolCatalog:
         high_risk = {n for n, d in TOOL_CATALOG.items() if d.risk_level == RiskLevel.HIGH}
         assert "coderunner.code.execute" in high_risk
         assert "coderunner.problem.save_generated" in high_risk
+
+    def test_no_tool_ships_bare_output_schema_placeholder(self):
+        """Every catalog tool must declare a real output_schema with named
+        properties, not the bare ``{"type": "object"}`` placeholder. This keeps
+        the output contract describable (and enforceable via
+        MCP_OUTPUT_SCHEMA_ENFORCE) instead of silently accepting any shape."""
+        from tools.protocol.schemas.catalog import TOOL_CATALOG
+
+        offenders = [
+            name for name, d in TOOL_CATALOG.items()
+            if not d.output_schema.get("properties")
+        ]
+        assert not offenders, f"tools with placeholder output_schema: {offenders}"
 
 
 # ── Registry ──────────────────────────────────────────────────
@@ -262,12 +276,17 @@ class TestAdapters:
         ]
         schemas = descriptors_to_llm_tools(descs)
         assert len(schemas) == 2
-        assert schemas[0]["function"]["name"] == "a.b"
+        assert schemas[0]["function"]["name"] == "a_d_b"
+        assert schemas[0]["function"]["name"].replace("_", "").isalnum()
 
     def test_parse_llm_tool_call(self):
         from tools.protocol.adapters import parse_llm_tool_call
 
-        tc = {"name": "coderunner.code.execute", "args": {"code": "print(1)"}, "id": "tc1"}
+        tc = {
+            "name": "coderunner_d_code_d_execute",
+            "args": {"code": "print(1)"},
+            "id": "tc1",
+        }
         req = parse_llm_tool_call(tc)
         assert req.tool_name == "coderunner.code.execute"
         assert req.args == {"code": "print(1)"}
@@ -365,6 +384,40 @@ class TestToolRuntime:
         assert result.ok is False
         assert "PERMISSION_DENIED" in (result.error or {}).get("code", "")
 
+    def test_unexpected_exception_text_not_leaked_in_envelope(self):
+        from tools.protocol.runtime import ToolRuntime, ToolCallContext
+        from tools.protocol.registry import ToolRegistry
+        from tools.protocol.transports.inproc import LocalTransport
+        from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+        from core.auth.context import CallerContext
+
+        secret = "secret-db-password-leak /etc/internal/path"
+
+        reg = ToolRegistry()
+        transport = LocalTransport()
+        reg.register(ToolDescriptor(
+            name="coderunner.problem.get_detail", version="1.0.0",
+            description="", input_schema={}, output_schema={},
+            risk_level=RiskLevel.LOW,
+        ))
+
+        def _boom(**kw):
+            raise RuntimeError(secret)
+
+        transport.register_handler("coderunner.problem.get_detail", _boom)
+
+        runtime = ToolRuntime(registry=reg, transport=transport)
+        ctx = ToolCallContext(
+            caller=CallerContext(user_id=1, role="student", agent_type="tutor"),
+        )
+        result = runtime.call_sync("coderunner.problem.get_detail", {"problem_id": 1}, ctx)
+
+        assert result.ok is False
+        message = (result.error or {}).get("message", "")
+        assert message == "internal tool error"
+        assert secret not in message
+        assert (result.error or {}).get("code") == "MCP_INTERNAL_ERROR"
+
     def test_sanitize_args_strips_identity(self):
         from tools.protocol.runtime import ToolRuntime
         from core.auth.context import CallerContext
@@ -378,6 +431,136 @@ class TestToolRuntime:
         assert "user_id" not in sanitized
         assert "role" not in sanitized
         assert sanitized["student_id"] == 42
+
+
+# ── Retry policy ─────────────────────────────────────────────
+
+class _FlakyTransport:
+    """Async transport that fails the first ``fail_times`` calls, then succeeds.
+
+    Mirrors LocalTransport.call's signature so ToolRuntime drives it unchanged.
+    """
+
+    def __init__(self, fail_times: int, exc: Exception):
+        self.fail_times = fail_times
+        self.exc = exc
+        self.calls = 0
+
+    async def call(self, tool_name, args, *, timeout_ms=30_000):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.exc
+        return {"attempt": self.calls}
+
+
+def _retry_runtime(transport, *, max_attempts: int):
+    from tools.protocol.runtime import ToolRuntime, ToolCallContext
+    from tools.protocol.registry import ToolRegistry
+    from tools.protocol.schemas.descriptors import (
+        ToolDescriptor, RiskLevel, RetryPolicy,
+    )
+    from core.auth.context import CallerContext
+
+    reg = ToolRegistry()
+    reg.register(ToolDescriptor(
+        name="test.retry", version="1.0.0", description="",
+        input_schema={}, output_schema={}, risk_level=RiskLevel.LOW,
+        retry_policy=RetryPolicy(max_attempts=max_attempts, backoff_ms=0),
+    ))
+    runtime = ToolRuntime(registry=reg, transport=transport)
+    # Empty agent_type → no per-agent allowlist applies; the synthetic tool has
+    # no role override and no required scopes, so the guard passes and the test
+    # exercises the transport/retry path only.
+    ctx = ToolCallContext(caller=CallerContext(user_id=1, role="student", agent_type=""))
+    return runtime, ctx
+
+
+class TestRetryPolicy:
+    def test_retryable_error_retries_then_succeeds(self):
+        from tools.protocol.errors import MCPTransportUnavailable
+
+        transport = _FlakyTransport(fail_times=1, exc=MCPTransportUnavailable("down"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=2)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is True
+        assert transport.calls == 2
+
+    def test_zero_max_attempts_makes_single_attempt(self):
+        from tools.protocol.errors import MCPTransportUnavailable
+
+        transport = _FlakyTransport(fail_times=1, exc=MCPTransportUnavailable("down"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=0)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is False
+        assert result.error["code"] == "MCP_TRANSPORT_UNAVAILABLE"
+        assert transport.calls == 1
+
+    def test_non_retryable_error_not_retried(self):
+        from tools.protocol.errors import MCPArgumentInvalid
+
+        transport = _FlakyTransport(fail_times=99, exc=MCPArgumentInvalid("bad"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=3)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is False
+        assert result.error["code"] == "MCP_ARGUMENT_INVALID"
+        assert transport.calls == 1
+
+    def test_retry_stops_at_ceiling(self):
+        from tools.protocol.errors import MCPTransportUnavailable
+
+        transport = _FlakyTransport(fail_times=99, exc=MCPTransportUnavailable("down"))
+        runtime, ctx = _retry_runtime(transport, max_attempts=2)
+        result = runtime.call_sync("test.retry", {}, ctx)
+        assert result.ok is False
+        # 1 initial attempt + 2 retries = 3 transport calls
+        assert transport.calls == 3
+
+
+# ── Output schema enforce toggle ─────────────────────────────
+
+def _schema_runtime(transport_result):
+    from tools.protocol.runtime import ToolRuntime, ToolCallContext
+    from tools.protocol.registry import ToolRegistry
+    from tools.protocol.transports.inproc import LocalTransport
+    from tools.protocol.schemas.descriptors import ToolDescriptor, RiskLevel
+    from core.auth.context import CallerContext
+
+    reg = ToolRegistry()
+    reg.register(ToolDescriptor(
+        name="test.schema", version="1.0.0", description="",
+        input_schema={}, risk_level=RiskLevel.LOW,
+        output_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+        },
+    ))
+    transport = LocalTransport()
+    transport.register_handler("test.schema", lambda **kw: transport_result)
+    runtime = ToolRuntime(registry=reg, transport=transport)
+    ctx = ToolCallContext(caller=CallerContext(user_id=1, role="student", agent_type=""))
+    return runtime, ctx
+
+
+class TestOutputSchemaEnforce:
+    def test_default_off_warns_and_passes(self, monkeypatch):
+        monkeypatch.delenv("MCP_OUTPUT_SCHEMA_ENFORCE", raising=False)
+        runtime, ctx = _schema_runtime({"unexpected": True})  # missing "status"
+        result = runtime.call_sync("test.schema", {}, ctx)
+        assert result.ok is True  # warn-only: mismatch does not fail the call
+
+    def test_enforce_on_fails_mismatch(self, monkeypatch):
+        monkeypatch.setenv("MCP_OUTPUT_SCHEMA_ENFORCE", "true")
+        runtime, ctx = _schema_runtime({"unexpected": True})  # missing "status"
+        result = runtime.call_sync("test.schema", {}, ctx)
+        assert result.ok is False
+        assert result.error["code"] == "MCP_SCHEMA_INVALID"
+
+    def test_enforce_on_passes_valid_output(self, monkeypatch):
+        monkeypatch.setenv("MCP_OUTPUT_SCHEMA_ENFORCE", "true")
+        runtime, ctx = _schema_runtime({"status": "ok"})
+        result = runtime.call_sync("test.schema", {}, ctx)
+        assert result.ok is True
 
 
 # ── Agent MCP tool names ─────────────────────────────────────
@@ -396,7 +579,8 @@ class TestAgentMCPToolNames:
 
         tools = ReviewerAgent().mcp_tool_names
         assert "coderunner.code.execute" in tools
-        assert len(tools) == 2
+        assert "coderunner.agent.delegate" in tools
+        assert len(tools) == 3
 
     def test_generator_declares_mcp_names(self):
         from agents.generator.agent import GeneratorAgent

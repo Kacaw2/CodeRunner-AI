@@ -1,25 +1,21 @@
 """Eval report generator (Phase 7, Task 8).
 
 Reads persisted eval rows (``EvalRun`` / ``EvalCaseRun`` / ``EvalCaseGraderResult``)
-through the runtime-neutral ``core.db.session`` and assembles a structured
+through ``core.db.session`` and assembles a structured
 :class:`EvalReport` covering quality, cost, latency, token distribution, failure
 types, top failed cases, grader pass rates and — when a comparison run is given —
 case-level regressions.
 
-The report has no Flask dependency so it can run from CI (``evals/ci.py``) or be
-shaped into an API payload by the web layer.
+The report can run from CI (``evals/ci.py``) or be shaped into an API payload by
+the web layer.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.db.models.agent_trace import (
-    EvalRun,
-    EvalCaseRun,
-    EvalCaseGraderResult,
-)
 from core.db.session import db_session
+from domain.repositories.evals import SyncEvalRepository
 from evals.reports.regression import detect_new_failures, detect_regressions
 
 
@@ -91,6 +87,9 @@ class EvalReport:
 class ReportGenerator:
     """Build a structured :class:`EvalReport` from persisted eval rows."""
 
+    def __init__(self, session_scope=db_session) -> None:
+        self.session_scope = session_scope
+
     def build(self, *, eval_run_id: int, compare_to_eval_run_id: int = 0) -> EvalReport:
         run, cases = self._load_run(eval_run_id)
         case_dicts = [self._case_to_dict(c) for c in cases]
@@ -107,13 +106,9 @@ class ReportGenerator:
     # ── Loading ────────────────────────────────────────────────
 
     def _load_run(self, eval_run_id: int):
-        with db_session() as session:
-            run = session.query(EvalRun).filter_by(id=eval_run_id).first()
-            cases = (
-                session.query(EvalCaseRun)
-                .filter_by(eval_run_id=eval_run_id)
-                .order_by(EvalCaseRun.created_at)
-                .all()
+        with self.session_scope() as session:
+            run, cases = SyncEvalRepository(session).load_run_with_cases(
+                eval_run_id
             )
             session.expunge_all()
             return run, cases
@@ -122,12 +117,8 @@ class ReportGenerator:
         case_run_ids = [c["case_run_id"] for c in case_dicts if c.get("case_run_id")]
         if not case_run_ids:
             return []
-        with db_session() as session:
-            rows = (
-                session.query(EvalCaseGraderResult)
-                .filter(EvalCaseGraderResult.case_run_id.in_(case_run_ids))
-                .all()
-            )
+        with self.session_scope() as session:
+            rows = SyncEvalRepository(session).list_grader_results(case_run_ids)
             return [
                 {
                     "grader_type": r.grader_type,

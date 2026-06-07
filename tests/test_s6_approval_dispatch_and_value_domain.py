@@ -24,7 +24,9 @@ class _FakeRegistry:
         self._known = set(known)
 
     def get(self, name):
-        return object() if name in self._known else None
+        # Return the real descriptor so post-approval policy re-checks
+        # (internal_only / RBAC) see the genuine tool contract.
+        return TOOL_CATALOG.get(name) if name in self._known else None
 
 
 class _FakeTransport:

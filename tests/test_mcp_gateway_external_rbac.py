@@ -55,3 +55,21 @@ def test_external_client_unrestricted_tool_passes_with_scope(monkeypatch):
     ))
 
     assert payload["ok"] is True
+
+
+def test_external_path_has_no_agent_allowlist_layer():
+    """Invariant: the agent-allowlist hook (BEFORE_TOOL_CALL) is an agent-path
+    concept only. External API-key callers are gated by RBAC + scope, never by a
+    per-agent tool allowlist — there is no agent in that flow. The gateway tool
+    wrapper must therefore NOT invoke the hook manager.
+
+    If this breaks, do not add the hook to the external path; revisit the design.
+    """
+    import inspect
+
+    from mcp_gateway.middleware import core
+
+    src = inspect.getsource(core.call_via_runtime)
+    assert "HookEvent" not in src
+    assert "get_hook_manager" not in src
+    assert "BEFORE_TOOL_CALL" not in src

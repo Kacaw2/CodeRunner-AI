@@ -19,7 +19,7 @@ def _seed_complete_trace(trace_id="trace-complete-1", **overrides):
     """Insert one run plus a span/event/artifact/link via plain SQLAlchemy."""
     from decimal import Decimal
 
-    from core.db.models.agent_trace import (
+    from domain.models.observability import (
         AgentTraceArtifact,
         AgentTraceEvent,
         AgentTraceLink,

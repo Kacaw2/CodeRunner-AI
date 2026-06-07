@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch, MagicMock
 
 import pytest
-from app.models.ai_conversation import AIConversation, AIMessage
+from domain.models.chat import AIConversation, AIMessage
 
 
 class TestRateLimiting:
@@ -119,7 +119,7 @@ class TestAutoRoutingPerAgentLimit:
         # Header reflects the generator limit (5), not the auto guard (20).
         assert resp.headers["X-RateLimit-Limit"] == "5"
 
-    @patch("workers.chat.submit_chat_task")
+    @patch("app.services.agent_runtime_dispatcher._dispatch_remote")
     def test_chat_async_persists_resolved_agent(self, mock_submit, client, mock_auth_student, db_session):
         mock_redis = MagicMock()
         mock_redis.incr.return_value = 1
@@ -132,8 +132,8 @@ class TestAutoRoutingPerAgentLimit:
         assert resp.status_code == 202
         task_id = resp.get_json()["task_id"]
 
-        from app.models.chat_task import ChatTask
-        task = ChatTask.query.get(task_id)
+        from domain.models.chat import ChatTask
+        task = db_session.get(ChatTask, task_id)
         assert task.agent_type == "auto"         # original lane preserved
         assert task.routed_agent == "generator"  # resolved at submission so the worker reuses it
 
@@ -154,14 +154,14 @@ class TestAutoRoutingPerAgentLimit:
 
 
 class TestChatEndpoint:
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_chat_requires_message(self, mock_config, client, mock_auth_student, mock_redis):
         resp = client.post("/api/v1/ai/chat", json={})
         assert resp.status_code == 400
         data = resp.get_json()
         assert data["error"] == "invalid_request"
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_chat_returns_response(self, mock_config, client, mock_auth_student, mock_redis, db_session):
         from langchain_core.messages import AIMessage as LCAIMessage
 
@@ -256,7 +256,7 @@ class TestReviewEndpoint:
         resp = client.post("/api/v1/ai/review", json={})
         assert resp.status_code == 400
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_review_returns_structured_result(self, mock_config, client, mock_auth_student, mock_redis, db_session):
         review = '```json\n{"overall_score": "A", "summary": "Great", "issues": [], "strengths": ["Clean"]}\n```'
         mock_llm = MagicMock()
@@ -331,7 +331,7 @@ class TestAnalyticsEndpoint:
         resp = client.get(f"/api/v1/ai/analytics/{other_id}")
         assert resp.status_code == 403
 
-    @patch("agents.base.AIConfig")
+    @patch("agents.runtime.AIConfig")
     def test_analytics_returns_report(self, mock_config, client, mock_auth_teacher, mock_redis, db_session):
         report = '```json\n{"summary": "Good", "progress": {"trend": "improving"}}\n```'
         mock_llm = MagicMock()
@@ -358,17 +358,16 @@ class TestAsyncChatEndpoint:
         data = resp.get_json()
         assert data["error"] == "invalid_request"
 
-    def test_chat_async_proxy_still_validates_message(self, client, mock_auth_student, mock_redis):
-        with patch("app.api.v1.ai_proxy.USE_AGENT_HOST_PROXY", True), \
-             patch("app.api.v1.ai_proxy.proxy_chat_create", return_value=({"proxied": True}, 202)) as proxy:
+    def test_chat_async_validates_message_before_worker(self, client, mock_auth_student, mock_redis):
+        with patch("app.services.agent_runtime_dispatcher._dispatch_remote") as submit_chat_task:
             resp = client.post("/api/v1/ai/chat/async", json={})
 
         assert resp.status_code == 400
         data = resp.get_json()
         assert data["error"] == "invalid_request"
-        proxy.assert_not_called()
+        submit_chat_task.assert_not_called()
 
-    @patch("workers.chat.submit_chat_task")
+    @patch("app.services.agent_runtime_dispatcher._dispatch_remote")
     def test_chat_async_creates_task(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
         resp = client.post("/api/v1/ai/chat/async", json={
             "message": "Help me with arrays",
@@ -381,7 +380,7 @@ class TestAsyncChatEndpoint:
         assert "conversation_id" in data
         mock_submit.assert_called_once()
 
-    @patch("workers.chat.submit_chat_task")
+    @patch("app.services.agent_runtime_dispatcher._dispatch_remote")
     def test_chat_async_ignores_manual_agent_type(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
         resp = client.post("/api/v1/ai/chat/async", json={
             "message": "Generate a problem",
@@ -391,8 +390,8 @@ class TestAsyncChatEndpoint:
         assert resp.status_code == 202
         task_id = resp.get_json()["task_id"]
 
-        from app.models.chat_task import ChatTask
-        task = ChatTask.query.get(task_id)
+        from domain.models.chat import ChatTask
+        task = db_session.get(ChatTask, task_id)
         assert task.agent_type == "auto"
 
     def test_chat_agent_type_normalization_for_all_chat_entrypoints(self, app):
@@ -407,7 +406,7 @@ class TestAsyncChatEndpoint:
         resp = client.get("/api/v1/ai/chat/task/nonexistent-uuid")
         assert resp.status_code == 404
 
-    @patch("workers.chat.submit_chat_task")
+    @patch("app.services.agent_runtime_dispatcher._dispatch_remote")
     def test_chat_task_poll(self, mock_submit, client, mock_auth_student, mock_redis, db_session):
         resp = client.post("/api/v1/ai/chat/async", json={
             "message": "Test polling",
@@ -447,8 +446,8 @@ class TestChatTaskModel:
     """Tests for the ChatTask model."""
 
     def test_chat_task_creation(self, app, db_session, student_user):
-        from app.models.chat_task import ChatTask
-        from app.models.ai_conversation import AIConversation
+        from domain.models.chat import ChatTask
+        from domain.models.chat import AIConversation
 
         conv = AIConversation(user_id=student_user.id, agent_type="tutor")
         db_session.add(conv)
@@ -469,8 +468,8 @@ class TestChatTaskModel:
         assert task.conversation_id == conv.id
 
     def test_chat_task_to_dict(self, app, db_session, student_user):
-        from app.models.chat_task import ChatTask
-        from app.models.ai_conversation import AIConversation
+        from domain.models.chat import ChatTask
+        from domain.models.chat import AIConversation
 
         conv = AIConversation(user_id=student_user.id, agent_type="tutor")
         db_session.add(conv)
@@ -490,12 +489,12 @@ class TestChatTaskModel:
         assert d["id"] == task.id
 
 
-class TestChatWorkerRedis:
-    """Tests for the chat worker Redis operations."""
+class TestChatRedisBuffer:
+    """Tests for the shared chat Redis buffer operations."""
 
     def test_push_and_get_events(self, app):
         with app.app_context():
-            from workers.chat import _push_event, get_task_events
+            from workers.redis_buffer import ct_get_events, ct_push_event
 
             mock_redis = MagicMock()
             stored = []
@@ -510,18 +509,22 @@ class TestChatWorkerRedis:
             mock_redis.lrange.side_effect = mock_lrange
             mock_redis.expire.return_value = True
 
-            with patch("workers.chat.redis_client", mock_redis):
-                _push_event("test-task", {"type": "start", "agent_type": "tutor"})
-                _push_event("test-task", {"type": "token", "content": "Hello"})
+            with patch("workers.redis_buffer.get_redis", return_value=mock_redis):
+                ct_push_event(
+                    "test-task", {"type": "start", "agent_type": "tutor"}
+                )
+                ct_push_event(
+                    "test-task", {"type": "token", "content": "Hello"}
+                )
 
-                events = get_task_events("test-task", start=0)
+                events = ct_get_events("test-task", start=0)
                 assert len(events) == 2
                 assert events[0]["type"] == "start"
                 assert events[1]["content"] == "Hello"
 
     def test_get_events_with_offset(self, app):
         with app.app_context():
-            from workers.chat import _push_event, get_task_events
+            from workers.redis_buffer import ct_get_events, ct_push_event
 
             mock_redis = MagicMock()
             stored = []
@@ -536,18 +539,22 @@ class TestChatWorkerRedis:
             mock_redis.lrange.side_effect = mock_lrange
             mock_redis.expire.return_value = True
 
-            with patch("workers.chat.redis_client", mock_redis):
-                _push_event("test-task", {"type": "start"})
-                _push_event("test-task", {"type": "token", "content": "A"})
-                _push_event("test-task", {"type": "token", "content": "B"})
+            with patch("workers.redis_buffer.get_redis", return_value=mock_redis):
+                ct_push_event("test-task", {"type": "start"})
+                ct_push_event(
+                    "test-task", {"type": "token", "content": "A"}
+                )
+                ct_push_event(
+                    "test-task", {"type": "token", "content": "B"}
+                )
 
-                events = get_task_events("test-task", start=1)
+                events = ct_get_events("test-task", start=1)
                 assert len(events) == 2
                 assert events[0]["content"] == "A"
 
     def test_get_status_from_redis(self, app):
         with app.app_context():
-            from workers.chat import _set_redis, get_task_status_from_redis
+            from workers.redis_buffer import ct_get_status, ct_set_status
 
             mock_redis = MagicMock()
             store = {}
@@ -561,19 +568,22 @@ class TestChatWorkerRedis:
             mock_redis.set.side_effect = mock_set
             mock_redis.get.side_effect = mock_get
 
-            with patch("workers.chat.redis_client", mock_redis):
-                _set_redis("test-task", "processing", "tutor")
-                info = get_task_status_from_redis("test-task")
+            with patch("workers.redis_buffer.get_redis", return_value=mock_redis):
+                ct_set_status("test-task", "processing", "tutor")
+                info = ct_get_status("test-task")
                 assert info["status"] == "processing"
                 assert info["agent"] == "tutor"
 
     def test_no_redis_returns_empty(self, app):
         with app.app_context():
-            from workers.chat import get_task_events, get_task_status_from_redis
+            from workers.redis_buffer import ct_get_events, ct_get_status
 
-            with patch("workers.chat.redis_client", None):
-                assert get_task_events("x") == []
-                assert get_task_status_from_redis("x") == {}
+            with patch("workers.redis_buffer.get_redis", return_value=None):
+                assert ct_get_events("x") == []
+                assert ct_get_status("x") == {
+                    "status": None,
+                    "agent": None,
+                }
 
 
 class TestHelpers:

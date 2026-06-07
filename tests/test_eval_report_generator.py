@@ -6,11 +6,8 @@ from decimal import Decimal
 
 import pytest
 
-from core.db.models.agent_trace import (
-    EvalRun,
-    EvalCaseRun,
-    EvalCaseGraderResult,
-)
+from domain.models.observability import EvalRun
+from domain.models.observability import EvalCaseRun, EvalCaseGraderResult
 from core.db.session import db_session
 
 

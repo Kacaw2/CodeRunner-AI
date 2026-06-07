@@ -24,5 +24,6 @@ EXTERNAL_TOOL_MAP: dict[str, str] = {
     # external_client regardless of scope.
     "execute_internal": "coderunner.code.execute_internal",
     "save_generated_problem": "coderunner.problem.save_generated",
+    "delegate": "coderunner.agent.delegate",
     "check_approval": "coderunner.approval.check",
 }

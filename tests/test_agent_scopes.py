@@ -11,7 +11,8 @@ def test_tutor_scopes_are_union_of_its_tools():
 
     scopes = set(scopes_for_agent("tutor"))
 
-    assert scopes == {"code:execute", "problem:read", "submission:read", "knowledge:read"}
+    assert scopes == {"code:execute", "problem:read", "submission:read",
+                      "knowledge:read", "agent:delegate"}
 
 
 def test_generator_scopes_include_problem_write():
@@ -19,7 +20,8 @@ def test_generator_scopes_include_problem_write():
 
     scopes = set(scopes_for_agent("generator"))
 
-    assert scopes == {"code:execute_internal", "knowledge:read", "problem:write"}
+    assert scopes == {"code:execute_internal", "knowledge:read", "problem:write",
+                      "agent:delegate"}
 
 
 def test_unknown_agent_gets_no_scopes():

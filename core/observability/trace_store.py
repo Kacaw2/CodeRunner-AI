@@ -9,15 +9,7 @@ configuration failure (``TRACE_SAVE_FAIL``) inside worker processes.
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
 
-from core.db.models.agent_trace import (
-    AgentTraceArtifact,
-    AgentTraceEvent,
-    AgentTraceLink,
-    AgentTraceRun,
-    AgentTraceSpan,
-)
 from core.db.session import db_session
 from core.observability.trace_schema import (
     TraceArtifactRecord,
@@ -33,6 +25,9 @@ logger = logging.getLogger(__name__)
 class TraceStore:
     """Persists a complete trace in a single transaction."""
 
+    def __init__(self, repository=None) -> None:
+        self.repository = repository
+
     def save_run(
         self,
         run: TraceRunRecord,
@@ -41,11 +36,27 @@ class TraceStore:
         artifacts: list[TraceArtifactRecord] | None = None,
         links: list[TraceLinkRecord] | None = None,
     ) -> None:
-        with db_session() as session:
-            session.add(AgentTraceRun(**asdict(run)))
-            session.add_all([AgentTraceSpan(**asdict(s)) for s in (spans or [])])
-            session.add_all([AgentTraceEvent(**asdict(e)) for e in (events or [])])
-            session.add_all(
-                [AgentTraceArtifact(**asdict(a)) for a in (artifacts or [])]
+        spans = spans or []
+        events = events or []
+        artifacts = artifacts or []
+        links = links or []
+        if self.repository is not None:
+            self.repository.save_trace(
+                run,
+                spans=spans,
+                events=events,
+                artifacts=artifacts,
+                links=links,
             )
-            session.add_all([AgentTraceLink(**asdict(link)) for link in (links or [])])
+            return
+
+        from domain.repositories.traces import SyncTraceRepository
+
+        with db_session() as session:
+            SyncTraceRepository(session).save_trace(
+                run,
+                spans=spans,
+                events=events,
+                artifacts=artifacts,
+                links=links,
+            )

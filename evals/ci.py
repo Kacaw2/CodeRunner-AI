@@ -78,23 +78,24 @@ def _run_harness_cli(args) -> int:
 
 
 def _bootstrap_eval_schema() -> None:
-    """Create Flask + core ``Base`` tables on a single engine (CI / empty DB).
+    """Create shared Domain tables on one engine (CI / empty DB).
 
-    Mirrors ``tests/conftest.py``: the trace/eval tables are declared on
-    ``core.db.session.Base`` (plain SQLAlchemy), so we point the core session at
-    the Flask engine and create both metadatas on the same database. This is a
-    test/CI convenience only — production owns this schema via Alembic.
+    Mirrors ``tests/conftest.py``: trace/eval tables are declared on
+    ``DomainBase.metadata``, so we point the core session at the Flask engine
+    and create the shared metadata there. This is a test/CI convenience only;
+    production owns this schema via Alembic.
     """
     from sqlalchemy.orm import sessionmaker
 
     from app.core.extensions import db as _db
     import core.db.session as core_session
-    import core.db.models.agent_trace  # noqa: F401  register tables on Base
+    from domain.base import DomainBase
+    import domain.models.observability  # noqa: F401  register Domain tables
 
     _db.create_all()
     core_session._engine = _db.engine
     core_session._SessionLocal = sessionmaker(bind=_db.engine, expire_on_commit=False)
-    core_session.Base.metadata.create_all(bind=_db.engine)
+    DomainBase.metadata.create_all(bind=_db.engine)
 
 
 def _run_harness_mode(args) -> int:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from tools.protocol.adapters.tool_to_llm import from_llm_tool_name
+
 
 @dataclass
 class MCPCallRequest:
@@ -17,12 +19,12 @@ def parse_llm_tool_call(tool_call: dict | Any) -> MCPCallRequest:
     """Accept an AIMessage tool_call dict or LangChain ToolCall and normalize."""
     if hasattr(tool_call, "get"):
         return MCPCallRequest(
-            tool_name=tool_call["name"],
+            tool_name=from_llm_tool_name(tool_call["name"]),
             args=tool_call.get("args", {}),
             tool_call_id=tool_call.get("id", ""),
         )
     return MCPCallRequest(
-        tool_name=getattr(tool_call, "name", ""),
+        tool_name=from_llm_tool_name(getattr(tool_call, "name", "")),
         args=getattr(tool_call, "args", {}),
         tool_call_id=getattr(tool_call, "id", ""),
     )

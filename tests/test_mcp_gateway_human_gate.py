@@ -10,7 +10,7 @@ import pytest
 from app import create_app
 from app.core.extensions import db as _db
 from app.core.timezone import now_china
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 
 
 @pytest.fixture(scope="module")
@@ -246,7 +246,7 @@ class TestRiskLevels:
 
 class TestApprovalModel:
     def test_create_approval(self, app, db_session, teacher_user):
-        from core.db.models.mcp_approval import McpToolApproval
+        from domain.models.mcp import McpToolApproval
 
         approval = McpToolApproval(
             id=str(uuid.uuid4()),
@@ -266,7 +266,7 @@ class TestApprovalModel:
         assert fetched.status == "pending"
 
     def test_expiration_check(self, app, db_session, teacher_user):
-        from core.db.models.mcp_approval import McpToolApproval
+        from domain.models.mcp import McpToolApproval
 
         approval = McpToolApproval(
             id=str(uuid.uuid4()),
@@ -284,7 +284,7 @@ class TestApprovalModel:
         assert approval.status == "expired"
 
     def test_to_dict(self, app, db_session, teacher_user):
-        from core.db.models.mcp_approval import McpToolApproval
+        from domain.models.mcp import McpToolApproval
 
         approval = McpToolApproval(
             id=str(uuid.uuid4()),
@@ -308,7 +308,7 @@ class TestApprovalModel:
 
 class TestApprovalEndpoints:
     def _create_approval(self, db_session, teacher_user):
-        from core.db.models.mcp_approval import McpToolApproval
+        from domain.models.mcp import McpToolApproval
 
         approval = McpToolApproval(
             id=str(uuid.uuid4()),

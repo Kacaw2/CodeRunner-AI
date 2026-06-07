@@ -1,10 +1,10 @@
 """Read-only Flask query layer over the complete trace tables.
 
-The runtime-neutral models in ``core.db.models.agent_trace`` are the single
-canonical mapping; workers/evals/MCP write through them. This service reads the
-same physical tables from the Flask request path via
-``db.session.execute(select(...))`` and shapes desensitized view dicts for the
-trace API. It never writes and never re-declares a Flask ``db.Model``.
+The runtime-neutral models in ``domain.models.observability`` are the single
+canonical mapping; workers/evals/MCP write through domain repositories. This
+service uses the same repository boundary from the Flask request path and
+shapes desensitized view dicts for the trace API. It never writes and never
+re-declares a Flask ``db.Model``.
 
 Legacy ``agent_runs`` rows stay viewable through a read-only fallback in
 ``get_trace`` until the Phase 7 backfill copies them into the new tables.
@@ -16,27 +16,17 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.extensions import db
-from core.db.models.agent_trace import (
+from domain.models.observability import (
     AgentTraceArtifact,
     AgentTraceEvent,
     AgentTraceLink,
     AgentTraceRun,
     AgentTraceSpan,
 )
-
-# Filters accepted by the list endpoint that map straight onto run columns.
-_EQ_FILTERS = (
-    "agent_type",
-    "status",
-    "source",
-    "eval_run_id",
-    "conversation_id",
-    "chat_task_id",
-)
-
+from domain.repositories.traces import SyncTraceRepository
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
@@ -152,68 +142,29 @@ def _link_to_dict(link: AgentTraceLink) -> dict:
     }
 
 
-def _tool_span_counts(trace_ids: list[str]) -> dict[str, int]:
-    if not trace_ids:
-        return {}
-    rows = db.session.execute(
-        select(AgentTraceSpan.trace_id, func.count(AgentTraceSpan.id))
-        .where(AgentTraceSpan.trace_id.in_(trace_ids))
-        .where(AgentTraceSpan.span_type.in_(("tool", "mcp")))
-        .group_by(AgentTraceSpan.trace_id)
-    ).all()
-    return {trace_id: count for trace_id, count in rows}
-
-
 class TraceQueryService:
     """Read-only aggregator returning desensitized trace views."""
+
+    def __init__(self, repository=None) -> None:
+        self.repository = repository or SyncTraceRepository(db.session)
 
     def list_traces(self, *, viewer=None, filters=None, limit=20, offset=0) -> dict:
         filters = filters or {}
         role = _role_of(viewer)
-
-        stmt = select(AgentTraceRun)
-        count_stmt = select(func.count(AgentTraceRun.id))
-
-        conditions = []
-        for key in _EQ_FILTERS:
-            value = filters.get(key)
-            if value not in (None, ""):
-                conditions.append(getattr(AgentTraceRun, key) == value)
-
-        if filters.get("from"):
-            conditions.append(AgentTraceRun.created_at >= filters["from"])
-        if filters.get("to"):
-            conditions.append(AgentTraceRun.created_at <= filters["to"])
-
-        q = filters.get("q")
-        if q:
-            like = f"%{q}%"
-            conditions.append(
-                AgentTraceRun.input_preview.like(like)
-                | AgentTraceRun.output_preview.like(like)
-                | AgentTraceRun.trace_id.like(like)
-            )
-
-        # Students only ever see their own traces.
-        if role not in ("teacher", "admin") and viewer is not None:
-            conditions.append(AgentTraceRun.user_id == viewer.id)
-
-        for cond in conditions:
-            stmt = stmt.where(cond)
-            count_stmt = count_stmt.where(cond)
-
-        total = db.session.execute(count_stmt).scalar() or 0
-        runs = (
-            db.session.execute(
-                stmt.order_by(AgentTraceRun.created_at.desc())
-                .offset(offset)
-                .limit(limit)
-            )
-            .scalars()
-            .all()
+        viewer_user_id = (
+            viewer.id
+            if role not in ("teacher", "admin") and viewer is not None
+            else None
         )
-
-        tool_counts = _tool_span_counts([r.trace_id for r in runs])
+        runs, total = self.repository.list_runs(
+            filters=filters,
+            viewer_user_id=viewer_user_id,
+            limit=limit,
+            offset=offset,
+        )
+        tool_counts = self.repository.tool_span_counts(
+            [row.trace_id for row in runs]
+        )
         traces = []
         for run in runs:
             row = _run_to_dict(run)
@@ -224,13 +175,7 @@ class TraceQueryService:
 
     def get_trace(self, trace_id: str, *, viewer=None) -> dict | None:
         role = _role_of(viewer)
-        run = db.session.execute(
-            select(AgentTraceRun).where(
-                (AgentTraceRun.trace_id == trace_id)
-                | (AgentTraceRun.id == trace_id)
-                | (AgentTraceRun.legacy_run_id == trace_id)
-            )
-        ).scalar_one_or_none()
+        run = self.repository.get_run(trace_id)
 
         if run is None:
             return self._legacy_trace(trace_id, viewer=viewer, role=role)
@@ -240,42 +185,11 @@ class TraceQueryService:
             return None
         redact_io = role not in ("teacher", "admin")
 
-        spans = (
-            db.session.execute(
-                select(AgentTraceSpan)
-                .where(AgentTraceSpan.trace_id == run.trace_id)
-                .order_by(AgentTraceSpan.sequence, AgentTraceSpan.started_at)
-            )
-            .scalars()
-            .all()
-        )
-        events = (
-            db.session.execute(
-                select(AgentTraceEvent)
-                .where(AgentTraceEvent.trace_id == run.trace_id)
-                .order_by(AgentTraceEvent.created_at)
-            )
-            .scalars()
-            .all()
-        )
-        artifacts = (
-            db.session.execute(
-                select(AgentTraceArtifact)
-                .where(AgentTraceArtifact.trace_id == run.trace_id)
-                .order_by(AgentTraceArtifact.created_at)
-            )
-            .scalars()
-            .all()
-        )
-        links = (
-            db.session.execute(
-                select(AgentTraceLink)
-                .where(AgentTraceLink.trace_id == run.trace_id)
-                .order_by(AgentTraceLink.created_at)
-            )
-            .scalars()
-            .all()
-        )
+        bundle = self.repository.get_trace_bundle(run.trace_id)
+        spans = bundle["spans"]
+        events = bundle["events"]
+        artifacts = bundle["artifacts"]
+        links = bundle["links"]
 
         run_dict = _run_to_dict(run)
         run_dict["tool_call_count"] = sum(
@@ -298,7 +212,8 @@ class TraceQueryService:
         """Read-only view of a historical ``agent_runs`` row (pre-backfill)."""
         from app.models.agent_trace import AgentRun, AgentRunStep
 
-        run = db.session.get(AgentRun, run_id)
+        session = self.repository.session
+        run = session.get(AgentRun, run_id)
         if run is None:
             return None
 
@@ -308,7 +223,7 @@ class TraceQueryService:
         redact_io = role not in ("teacher", "admin")
 
         steps = (
-            db.session.execute(
+            session.execute(
                 select(AgentRunStep)
                 .where(AgentRunStep.run_id == run_id)
                 .order_by(AgentRunStep.step_index)

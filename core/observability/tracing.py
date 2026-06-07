@@ -133,6 +133,7 @@ class TraceCollector:
         self.metadata = dict(metadata or {})
         self.model_name = model_name
         self.steps = []
+        self.artifacts = []
         self.start_time = time.monotonic()
         self.llm_total_ms = 0
         self.tool_total_ms = 0
@@ -184,6 +185,28 @@ class TraceCollector:
             self.tool_call_count += 1
             self.steps.append(step)
 
+    def add_artifact(
+        self,
+        *,
+        artifact_type: str,
+        name: str,
+        preview_text: str | None = None,
+        payload_json: dict | None = None,
+        mime_type: str | None = None,
+        span_index: int | None = None,
+    ) -> None:
+        """Record a durable output of the run (generated problem, code-execution
+        result, ...) so it surfaces on the trace's Artifacts tab. Best-effort:
+        artifacts are decorative and must never break the run."""
+        self.artifacts.append({
+            "artifact_type": artifact_type,
+            "name": name,
+            "preview_text": preview_text,
+            "payload_json": payload_json,
+            "mime_type": mime_type,
+            "span_index": span_index,
+        })
+
     def save(self, status: str, response: str = "", error: Exception = None):
         total_ms = int((time.monotonic() - self.start_time) * 1000)
 
@@ -200,6 +223,7 @@ class TraceCollector:
                 TraceRunRecord,
                 TraceSpanRecord,
                 TraceLinkRecord,
+                TraceArtifactRecord,
             )
 
             # P0: redact credentials before persisting (see _redact_secrets)
@@ -248,8 +272,9 @@ class TraceCollector:
 
             spans = self._build_spans(started_at)
             links = self._build_links(ended_at)
+            artifacts = self._build_artifacts(ended_at)
 
-            TraceStore().save_run(run, spans=spans, links=links)
+            TraceStore().save_run(run, spans=spans, links=links, artifacts=artifacts)
             logger.info(
                 "TRACE_SAVE_OK: run_id=%s agent=%s user=%s status=%s conv=%s source=%s",
                 self.run_id, self.agent_type, self.user_id, status,
@@ -305,6 +330,32 @@ class TraceCollector:
                 )
             )
         return spans
+
+    def _build_artifacts(self, ts):
+        from uuid import uuid4 as _uuid4
+        from core.observability.trace_schema import TraceArtifactRecord
+
+        records = []
+        for art in self.artifacts:
+            preview = art.get("preview_text")
+            payload = _make_json_safe(art.get("payload_json"))
+            records.append(
+                TraceArtifactRecord(
+                    id=str(_uuid4()),
+                    trace_id=self.run_id,
+                    artifact_type=art["artifact_type"],
+                    name=art["name"],
+                    created_at=ts,
+                    mime_type=art.get("mime_type"),
+                    preview_text=(
+                        _redact_secrets(str(preview))[:2000]
+                        if preview is not None
+                        else None
+                    ),
+                    payload_json=_redact_secrets(payload) if payload is not None else None,
+                )
+            )
+        return records
 
     def _build_links(self, ts):
         from uuid import uuid4 as _uuid4

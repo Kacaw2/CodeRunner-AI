@@ -2,7 +2,7 @@ from app.core.extensions import db
 from app.models.problem import Problem
 from app.models.question import Question
 from app.models.submission import Submission
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from app.services.problem_service import ProblemService
 
 

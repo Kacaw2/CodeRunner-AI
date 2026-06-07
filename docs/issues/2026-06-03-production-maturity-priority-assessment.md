@@ -1,20 +1,28 @@
 # CodeRunner-AI Production Maturity Priority Assessment
 
 Date: 2026-06-03
+Updated: 2026-06-05
 
-This document preserves the previous evaluation notes and recommended execution order for reducing the project's "toy project" feel and moving it toward a mature deployable platform.
+This document preserves the original production-maturity assessment, but the status below has been refreshed against the current repository state. The most important change since the original assessment is that the database migration baseline work has landed and is no longer an open P1 issue.
+
+## Status Changes Since Original Assessment
+
+### Closed: migration chain as schema source of truth
+
+The original highest-priority item was to make the migration chain the only schema source of truth. This is now complete:
+
+- `migrations/versions/e21895a59f7d_baseline_full_schema.py` is the full baseline migration with `down_revision = None`.
+- `migrations/env.py` reads combined metadata through `core/db/metadata.py:build_target_metadata()`.
+- `tests/test_migration_full_schema.py` is now a normal passing gate instead of an xfail placeholder.
+- `app/__init__.py:_ensure_tables()` verifies that required tables exist and logs `flask db upgrade head` guidance; it does not call `db.create_all()`.
+
+This closes the original deployment blocker around empty-database rebuilds and runtime schema creation.
 
 ## Highest Priority
 
-### 1. Make the database migration chain the only schema source of truth
+### 1. Bring real E2E into CI
 
-Current startup still backfills missing tables with `db.create_all()` in `app/__init__.py` around line 55. At the same time, `tests/test_migration_full_schema.py` states that Alembic cannot build the full core schema from an empty database and marks that check as `xfail` at line 1.
-
-This makes real deployment, rollback, and multi-developer collaboration look immature. The next step should be to add a baseline migration so `flask db upgrade` can build the full schema from an empty database, then remove startup/test dependencies on `create_all()`.
-
-### 2. Bring real E2E into CI
-
-CI currently runs pytest and two JavaScript syntax checks in `.github/workflows/tests.yml` around line 49, but Cypress is not included in GitHub Actions. Worse, `cypress.config.js` references a missing `docker/docker-compose.yml` seed command around line 10, while `package.json` still has a placeholder failing `npm test` around line 10.
+CI currently runs pytest and JavaScript syntax checks in `.github/workflows/tests.yml`, but Cypress is not included in GitHub Actions. `cypress.config.js` still references a missing `docker/docker-compose.yml` seed command, while `package.json` still has a placeholder failing `npm test`.
 
 Recommended next steps:
 
@@ -22,42 +30,43 @@ Recommended next steps:
 - Add a CI smoke E2E job.
 - Cover at minimum login, student problem solving, teacher problem creation, and AI trace/eval pages.
 
-### 3. Tighten production security boundaries
+### 2. Tighten production security boundaries
 
-The registration service allows users to choose `teacher` directly in `app/services/auth_service.py` around line 40, and the signup page exposes the teacher option in `signup.html` around line 52. That may be acceptable for a teaching demo, but it does not feel production-ready. Open registration should create students only; teachers should go through invite codes or admin approval.
+The registration service allows users to choose `teacher` directly in `app/services/auth_service.py`, and the signup page exposes the teacher option in `signup.html`. That may be acceptable for a teaching demo, but it does not feel production-ready. Open registration should create students only; teachers should go through invite codes or admin approval.
 
 Additional security backlog items:
 
-- Cookies have HttpOnly/SameSite and production secure configuration in `app/core/config.py` around line 58, but there is no real CSRF token.
-- Redis rate limit failures currently fail open in `app/api/v1/ai.py` around line 47.
+- Cookies have HttpOnly/SameSite and production secure configuration in `app/core/config.py`, but there is no real CSRF token.
+- Redis rate limit failures currently fail open in `app/api/v1/ai.py`.
 
 These should be captured as explicit security hardening work.
 
 ## Second Priority
 
-### 4. Split the large AI API file
+### 3. Split the large AI API file
 
-`app/api/v1/ai.py` is currently about 2252 lines and contains chat, generation, drafts, traces, evals, workflows, knowledge endpoints, and related helpers. The functionality is strong, but the maintenance shape looks like single-file accumulation.
+`app/api/v1/ai.py` still contains chat, generation, drafts, traces, evals, workflows, knowledge endpoints, and related helpers. The functionality is strong, but the maintenance shape still looks like single-file accumulation.
 
 Recommended target:
 
 - Split into blueprint modules such as `chat.py`, `generation.py`, `traces.py`, `evals.py`, `knowledge.py`, and `workflows.py`.
 - Move business logic into services instead of keeping endpoint functions as orchestration hubs.
 
-### 5. Unify model and DB session boundaries
+### 4. Finish DB model/session boundary decisions
 
-The project currently has both Flask-SQLAlchemy models under `app.models.*` and runtime-neutral SQLAlchemy Base models under `core.db.models.*`. Trace/eval already uses a runtime-neutral store, but the dual ORM world still increases migration, transaction, and relationship-resolution risk.
+The project still has both Flask-SQLAlchemy models under `app.models.*` and runtime-neutral SQLAlchemy Base models under `core.db.models.*`. The migration baseline now sees both worlds, but the architecture still has two engines, two sessions, and several duplicated mapped classes.
 
 The mature target should explicitly define:
 
 - Which tables belong to the Flask app model layer.
 - Which tables belong to the runtime store.
+- Whether runtime stores should reuse the Flask engine in-process or remain separate for Agent Host portability.
 - Cross-boundary access through repository/service APIs only.
 - No direct ad hoc imports across the boundary.
 
-### 6. Complete the operations loop
+### 5. Complete the operations loop
 
-The root `compose.yaml` already includes MySQL, Redis, Chroma, executor, workers, and MCP gateway. The executor also has read-only, non-root, `cap_drop`, and related hardening around `compose.yaml` line 153.
+The root `compose.yaml` already includes MySQL, Redis, Chroma, executor, workers, and MCP gateway. The executor also has read-only, non-root, `cap_drop`, and related hardening.
 
 Missing operational maturity items:
 
@@ -68,59 +77,44 @@ Missing operational maturity items:
 - Resource and capacity guidance.
 - A dashboard or at least runbook guidance for using trace/eval data to diagnose incidents.
 
-### 7. Fix documentation drift
-
-The executor architecture document still describes a remote-failure fallback to local execution in `docs/architecture/executor.md` around line 33, while the code already fail-closes in `app/services/executor_service.py` around line 72.
-
-The README also showed Chinese mojibake in terminal output. To look professional, docs must match runtime facts and render cleanly.
-
 ## Third Priority
 
-### 8. Productize AI quality evaluation
+### 6. Productize AI quality evaluation
 
-The eval workflow exists and can produce DB-backed harness reports, with `.github/workflows/evals.yml` around line 70. The next step is to make it a real quality program instead of a basic pass-rate check.
+The eval workflow exists and can produce DB-backed harness reports, and the agent platform has trace-bound eval foundations. The next step is to make it a real quality program instead of a basic pass-rate check.
 
 Recommended next steps:
 
-- Expand the dataset.
-- Record prompt and model versions.
+- Expand and govern the dataset layers.
+- Record prompt, model, tool catalog, and runtime versions.
 - Promote production failures into regression cases automatically.
 - Track budget and cost trends.
 - Report more than pass rate.
+- Split fast eval vs full eval in local and CI workflows.
 
-### 9. Fully connect Human Gate and AgentTask
+This now aligns with [the active remaining-improvements plan](../plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md).
 
-The AI architecture document still frames Human Gate mainly as a generated-draft approval flow in `docs/architecture/ai-agents.md` around line 30. The target is to connect Human Gate fully with the AgentTask state machine.
+### 7. ToolRuntime operational guardrails
 
-Finishing this would significantly improve the feel of a real agent platform.
+Phase 3.5 completed retry policy consumption and output-schema enforce toggle, but operational guardrails remain future work:
+
+- per-tool / per-user quota.
+- per-tool circuit breaker.
+- write-tool idempotency.
+- live streamable-http integration test.
+
+### 8. Fix documentation drift continuously
+
+The most urgent drift around migration/schema source of truth has been fixed in this directory. The rule remains: docs must match runtime facts and render cleanly.
 
 ## Recommended Execution Order
 
-1. Migration chain as schema source of truth.
-2. Cypress CI repair and smoke E2E.
-3. Teacher registration approval/invite flow.
-4. Split `app/api/v1/ai.py`.
-5. Clarify and enforce DB model/session boundaries.
-
-These first three items reduce the "toy" impression fastest and address the highest deployment, test, and security risks.
+1. Cypress CI repair and smoke E2E.
+2. Teacher registration approval/invite flow plus CSRF/rate-limit hardening.
+3. Split `app/api/v1/ai.py`.
+4. Clarify and enforce DB model/session boundaries.
+5. Productize EvalOps/replay and ToolRuntime operational guardrails.
 
 ## Current Workspace Note
 
-The prior analysis did not modify files. At that time, the working tree already had two uncommitted test-file changes:
-
-- `tests/test_agents.py`
-- `tests/test_s7_execute_internal.py`
-
-Verification performed in the prior analysis:
-
-```powershell
-pytest --collect-only -q
-```
-
-Result:
-
-```text
-507 tests collected
-```
-
-The full test suite was not run.
+This document is a status update only. It does not imply the original open work has been implemented beyond the closed migration/schema item listed above.

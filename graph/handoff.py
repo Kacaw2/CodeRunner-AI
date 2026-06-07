@@ -1,82 +1,69 @@
 """
-Agent handoff mechanism (Phase 4, Task 20).
+Agent handoff mechanism.
 
-Provides handoff detection and the system prompt addendum that teaches agents
-when and how to request a handoff to another agent.
+Delegation is a structured tool call (``coderunner.agent.delegate``), not a
+free-text marker: the tool boundary validates the target edge and role RBAC,
+then fills ``handoff_to/reason/source/summary`` on the run state. This module
+owns the shared target validator (used by the delegate handler) plus the
+context-rebuild helpers that the runner and workers apply to switch agents.
 """
 
-import re
 import logging
 
+from core.definitions import AGENT_DEFINITIONS, can_route_to
 from core.state import AgentState
 
 logger = logging.getLogger(__name__)
 
-VALID_HANDOFF_TARGETS = {"tutor", "reviewer", "generator", "analytics"}
+VALID_HANDOFF_TARGETS = frozenset().union(
+    *(d.handoff_targets for d in AGENT_DEFINITIONS.values())
+)
+
+# Conclusion summary handed to the next agent is truncated to avoid context bloat.
+HANDOFF_SUMMARY_LIMIT = 1500
+
+# Bounded intra-turn delegation: a single conversational turn may bounce to at
+# most this many specialist agents before the chain is forced to conclude.
+MAX_HANDOFFS = 2
 
 HANDOFF_PROMPT_ADDENDUM = """
 ## Agent Handoff
-If you determine that the user's request is better handled by a different agent,
-you may request a handoff by including the following marker at the END of your response:
+If the user's request would clearly be handled better by a different agent, call
+the `coderunner.agent.delegate` tool to hand the conversation off. Do NOT write a
+handoff as plain text — the only way to delegate is the tool call.
 
-[HANDOFF: agent_type | reason]
-
-Where agent_type is one of: tutor, reviewer, generator, analytics
-And reason is a brief explanation of why the handoff is needed.
-
-Examples:
-- Student asks for code review during tutoring: [HANDOFF: reviewer | Student is requesting a structured code review]
-- Teacher asks for analytics during generation: [HANDOFF: analytics | Teacher wants performance data to guide question creation]
+Arguments:
+- target: one of tutor, reviewer, generator, analytics
+- reason: a brief explanation of why the handoff is needed
+- summary: your conclusion so far, so the next agent can continue without
+  re-deriving context
 
 Rules:
-- Only request a handoff when the other agent would clearly do a better job.
-- Provide your best partial answer before the handoff marker.
-- Never hand off to yourself or to the generator if the user is a student.
+- Only delegate when the other agent would clearly do a better job.
+- You may only delegate to agents declared as your handoff targets; an illegal
+  target or a target the user's role cannot access is rejected at the tool
+  boundary.
+- Never delegate to yourself.
 """
 
-HANDOFF_PATTERN = re.compile(
-    r"\[HANDOFF:\s*(tutor|reviewer|generator|analytics)\s*\|\s*(.+?)\s*\]",
-    re.IGNORECASE,
-)
 
+def validate_handoff_target(source: str, target: str, user_role: str) -> str | None:
+    """Validate a delegation edge. Return an error message, or ``None`` if allowed.
 
-def detect_handoff(state: AgentState) -> AgentState:
-    """Parse the agent's final_response for a handoff marker and update state."""
-    response = state.get("final_response", "")
-    if not response:
-        return state
-
-    match = HANDOFF_PATTERN.search(response)
-    if not match:
-        return state
-
-    target = match.group(1).lower()
-    reason = match.group(2).strip()
-
+    Shared by the delegate tool handler so the same rules that the legacy
+    text-marker path enforced (valid target, no self-handoff, declared per-source
+    target, role RBAC) now live at the tool boundary.
+    """
     if target not in VALID_HANDOFF_TARGETS:
-        return state
-
-    current = state.get("agent_type", "")
-    if target == current:
-        return state
-
-    from core.definitions import can_route_to
-    user_role = state.get("user_role", "student")
+        return f"Unknown handoff target '{target}'."
+    if target == source:
+        return "An agent cannot hand off to itself."
+    source_defn = AGENT_DEFINITIONS.get(source)
+    if source_defn is not None and target not in source_defn.handoff_targets:
+        return f"Agent '{source}' may not delegate to '{target}'."
     if not can_route_to(target, user_role):
-        logger.info("Blocked handoff to '%s' for role '%s'", target, user_role)
-        return state
-
-    state["handoff_to"] = target
-    state["handoff_reason"] = reason
-    state["handoff_source"] = current
-
-    cleaned = HANDOFF_PATTERN.sub("", response).rstrip()
-    state["final_response"] = cleaned
-    # Conclusion summary handed to the next agent (truncated to avoid bloat).
-    state["handoff_summary"] = cleaned[:1500]
-
-    logger.info("Handoff detected: %s -> %s (reason: %s)", current, target, reason)
-    return state
+        return f"Role '{user_role}' is not allowed to use agent '{target}'."
+    return None
 
 
 def rebuild_handoff_messages(messages, source_agent, summary):
@@ -105,6 +92,49 @@ def rebuild_handoff_messages(messages, source_agent, summary):
 
     removals = [RemoveMessage(id=m.id) for m in messages if getattr(m, "id", None)]
     return removals, rebuilt
+
+
+def stream_with_handoffs(state: AgentState, *, stream_fn, max_handoffs: int = MAX_HANDOFFS):
+    """Run the resolved agent then follow bounded intra-turn delegations.
+
+    This is the single streaming-orchestration loop shared by the chat worker
+    (``AgentHarness``) and the SSE endpoint, replacing two copies of the same
+    bounded-handoff loop. ``state['agent_type']`` must already hold the resolved
+    starting agent.
+
+    Yields the underlying agent stream events. Before each delegation it yields a
+    ``handoff_start`` event and rebuilds a compact context via ``apply_handoff``.
+    The chain stops after ``max_handoffs`` switches, on an unknown or
+    already-visited target, or when no delegation is pending.
+
+    ``stream_fn(agent_type, state)`` yields one agent's events. On return,
+    ``state['agent_type']`` holds the final resolved agent. Consumers that
+    accumulate token text should reset their buffer when they see a
+    ``handoff_start`` event (each delegated agent produces a fresh response).
+    """
+    from agents.registry import AGENT_CLASSES
+
+    current = state.get("agent_type")
+    yield from stream_fn(current, state)
+
+    previous_agents = [current]
+    handoff_count = 0
+    while (
+        state.get("handoff_to")
+        and handoff_count < max_handoffs
+        and state["handoff_to"] in AGENT_CLASSES
+        and state["handoff_to"] not in previous_agents
+    ):
+        target = state["handoff_to"]
+        yield {
+            "type": "handoff_start",
+            "target": target,
+            "reason": state.get("handoff_reason", ""),
+        }
+        apply_handoff(state, use_reducer=False)
+        yield from stream_fn(target, state)
+        previous_agents.append(target)
+        handoff_count += 1
 
 
 def apply_handoff(state: AgentState, *, use_reducer: bool = True) -> AgentState:

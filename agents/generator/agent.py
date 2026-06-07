@@ -7,7 +7,6 @@ from agents.base import BaseAgent
 from agents.config import AIConfig
 from agents.json_utils import extract_first_json_object
 from core.exceptions import LLMError
-from models.tiers import ModelTier
 from core.security import SECURITY_PROMPT_ADDENDUM
 from graph.handoff import HANDOFF_PROMPT_ADDENDUM
 from core.state import AgentState
@@ -128,8 +127,6 @@ def _validate_solution(solution: str, language: str, test_cases: list,
 
 class GeneratorAgent(BaseAgent):
     name = "generator"
-    description = "Problem generation agent for teachers"
-    default_model_tier = ModelTier.STRONG
 
     def _build_system_context(self, state: dict) -> str:
         from memory.service import MemoryService

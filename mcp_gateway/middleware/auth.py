@@ -4,6 +4,7 @@ import hashlib
 import logging
 
 from core.db.session import get_session
+from domain.repositories.mcp import SyncMcpRepository
 from mcp_gateway.scopes import normalize_scopes
 
 logger = logging.getLogger(__name__)
@@ -15,17 +16,12 @@ def hash_api_key(raw_key: str) -> str:
 
 def verify_api_key(raw_key: str) -> dict | None:
     """Verify an API key and return caller info, or None if invalid."""
-    from core.db.models.mcp_api_key import McpApiKey
     from app.core.timezone import now_china
 
     key_hash = hash_api_key(raw_key)
     session = get_session()
     try:
-        key = (
-            session.query(McpApiKey)
-            .filter_by(key_hash=key_hash, revoked_at=None)
-            .first()
-        )
+        key = SyncMcpRepository(session).get_active_api_key_by_hash(key_hash)
         if not key:
             return None
         key.last_used_at = now_china()

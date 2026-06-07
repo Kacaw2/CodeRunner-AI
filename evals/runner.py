@@ -136,16 +136,9 @@ class EvalRunner:
         }
 
     def _get_agent(self, agent_type: str):
-        from agents import TutorAgent, ReviewerAgent, GeneratorAgent, AnalyticsAgent
+        from agents.registry import get_agent_instance
 
-        agent_map = {
-            "tutor": TutorAgent,
-            "reviewer": ReviewerAgent,
-            "generator": GeneratorAgent,
-            "analytics": AnalyticsAgent,
-        }
-        cls = agent_map.get(agent_type, TutorAgent)
-        return cls()
+        return get_agent_instance(agent_type, default="tutor")
 
 
 def report_to_dict(report: EvalReport) -> dict:

@@ -22,6 +22,10 @@ class AgentDefinition:
     input_fields: tuple[str, ...]  # expected context keys
     output_format: str  # "free_text", "json_schema"
     output_schema_name: str | None = None
+    max_tool_iterations: int = 5          # per-agent tool-loop ceiling
+    rate_limit: int = 20                  # requests/minute (was AGENT_RATE_LIMITS)
+    handoff_targets: frozenset[str] = frozenset()
+    prompt_ref: str | None = None         # dotted path to the base system prompt
 
 
 TUTOR_DEFINITION = AgentDefinition(
@@ -37,10 +41,15 @@ TUTOR_DEFINITION = AgentDefinition(
         "coderunner.submission.get_detail",
         "coderunner.knowledge.search",
         "coderunner.knowledge.search_error_patterns",
+        "coderunner.agent.delegate",
     ),
     risk_level="low",
     input_fields=("question_id", "submission_id", "code", "error_status", "topic"),
     output_format="free_text",
+    max_tool_iterations=5,
+    rate_limit=20,
+    handoff_targets=frozenset({"reviewer", "analytics"}),
+    prompt_ref="agents.tutor.prompt.TUTOR_SYSTEM_PROMPT",
 )
 
 REVIEWER_DEFINITION = AgentDefinition(
@@ -52,11 +61,16 @@ REVIEWER_DEFINITION = AgentDefinition(
     allowed_tools=(
         "coderunner.code.execute",
         "coderunner.problem.get_detail",
+        "coderunner.agent.delegate",
     ),
     risk_level="low",
     input_fields=("question_id", "code", "language"),
     output_format="json_schema",
     output_schema_name="REVIEW_SCHEMA",
+    max_tool_iterations=5,
+    rate_limit=10,
+    handoff_targets=frozenset({"tutor", "analytics"}),
+    prompt_ref="agents.reviewer.prompt.REVIEWER_SYSTEM_PROMPT",
 )
 
 GENERATOR_DEFINITION = AgentDefinition(
@@ -69,11 +83,16 @@ GENERATOR_DEFINITION = AgentDefinition(
         "coderunner.code.execute_internal",
         "coderunner.knowledge.search_similar_problems",
         "coderunner.problem.save_generated",
+        "coderunner.agent.delegate",
     ),
     risk_level="high",
     input_fields=("topic", "difficulty", "language", "test_case_count", "prompt", "quiz_id"),
     output_format="json_schema",
     output_schema_name="QUESTION_SCHEMA",
+    max_tool_iterations=5,
+    rate_limit=5,
+    handoff_targets=frozenset({"analytics"}),
+    prompt_ref="agents.generator.prompt.GENERATOR_SYSTEM_PROMPT",
 )
 
 ANALYTICS_DEFINITION = AgentDefinition(
@@ -90,11 +109,16 @@ ANALYTICS_DEFINITION = AgentDefinition(
         "coderunner.analytics.student_activity",
         "coderunner.analytics.class_statistics",
         "coderunner.analytics.problem_difficulty",
+        "coderunner.agent.delegate",
     ),
     risk_level="low",
     input_fields=("target_student_id", "question_id", "period"),
     output_format="json_schema",
     output_schema_name="ANALYTICS_SCHEMA",
+    max_tool_iterations=5,
+    rate_limit=10,
+    handoff_targets=frozenset({"tutor", "reviewer"}),
+    prompt_ref="agents.analytics.prompt.ANALYTICS_SYSTEM_PROMPT",
 )
 
 # ── Registry ────────────────────────────────────────────────────────

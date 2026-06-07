@@ -5,7 +5,7 @@ from app.models.quiz import Quiz, QuizProblem, ClassroomQuiz, QuizAttempt
 from app.models.problem import Problem
 from app.models.question import Question
 from app.models.classroom import Classroom, Enrollment
-from app.models.user import User
+from domain.models.user import User
 from app.core.timezone import now_china
 from sqlalchemy import and_
 from sqlalchemy.orm import joinedload

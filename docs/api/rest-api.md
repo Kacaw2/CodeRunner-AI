@@ -21,7 +21,7 @@ CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthed
 
 ### 认证
 
-详见 [../architecture/auth.md](../architecture/auth.md)。任一项命中即可：
+详见 [../architecture/security-permissions-reliability.md](../architecture/security-permissions-reliability.md) §5.1。任一项命中即可：
 
 - `Cookie: auth_token=<JWT>`
 - `Authorization: Bearer <JWT>`
@@ -67,7 +67,7 @@ CodeRunner 暴露的 REST API 用 [flask-smorest](https://flask-smorest.readthed
 | POST | `/refresh` | 登录 | 刷新 JWT，更新 Cookie |
 | POST | `/logout` | 公开 | 清除 Cookie |
 
-详见 [../architecture/auth.md](../architecture/auth.md)。
+详见 [../architecture/security-permissions-reliability.md](../architecture/security-permissions-reliability.md) §5.1。
 
 ---
 

@@ -44,14 +44,12 @@ def _expected_core_tables() -> set[str]:
         importlib.import_module(f"app.models.{module.name}")
 
     from app.core.extensions import db
-    import core.db.session as core_session
-    import core.db.models.agent_trace  # noqa: F401  register trace/eval tables
+    import domain.models.observability  # noqa: F401  register trace/eval tables
 
-    # .tables.keys() lists names without forcing FK resolution (avoids
-    # NoReferencedTableError when a target lives in another metadata).
-    flask_tables = set(db.metadata.tables.keys())
-    core_tables = set(core_session.Base.metadata.tables.keys())
-    return flask_tables | core_tables
+    # Every model now lives on the single DomainBase metadata (db.metadata),
+    # so a single read lists the complete schema. .tables.keys() avoids forcing
+    # FK resolution.
+    return set(db.metadata.tables.keys())
 
 
 def _docker_available() -> bool:
@@ -64,7 +62,7 @@ def _docker_available() -> bool:
         return False
 
 
-def _upgrade_and_list_tables(database_url: str) -> set[str]:
+def _upgrade_and_list_tables(database_url: str, pre_upgrade=None) -> set[str]:
     """Build a bare Flask app bound to ``database_url``, run ``upgrade head``
     (NO ``create_all``), and return the resulting table names."""
     from flask import Flask
@@ -81,6 +79,8 @@ def _upgrade_and_list_tables(database_url: str) -> set[str]:
     migrate.init_app(flask_app, db)
 
     with flask_app.app_context():
+        if pre_upgrade is not None:
+            pre_upgrade(db.engine)
         upgrade()  # schema is built PURELY from the migration chain
         return set(inspect(db.engine).get_table_names())
 
@@ -122,16 +122,6 @@ def empty_mysql_url():
     yield from _provision_empty_database()
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Migration chain has no baseline that creates the core ORM tables; "
-        "upgrade head only applies incremental deltas on top of a create_all() "
-        "baseline. Gate turns green once the chain builds the full schema, after "
-        "which create_all() is removed from conftest/startup. Tracked in the "
-        "MySQL-test-DB backlog."
-    ),
-    strict=False,
-)
 def test_alembic_upgrade_head_builds_complete_core_schema(empty_mysql_url):
     expected = _expected_core_tables()
 
@@ -139,3 +129,35 @@ def test_alembic_upgrade_head_builds_complete_core_schema(empty_mysql_url):
 
     missing = expected - actual
     assert not missing, f"Migrations did not create core tables: {sorted(missing)}"
+
+
+def test_alembic_upgrade_head_removes_legacy_quiz_questions(empty_mysql_url):
+    """Existing deployments may still have the pre-Problem association table.
+
+    The current schema source of truth is ``quiz_problems``. A migrated database
+    must not keep the legacy table, otherwise ``flask db check`` reports a diff.
+    """
+    from sqlalchemy import text
+
+    def create_legacy_table(engine):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TABLE quiz_questions ("
+                "id INTEGER PRIMARY KEY AUTO_INCREMENT, "
+                "quiz_id INTEGER NOT NULL, "
+                "question_id INTEGER NOT NULL, "
+                "`order` INTEGER NOT NULL, "
+                "points INTEGER, "
+                "added_at DATETIME"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX unique_quiz_question "
+                "ON quiz_questions (quiz_id, question_id)"
+            ))
+
+    actual = _upgrade_and_list_tables(
+        empty_mysql_url, pre_upgrade=create_legacy_table
+    )
+
+    assert "quiz_questions" not in actual

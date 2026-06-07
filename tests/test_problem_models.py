@@ -2,7 +2,7 @@ from app.core.extensions import db
 from app.models.problem import Problem
 from app.models.question import Question, TestCase
 from app.models.quiz import Quiz, QuizProblem
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 
 
 def test_problem_owns_language_variants_and_shared_test_cases(app, db_session):

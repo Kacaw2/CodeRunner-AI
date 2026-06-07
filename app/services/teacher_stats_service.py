@@ -11,7 +11,7 @@ from app.models.question import Question
 from app.models.quiz import Quiz, QuizProblem
 from app.models.classroom import Classroom, Enrollment
 from app.models.submission import Submission
-from app.models.user import User
+from domain.models.user import User
 
 
 class TeacherStatsService:

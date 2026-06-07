@@ -4,7 +4,7 @@
 def get_student_summary_impl(student_id: int, session=None) -> dict:
     from app.models.student_profile import StudentProfile
     from app.models.submission import Submission
-    from app.models.user import User
+    from domain.models.user import User
 
     try:
         if session:
