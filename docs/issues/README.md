@@ -14,6 +14,7 @@
 | 报告 | 主题 | 当前状态 | 严重度 |
 |---|---|---|---|
 | [2026-06-04-dual-orm-database-issues.md](2026-06-04-dual-orm-database-issues.md) | 双层 ORM 数据模型 | 部分解决:迁移基线/create_all 已关闭,双引擎/重复映射仍是架构债 | P2 |
+| [2026-06-08-agent-memory-context-improvements.md](2026-06-08-agent-memory-context-improvements.md) | Agent memory / context 治理 | Draft:已整理现状、边界、目标设计与阶段建议 | P2 |
 | [2026-06-03-production-maturity-priority-assessment.md](2026-06-03-production-maturity-priority-assessment.md) | 生产成熟度优先级评估 | 已按 2026-06-05 代码事实更新 | P1-P3 |
 | [2026-06-03-agents-module-review-report.md](2026-06-03-agents-module-review-report.md) | agents 模块审查报告 | 已按 2026-06-05 agent platform 完成状态更新 | P2-P3 |
 
@@ -39,14 +40,15 @@
 | 5 | 运维闭环缺失:备份恢复、日志聚合、错误告警、部署回滚、容量指引、trace/eval 排障 runbook | `compose.yaml` 已有服务但无完整运维面 | maturity #6 |
 | 6 | RAG 知识点检索仍缺通用来源追踪(`doc_id/source/url`) | `knowledge/`、`tools/knowledge_search/` | agents review #6 |
 | 7 | 无用户反馈闭环:没有面向 agent 输出质量的 rating/feedback 端点 | `app/api/v1/ai.py` 中 `feedback` 主要是 human-gate 审批语义 | agents review #8 |
+| 8 | Agent memory/context 仍缺结构化策略、注入预算、trace 审计和 replay snapshot | [memory/context 改进议题](2026-06-08-agent-memory-context-improvements.md)、`ai/memory/service.py`、`core/definitions.py` | agent platform follow-up |
 
 ### P3 — 质量与文档
 
 | # | 问题 | 证据 | 来源 |
 |---|---|---|---|
-| 8 | EvalOps 仍需产品化:fast/full eval、prompt/model/tool/runtime 版本绑定、生产失败自动回灌、成本趋势 | `evals/`、`.github/workflows/evals.yml`;后续计划见 `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | maturity #8 |
-| 9 | ToolRuntime 运维级 guardrails 尚未做:per-tool/per-user quota、circuit breaker、write-tool idempotency、live HTTP E2E | `tools/protocol/runtime.py`;后续计划见 active remaining-improvements | agent platform follow-up |
-| 10 | ChromaDB 单机落盘无副本/无备份(RAG 单点) | `knowledge/store.py`、`compose.yaml` | audit F6 残余 |
+| 9 | EvalOps 仍需产品化:fast/full eval、prompt/model/tool/runtime 版本绑定、生产失败自动回灌、成本趋势 | `evals/`、`.github/workflows/evals.yml`;后续计划见 `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | maturity #8 |
+| 10 | ToolRuntime 运维级 guardrails 尚未做:per-tool/per-user quota、circuit breaker、write-tool idempotency、live HTTP E2E | `tools/protocol/runtime.py`;后续计划见 active remaining-improvements | agent platform follow-up |
+| 11 | ChromaDB 单机落盘无副本/无备份(RAG 单点) | `knowledge/store.py`、`compose.yaml` | audit F6 残余 |
 
 ---
 

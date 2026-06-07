@@ -1,0 +1,233 @@
+# Agent Memory / Context 改进议题
+
+> 状态: Draft
+> 更新日期: 2026-06-08
+> 范围: `ai/memory/`、`ai/agents/`、`core/definitions.py`、`core/observability/`、`ai/evals/`、`docs/architecture/data-state-memory.md`
+
+## 审核结论
+
+这项工作不应被理解为“补一个 memory 功能”。CodeRunner-AI 已经有运行时记忆: `MemoryService.get_memory_context()` 会读取 `StudentProfile`、`TeacherPreference` 和最近对话摘要, `LLMRunner.compact()` 也会压缩长消息窗口。
+
+当前真正缺口是 **memory / context governance**:
+
+- 记忆仍以自然语言字符串扁平拼接进 system prompt, 缺少结构化边界。
+- 记忆注入主要按 `user_role` 区分, 还没有按 agent 目标、来源、可信度、敏感级别和 token budget 做策略化筛选。
+- 本次 agent run 注入了哪些 memory、丢弃了哪些 memory、为什么注入, 还没有进入 trace / eval / replay 的审计面。
+- Codex / Claude Code 的 AGENTS.md、skills、memories 分层可以借鉴, 但不能直接照搬为产品架构; 本项目需要面向教育平台、学生画像、教师偏好、课程知识和 agent 执行审计做本地化设计。
+
+一句话目标: **把 memory 从“拼接到 prompt 的文本”升级为可过滤、可审计、可回放、可删除的上下文资产, 并优先服务用户能感知到的 agent 质量提升。**
+
+## 当前事实
+
+### 已有能力
+
+| 层级 | 当前实现 | 说明 |
+|---|---|---|
+| 短期上下文 | `MemoryService.compact_messages()` / `LLMRunner.compact()` | 长对话超过阈值后压缩早期消息, 保留 system message 和最近消息窗口 |
+| 中期记忆 | `AIConversation.summary` | 对话消息达到阈值后生成摘要; 后续 `get_memory_context()` 会回放最近摘要并排除当前 conversation |
+| 长期画像 | `StudentProfile` | 包含错误模式、近期题目、知识掌握、提示级别、学习摘要等字段 |
+| 教师偏好 | `TeacherPreference` | 包含出题风格、偏好语言/难度/topic、班级薄弱点等字段 |
+| Agent 注入 | `TutorAgent`、`GeneratorAgent`、`AnalyticsAgent` | 三者当前直接调用 `MemoryService.get_memory_context()` 并拼入 system context |
+| 长消息执行入口 | `AgentRuntime` | 通用 LLM/tool loop 通过 `LLMRunner.compact()` 使用消息压缩 |
+
+需要注意: `ReviewerAgent` 当前不直接注入 `MemoryService.get_memory_context()`。如果后续要让 reviewer 读取 memory, 应先定义明确策略, 避免把学生画像或教师偏好无差别带入代码评审。
+
+### 当前主要缺口
+
+| 缺口 | 风险 | 证据位置 |
+|---|---|---|
+| 缺少 agent-specific memory policy | tutor / generator / analytics 可能共享过宽的上下文, reviewer 后续接入时也容易污染 | `ai/agents/*/agent.py`、`core/definitions.py` |
+| 缺少结构化 `MemoryContext` | 无法稳定测试、过滤、审计、回放; prompt 拼接规则散落在各 agent | `ai/memory/service.py` |
+| 缺少 memory 注入预算 | 长期画像、摘要、RAG、工具结果叠加后可能造成上下文膨胀 | `ai/agents/runtime.py`、`ai/agents/llm_runner.py` |
+| 缺少来源与可解释性 | agent 不能说明某条记忆来自哪次对话、哪次提交、哪位教师偏好或哪条系统规则 | `ai/memory/service.py`、trace schema |
+| 缺少 forget / TTL / 冲突治理 | 临时偏好、错误推断、旧课堂状态可能长期污染后续回答 | `StudentProfile`、`TeacherPreference` |
+| 缺少 eval/replay snapshot | 线上失败或 eval 回放无法确认当时模型看到的 memory 是什么 | `core/observability/`、`ai/evals/` |
+
+## 分层边界
+
+项目应保留以下边界, 不要把所有上下文都归入 memory:
+
+| 层级 | 存什么 | 不存什么 | 当前或目标载体 |
+|---|---|---|---|
+| Rules / Instructions | 必须遵守的稳定规则、权限红线、项目约束 | 用户某次临时偏好、课程资料全文 | 未来可用项目级 `AGENTS.md` 或 checked-in docs 承载 |
+| Memory | 稳定偏好、学习画像、历史摘要、常见错误模式、课堂/教师风格 | 课程知识库全文、代码文档全文、完整执行轨迹 | `StudentProfile`、`TeacherPreference`、`AIConversation.summary`、未来 `MemoryContext` |
+| Skills / Workflows | 可复用流程、操作步骤、评审方法 | 用户画像、课程内容 | checked-in docs / future skill surface |
+| RAG / Knowledge | 课程资料、知识点、题目、错误模式语料、项目文档 | 个体用户隐私画像、一次 agent run 的工具残留 | `ai/knowledge/store.py` + Chroma |
+| Trace | agent 执行过程、tool call、LLM span、memory 注入审计、artifact | 应长期作为偏好使用的规则 | `agent_trace_*`、eval/replay artifacts |
+| Runtime Context | 当前任务状态、页面上下文、handoff summary、workflow step input/output | 跨用户长期记忆 | `AgentSession.context`、workflow step context |
+
+借鉴 Codex / Claude Code 时, 重点不是复制目录结构, 而是借鉴“规则、记忆、技能、检索、执行轨迹各司其职”的分层原则。
+
+## 目标设计方向
+
+### 1. Agent-specific memory policy
+
+在 `core/definitions.py` 的 `AgentDefinition` 中引入可消费的 `memory_policy`, 但前提是它必须立刻被 `MemoryService` 或 prompt assembler 使用, 不能成为 dead field。
+
+建议策略维度:
+
+| 策略项 | 示例 |
+|---|---|
+| `include_profile` | tutor 可读学生画像; generator 可读教师偏好; analytics 按角色和 target_student_id 读取 |
+| `include_recent_summaries` | tutor 可读最近学习摘要; generator 只读教师相关生成摘要; reviewer 默认不读 |
+| `include_rag` | tutor / generator 继续通过现有 KB 预取或工具读取; analytics 默认不直接访问 Chroma |
+| `include_handoff_summary` | handoff 只读取结构化摘要, 不读取上游完整 tool residue |
+| `sensitivity` | 成绩、身份、token、隐私字段默认不进入 prompt; 需要工具权限或聚合脱敏 |
+| `max_memory_chars` / `max_memory_tokens` | 每个 agent 明确 memory 注入上限 |
+
+### 2. 结构化 `MemoryContext`
+
+把 `MemoryService.get_memory_context()` 从“直接返回字符串”演进为两步:
+
+1. `build_memory_context(...) -> MemoryContext`
+2. `render_memory_context(context, agent_name, policy) -> str`
+
+`MemoryContext` 至少应包含:
+
+```text
+student_profile:
+  learning_summary
+  weak_areas
+  error_patterns
+  current_hint_level
+
+teacher_preference:
+  style_notes
+  preferred_language
+  preferred_difficulty
+  class_weak_areas
+
+recent_sessions:
+  conversation_id
+  agent_type
+  summary
+  created_at
+
+metadata:
+  source
+  confidence
+  sensitivity
+  expires_at
+  reason_included
+```
+
+这样做的收益:
+
+- prompt 渲染可集中管理, 不再散落到每个 agent。
+- trace 可以记录结构化快照, 而不是只能看到最终 prompt 文本。
+- eval replay 可以复原当次 memory 输入。
+- forget / TTL / conflict resolution 有明确操作对象。
+
+### 3. Memory retriever / extractor
+
+不建议每次用户请求都把所有 memory 塞入上下文。应拆成两个方向:
+
+- **Retriever**: 本次 agent run 前, 根据 agent、角色、任务、上下文、预算筛选 memory。
+- **Extractor**: agent run 后或后台任务中, 从对话、提交、生成题、教师修改记录中提取可保存的 memory candidate。
+
+Extractor 保存前必须经过:
+
+- 权限隔离: student / teacher / classroom / course 边界清晰。
+- 来源记录: 每条 memory 能追溯到 conversation、submission、draft、manual edit 或 system event。
+- 敏感信息过滤: 密码、token、个人隐私、健康、身份信息默认不保存; 成绩类信息默认聚合或脱敏。
+- 冲突检测: 新旧 memory 矛盾时进入 pending / superseded 状态, 不静默覆盖。
+- TTL: 临时偏好、当前任务状态、短期课堂安排需要过期。
+- 用户可删除: 支持 forget / delete / suppress。
+
+### 4. Trace audit + eval replay
+
+每次 agent run 应记录 memory 注入审计:
+
+| 字段 | 说明 |
+|---|---|
+| `agent_name` / `trace_id` | 哪个 agent 在哪次运行使用 |
+| `memory_item_id` 或 source key | 哪条 memory 被使用 |
+| `reason_included` | 因为什么策略或任务上下文被注入 |
+| `rendered_chars` / estimated tokens | 注入成本 |
+| `filtered_items` | 因预算、权限、敏感级别、TTL 被过滤的数量和原因 |
+| `snapshot_hash` | eval/replay 对齐使用 |
+
+Eval case 应能选择:
+
+- 使用记录下来的 memory snapshot 回放。
+- 使用当前最新 memory 回放。
+- 对比两者差异, 判断问题来自 prompt/model/tool 改动, 还是 memory 输入漂移。
+
+## 用户可感知收益
+
+优先验收不应只看“字段是否更多”, 而应看用户是否明显感到 agent 更懂上下文:
+
+| 用户体验目标 | 可观察行为 |
+|---|---|
+| Tutor 少重复 | 学生反复犯同类错误时, tutor 能基于历史弱点给出更短、更贴切的提示 |
+| Tutor 不越界 | 不因为历史画像直接给答案, 仍遵守渐进提示和当前题目上下文 |
+| Generator 更贴合教师 | 出题语言、难度、风格、班级薄弱点更稳定, 但不会复制历史题 |
+| Analytics 更可信 | 明确区分当前学生、目标学生、班级聚合, 不串用户 memory |
+| Handoff 更干净 | 下游 agent 只看到必要摘要, 不看到上游工具残留和无关推理过程 |
+| 回归更可查 | 失败案例能复原当时 memory 输入, 不靠猜测排查 |
+
+## 建议推进阶段
+
+### Phase 1: MemoryContext 与渲染边界
+
+目标: 先把现有字符串上下文结构化, 外部行为尽量不变。
+
+- 新增 `MemoryContext` / `MemoryItem` 数据结构。
+- 保留现有 `get_memory_context()` 兼容接口, 内部改为 build + render。
+- 补测试: 学生画像、教师偏好、recent summaries、当前 conversation 排除、空表降级。
+- 验收: 三个已接入 memory 的 agent 输出 system context 内容不回退。
+
+### Phase 2: Agent memory policy
+
+目标: 让 agent definition 真正决定 memory 注入范围。
+
+- 在 `AgentDefinition` 中增加被真实消费的 `memory_policy`。
+- 为 tutor / generator / analytics / reviewer 定义默认策略。
+- Reviewer 默认不读长期画像, 除非后续有明确代码评审需求。
+- 验收: 不同 agent 的 memory 注入结果可单测断言; 角色不允许的 memory 不会进入 prompt。
+
+### Phase 3: Budget、过滤与审计
+
+目标: 控制上下文膨胀, 并让 memory 注入进入 trace。
+
+- 为每个 agent 设置 memory 字符/token 预算。
+- 记录 included / filtered / dropped memory 的 trace event 或 artifact。
+- 对敏感字段、TTL、跨用户数据做过滤。
+- 验收: 超预算时优先保留当前任务相关 memory; trace 能看到注入摘要和过滤原因。
+
+### Phase 4: Extractor、forget 与冲突治理
+
+目标: 让 memory 写入变得可控。
+
+- 后台 memory extractor 只产生 candidate, 不直接无条件覆盖长期画像。
+- 支持用户或教师删除/抑制特定 memory。
+- 支持 TTL 和 superseded 状态。
+- 验收: 冲突 memory 不静默覆盖; forget 后不会再次注入。
+
+### Phase 5: Eval replay snapshot
+
+目标: 把 memory 纳入质量门禁。
+
+- eval case 记录 memory snapshot hash / rendered memory。
+- production failure 可沉淀为 regression case。
+- 支持 current memory 与 recorded snapshot 两种回放模式。
+- 验收: 同一 eval case 能复原当时上下文, 并能解释和当前 memory 的差异。
+
+## 非目标
+
+- 不把 Codex / Claude Code memory 目录结构照搬到产品中。
+- 不把课程资料、项目文档、代码知识全文存进用户 memory; 这些属于 RAG。
+- 不把 trace 当长期记忆使用; trace 是审计和 replay 证据。
+- 不提前建设没有消费者的多租户 memory 平台。
+- 不在没有策略和审计前让 reviewer 无差别读取学生/教师 memory。
+- 不为了“架构完整”重开已经完成的 Agent runtime kernel、ToolRuntime boundary 或 WorkflowEngine Phase 1-4 工作。
+
+## 建议下一步
+
+如果要把本 issue 升级为可执行计划, 建议只启动 Phase 1 + Phase 2:
+
+1. 先写 `MemoryContext` 结构和兼容渲染测试。
+2. 再把 `memory_policy` 接到 `AgentDefinition` 并让 `MemoryService` 真实消费。
+3. 同步补 `docs/architecture/data-state-memory.md` 的“目标态”小节, 避免当前态文档和改进计划混淆。
+
+这样能先解决最核心的“无差别字符串注入”问题, 同时不会一次性引入 extractor、forget、TTL、eval replay 等较大范围工程。
