@@ -7,7 +7,7 @@ never commits — the test owns the transaction (``db_session``).
 """
 import pytest
 
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from domain.models.chat import AIConversation, AIMessage, ChatTask
 from domain.repositories.chat import SyncChatRepository
 

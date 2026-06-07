@@ -4,6 +4,10 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import HumanMessage
 
+# Register the full shared metadata before early runtime-only tests touch the
+# User mapper; later tests in this file also use Flask fixtures.
+import app.models  # noqa: F401
+
 
 def test_executor_uses_session_trace_id_for_identity():
     """The tool identity must carry the run's real trace_id, not context's None."""
@@ -275,7 +279,7 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
     assert captured["trace_id"]
     assert session.final_response == "Check the boundary case."
 
-    from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+    from domain.models.observability import AgentTraceRun, AgentTraceSpan
     from core.db.session import db_session as core_db_session
 
     with core_db_session() as session_db:
@@ -296,8 +300,10 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
         assert "Two Sum" in tool_span.output_preview
 
 
-def test_worker_context_restores_question_id_from_conversation():
-    from workers.chat import _chat_context_from_conversation
+def test_runtime_context_restores_question_id_from_conversation():
+    from agent_runtime.services.chat_runner import (
+        _chat_context_from_conversation,
+    )
 
     conv = type("Conversation", (), {
         "id": 10,
@@ -402,7 +408,7 @@ def test_runtime_stream_records_artifact_for_generated_problem(
         reset_tool_runtime()
         client_mod.set_mcp_tool_client(None)
 
-    from core.db.models.agent_trace import AgentTraceRun, AgentTraceArtifact
+    from domain.models.observability import AgentTraceRun, AgentTraceArtifact
     from core.db.session import db_session as core_db_session
 
     with core_db_session() as session_db:

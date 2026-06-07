@@ -3,7 +3,7 @@ from unittest.mock import patch
 from app.core.extensions import db
 from app.models.problem import Problem
 from app.models.question import Question, TestCase
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from app.services.submission_service import SubmissionService
 
 

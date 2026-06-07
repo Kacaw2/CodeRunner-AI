@@ -1,7 +1,7 @@
 # app/services/auth_service.py
 """Authentication service layer"""
 from flask_smorest import abort
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from app.core.extensions import db
 from app.auth.utils import (
     hash_password,

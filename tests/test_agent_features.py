@@ -29,7 +29,7 @@ def db_session(app):
 
 @pytest.fixture
 def teacher_user(db_session):
-    from app.models.user import User, UserRole
+    from domain.models.user import User, UserRole
     user = User(username="teacher4", password="hashed", email="t4@test.com", role=UserRole.TEACHER)
     db_session.add(user)
     db_session.commit()
@@ -38,7 +38,7 @@ def teacher_user(db_session):
 
 @pytest.fixture
 def student_user(db_session):
-    from app.models.user import User, UserRole
+    from domain.models.user import User, UserRole
     user = User(username="student4", password="hashed", email="s4@test.com", role=UserRole.STUDENT)
     db_session.add(user)
     db_session.commit()

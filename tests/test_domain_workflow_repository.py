@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 
 
 def _run(coro):
@@ -18,15 +18,13 @@ def _run(coro):
         loop.close()
 
 
-def test_flask_workflow_module_reexports_the_domain_mappings():
-    from app.models.workflow import WorkflowApproval as FlaskWorkflowApproval
-    from app.models.workflow import WorkflowRun as FlaskWorkflowRun
-    from app.models.workflow import WorkflowStep as FlaskWorkflowStep
+def test_workflow_mappings_use_the_shared_domain_metadata():
+    from domain.base import DomainBase
     from domain.models.workflow import WorkflowApproval, WorkflowRun, WorkflowStep
 
-    assert FlaskWorkflowRun is WorkflowRun
-    assert FlaskWorkflowStep is WorkflowStep
-    assert FlaskWorkflowApproval is WorkflowApproval
+    assert WorkflowRun.metadata is DomainBase.metadata
+    assert WorkflowStep.metadata is DomainBase.metadata
+    assert WorkflowApproval.metadata is DomainBase.metadata
 
 
 def test_sync_repository_uses_compare_and_set_for_run_and_step(db_session):

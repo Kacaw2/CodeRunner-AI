@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.core.extensions import db
 from app.models.agent_trace import AgentRun, AgentRunStep
 from core.db.session import db_session as core_db_session
-from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+from domain.models.observability import AgentTraceRun, AgentTraceSpan
 
 
 def _seed_legacy_run(run_id: str, user_id: int = 1) -> str:

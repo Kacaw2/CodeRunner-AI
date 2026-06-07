@@ -21,6 +21,7 @@ from agents.base import (
 )
 from core.exceptions import AgentExecutionLimitError, LLMError
 from models.tiers import ModelTier
+from tools.protocol.adapters import parse_llm_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,8 @@ class AgentRuntime:
                     break
 
                 for tc in response.tool_calls:
+                    req = parse_llm_tool_call(tc)
+                    tc = {"name": req.tool_name, "args": req.args, "id": req.tool_call_id}
                     tc = _hydrate_legacy_tool_args(tc, session)
                     with trace.trace_tool_call(tc["name"], tc["args"]) as tool_step:
                         tool_msg = self._executor.run(tc, state, session.agent_name, session=session)
@@ -285,10 +288,19 @@ class AgentRuntime:
                             args = json.loads(args)
                         except json.JSONDecodeError:
                             args = {}
-                    parsed_calls.append(_hydrate_legacy_tool_args(
-                        {"name": tc["name"], "args": args, "id": tc["id"]},
-                        session,
-                    ))
+                    req = parse_llm_tool_call(
+                        {"name": tc["name"], "args": args, "id": tc["id"]}
+                    )
+                    parsed_calls.append(
+                        _hydrate_legacy_tool_args(
+                            {
+                                "name": req.tool_name,
+                                "args": req.args,
+                                "id": req.tool_call_id,
+                            },
+                            session,
+                        )
+                    )
 
                 messages.append(AIMessage(content=collected_content, tool_calls=parsed_calls))
                 for tc in parsed_calls:

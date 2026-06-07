@@ -36,7 +36,7 @@ def backfill(limit: int = 500) -> int:
     from app.core.extensions import db
     from app.models.agent_trace import AgentRun, AgentRunStep
     from core.db.session import db_session
-    from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+    from domain.models.observability import AgentTraceRun, AgentTraceSpan
 
     legacy_runs = (
         db.session.execute(

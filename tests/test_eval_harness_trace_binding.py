@@ -37,7 +37,7 @@ class _FakeAgentHarness:
 
     def run(self, *, agent_type, message, user_id, user_role,
             source="agent", context=None, budget=None, history=None):
-        from core.db.models.agent_trace import AgentTraceRun
+        from domain.models.observability import AgentTraceRun
         from app.core.timezone import now_china
         from evals.harness.agent_harness import AgentResult
 
@@ -71,8 +71,8 @@ class _FakeAgentHarness:
 
 def test_eval_harness_creates_case_runs_with_trace_ids(app, db_session):
     from evals.harness.eval_harness import EvalHarness
-    from app.models.eval_run import EvalRun
-    from core.db.models.agent_trace import EvalCaseRun, EvalCaseGraderResult
+    from domain.models.observability import EvalRun
+    from domain.models.observability import EvalCaseRun, EvalCaseGraderResult
 
     with app.app_context():
         report = EvalHarness(agent_harness=_FakeAgentHarness()).run(
@@ -112,7 +112,7 @@ def test_eval_harness_creates_case_runs_with_trace_ids(app, db_session):
 
 def test_eval_harness_marks_budget_exceeded_on_token_overrun(app, db_session):
     from evals.harness.eval_harness import EvalHarness
-    from core.db.models.agent_trace import EvalCaseRun
+    from domain.models.observability import EvalCaseRun
 
     fake = _FakeAgentHarness(tokens_input=5000, tokens_output=5000)
 

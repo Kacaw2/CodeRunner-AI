@@ -44,7 +44,7 @@ def _expected_core_tables() -> set[str]:
         importlib.import_module(f"app.models.{module.name}")
 
     from app.core.extensions import db
-    import core.db.models.agent_trace  # noqa: F401  register trace/eval tables
+    import domain.models.observability  # noqa: F401  register trace/eval tables
 
     # Every model now lives on the single DomainBase metadata (db.metadata),
     # so a single read lists the complete schema. .tables.keys() avoids forcing

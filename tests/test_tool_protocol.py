@@ -276,12 +276,17 @@ class TestAdapters:
         ]
         schemas = descriptors_to_llm_tools(descs)
         assert len(schemas) == 2
-        assert schemas[0]["function"]["name"] == "a.b"
+        assert schemas[0]["function"]["name"] == "a_d_b"
+        assert schemas[0]["function"]["name"].replace("_", "").isalnum()
 
     def test_parse_llm_tool_call(self):
         from tools.protocol.adapters import parse_llm_tool_call
 
-        tc = {"name": "coderunner.code.execute", "args": {"code": "print(1)"}, "id": "tc1"}
+        tc = {
+            "name": "coderunner_d_code_d_execute",
+            "args": {"code": "print(1)"},
+            "id": "tc1",
+        }
         req = parse_llm_tool_call(tc)
         assert req.tool_name == "coderunner.code.execute"
         assert req.args == {"code": "print(1)"}

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from app import create_app
 from app.core.extensions import db as _db
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 
 
 @pytest.fixture(scope="session")
@@ -30,7 +30,7 @@ def _setup_db(app):
     """
     with app.app_context():
         import core.db.session as core_session
-        import core.db.models.agent_trace  # noqa: F401  register trace tables
+        import domain.models.observability  # noqa: F401  register trace tables
         from sqlalchemy.orm import sessionmaker
 
         _db.create_all()

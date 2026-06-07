@@ -12,7 +12,7 @@ from app.models.problem import Problem
 from app.models.question import Question
 from app.models.quiz import ClassroomQuiz
 from app.models.submission import Submission
-from app.models.user import User
+from domain.models.user import User
 from app.services.quiz_service import QuizService
 
 

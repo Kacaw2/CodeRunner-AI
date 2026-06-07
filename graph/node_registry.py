@@ -70,6 +70,7 @@ def _handle_tool_call(step_def: dict, context: dict) -> dict:
     """Execute a single tool through the MCP ToolRuntime."""
     from tools.protocol import get_tool_runtime, ToolCallContext
     from core.auth.context import build_caller_context
+    from tools.protocol.policies.scopes import scopes_for_agent
 
     tool_name = step_def.get("tool_name", "")
     tool_args = step_def.get("tool_args", {})
@@ -86,7 +87,10 @@ def _handle_tool_call(step_def: dict, context: dict) -> dict:
         conversation_id=context.get("conversation_id"),
         trace_id=context.get("trace_id"),
     )
-    ctx = ToolCallContext(caller=caller)
+    ctx = ToolCallContext(
+        caller=caller,
+        granted_scopes=scopes_for_agent(agent_type),
+    )
 
     result = runtime.call_sync(tool_name, tool_args, ctx)
 

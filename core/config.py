@@ -125,11 +125,9 @@ class Settings:
     MCP_API_KEY: str = os.environ.get("MCP_API_KEY", "")
 
     # ── FastAPI Agent Runtime (Task 5) ──────────────────────────
-    # Execution mode for the chat command path. The dispatcher reads this:
-    #   "embedded" (default) -> current Flask thread-pool worker, unchanged
-    #   "shadow"             -> embedded executes; remote readiness is verified
-    #   "remote"             -> the FastAPI runtime claims & executes the task
-    AGENT_RUNTIME_MODE: str = os.environ.get("AGENT_RUNTIME_MODE", "embedded")
+    # Compatibility setting retained for deployment visibility. Agent command
+    # dispatch is remote-only after the runtime cutover.
+    AGENT_RUNTIME_MODE: str = os.environ.get("AGENT_RUNTIME_MODE", "remote")
     # Base URL the Flask dispatcher uses to reach the runtime's internal command
     # API (e.g. http://agent_runtime:8100).
     AGENT_RUNTIME_URL: str = os.environ.get(

@@ -52,7 +52,7 @@ def test_no_runtime_module_redeclares_an_agent_class_map():
     """
     root = Path(__file__).resolve().parents[1]
     suspects = [
-        root / "workers" / "chat.py",
+        root / "agent_runtime" / "services" / "chat_runner.py",
         root / "app" / "api" / "v1" / "ai.py",
         root / "graph" / "runner.py",
         root / "evals" / "runner.py",

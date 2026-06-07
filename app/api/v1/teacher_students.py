@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import func
 
 from app.core.extensions import db
-from app.models.user import User
+from domain.models.user import User
 from app.models.submission import Submission
 from app.models.classroom import Enrollment
 from app.auth import require_teacher
@@ -172,7 +172,7 @@ class TeacherStudentsList(MethodView):
         
         # Query students in teacher's classrooms through Enrollment
         # Fixed: Handle role comparison properly for both enum and string types
-        from app.models.user import UserRole
+        from domain.models.user import UserRole
         
         students_query = db.session.query(User)\
             .join(Enrollment, Enrollment.student_id == User.id)\

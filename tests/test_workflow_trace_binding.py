@@ -13,7 +13,7 @@ def test_engine_persists_step_trace_id_and_injects_context(app, db_session, teac
     with app.app_context():
         from graph.engine import WorkflowEngine
         from graph.node_registry import register_step_handler
-        from app.models.workflow import WorkflowStep
+        from domain.models.workflow import WorkflowStep
 
         seen = {}
 
@@ -45,7 +45,12 @@ def test_engine_persists_step_trace_id_and_injects_context(app, db_session, teac
         assert seen["workflow_run_id"] == "trace-bind-run"
         assert seen["step_index"] == 0
 
-        step = WorkflowStep.query.filter_by(workflow_run_id="trace-bind-run", step_index=0).first()
+        step = db_session.execute(
+            select(WorkflowStep).where(
+                WorkflowStep.workflow_run_id == "trace-bind-run",
+                WorkflowStep.step_index == 0,
+            )
+        ).scalar_one_or_none()
         assert step is not None
         assert step.trace_id == "trace-step-0"
 
@@ -56,8 +61,8 @@ def test_agent_call_binds_workflow_run_to_trace(app, db_session, teacher_user, m
     with app.app_context():
         from graph.engine import WorkflowEngine
         from graph import runner as runner_module
-        from app.models.workflow import WorkflowStep
-        from core.db.models.agent_trace import AgentTraceRun
+        from domain.models.workflow import WorkflowStep
+        from domain.models.observability import AgentTraceRun
         import core.db.session as core_session
 
         captured_state = {}
@@ -105,7 +110,12 @@ def test_agent_call_binds_workflow_run_to_trace(app, db_session, teacher_user, m
         assert captured_state["context"].get("workflow_run_id") == "agent-trace-run"
         assert captured_state["context"].get("step_index") == 0
 
-        step = WorkflowStep.query.filter_by(workflow_run_id="agent-trace-run", step_index=0).first()
+        step = db_session.execute(
+            select(WorkflowStep).where(
+                WorkflowStep.workflow_run_id == "agent-trace-run",
+                WorkflowStep.step_index == 0,
+            )
+        ).scalar_one_or_none()
         assert step is not None and step.trace_id
 
         # Forward: the persisted trace carries the owning workflow_run_id, and its

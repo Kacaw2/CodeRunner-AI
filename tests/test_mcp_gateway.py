@@ -8,10 +8,10 @@ import pytest
 
 from app import create_app
 from app.core.extensions import db as _db
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from mcp_gateway.middleware.auth import hash_api_key, verify_api_key
-from core.db.models.mcp_api_key import McpApiKey
-from core.db.models.mcp_audit_log import McpAuditLog
+from domain.models.mcp import McpApiKey
+from domain.models.mcp import McpAuditLog
 from mcp_gateway.middleware import set_caller_info, get_caller_info, _guarded
 from mcp_gateway.middleware.rate_limit import check_rate_limit
 

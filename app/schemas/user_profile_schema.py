@@ -5,7 +5,7 @@ from marshmallow import Schema, fields, validate, ValidationError
 
 from app.auth import require_auth
 from app.core.extensions import db
-from app.models.user import User
+from domain.models.user import User
 from app.auth.utils import hash_password, verify_password
 class UserProfileOut(Schema):
     """user info output"""

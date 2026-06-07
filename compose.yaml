@@ -109,9 +109,8 @@ services:
       CHROMA_SSL: "False"
       CHROMA_ANONYMIZED_TELEMETRY: "False"
 
-      # Agent runtime command path. Default stays embedded so web behavior is
-      # unchanged; flip AGENT_RUNTIME_MODE to shadow/remote to use the runtime.
-      AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-embedded}
+      # Agent execution is remote-only after the runtime cutover.
+      AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-remote}
       AGENT_RUNTIME_URL: http://agent_runtime:8100
       SERVICE_TOKEN_AUDIENCE: ${SERVICE_TOKEN_AUDIENCE:-agent-runtime-internal}
       SERVICE_TOKEN_ISSUER: ${SERVICE_TOKEN_ISSUER:-coderunner-web}
@@ -143,6 +142,8 @@ services:
       executor:
         condition: service_healthy
       chroma:
+        condition: service_healthy
+      agent_runtime:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9900/health"]
@@ -226,6 +227,8 @@ services:
         condition: service_healthy
       chroma:
         condition: service_healthy
+      executor:
+        condition: service_healthy
     volumes:
       - hf_cache:/app/.hf_cache
     healthcheck:
@@ -236,6 +239,7 @@ services:
       start_period: 30s
     networks:
       - educode_network
+      - executor_network
     env_file:
       - .env
 
@@ -264,6 +268,8 @@ services:
       AI_MODEL: ${AI_MODEL:-deepseek-chat}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2048}
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      EXECUTOR_REMOTE_URL: http://executor:8300/run
+      EXECUTOR_API_TOKEN: ${EXECUTOR_API_TOKEN:-}
 
       # Internal command auth: dedicated-audience signed service tokens.
       SERVICE_TOKEN_AUDIENCE: ${SERVICE_TOKEN_AUDIENCE:-agent-runtime-internal}
@@ -290,6 +296,8 @@ services:
         condition: service_healthy
       chroma:
         condition: service_healthy
+      executor:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/health/live',timeout=3).status==200 else 1)"]
       interval: 30s
@@ -300,6 +308,7 @@ services:
       - hf_cache:/app/.hf_cache
     networks:
       - educode_network
+      - executor_network
     env_file:
       - .env
 

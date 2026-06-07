@@ -100,6 +100,11 @@ def _seed_task(session_factory, *, agent_type="tutor", routed_agent="tutor"):
 def _stub_agent_stream(monkeypatch, tokens=("Hi", " there")):
     """Patch the agent registry so .stream yields fixed tokens, no LLM call."""
 
+    # Initialize graph.runner's process-wide agent cache before patching the
+    # registry factory used only by the remote runner. Otherwise this stub can
+    # leak into later tests that exercise the synchronous orchestrator.
+    import graph.runner  # noqa: F401
+
     class _StubAgent:
         def stream(self, state):
             for tok in tokens:

@@ -6,10 +6,11 @@ User personal information management endpoints
 import logging
 from flask import g
 from flask_smorest import Blueprint, abort
+from sqlalchemy import select
 
 from app.auth import require_auth
 from app.core.extensions import db
-from app.models.user import User
+from domain.models.user import User
 from app.auth.utils import hash_password, verify_password
 
 from app.schemas.user_profile_schema import (
@@ -59,10 +60,12 @@ def update_email(payload):
         abort(400, message="Email is required")
     
     # Check if email is already in use
-    existing_user = User.query.filter(
-        User.email == new_email,
-        User.id != current_user.id
-    ).first()
+    existing_user = db.session.execute(
+        select(User).where(
+            User.email == new_email,
+            User.id != current_user.id,
+        )
+    ).scalar_one_or_none()
     
     if existing_user:
         abort(400, message="Email already in use")
@@ -99,10 +102,12 @@ def update_username(payload):
         abort(400, message="Current password is incorrect")
     
     # Check if username is already taken
-    existing_user = User.query.filter(
-        User.username == new_username,
-        User.id != current_user.id
-    ).first()
+    existing_user = db.session.execute(
+        select(User).where(
+            User.username == new_username,
+            User.id != current_user.id,
+        )
+    ).scalar_one_or_none()
     
     if existing_user:
         abort(400, message="Username already taken")

@@ -5,11 +5,8 @@ exists. If importing a model (or anything under ``app.*``) instantiates the
 Flask app at import time, a circular import crashes gateway startup:
 
     bootstrap._register_approval_handlers
-      -> core.db.models.mcp_approval
-        -> app.core.extensions  (runs app/__init__.py)
-          -> create_app() -> register_blueprints
-            -> app.api.v1.mcp_approvals
-              -> core.db.models.mcp_approval  (still mid-import) -> ImportError
+      -> domain.models.mcp
+      -> shared DomainBase without constructing a Flask application
 
 These tests fail fast at the source level so we don't only discover it in a
 Docker rebuild.
@@ -30,11 +27,11 @@ def test_app_package_import_has_no_module_level_flask_app():
     )
 
 
-def test_approval_model_imports_in_a_clean_interpreter():
+def test_domain_approval_model_imports_in_a_clean_interpreter():
     """Importing the approval model first must not crash on a circular import."""
     result = subprocess.run(
         [sys.executable, "-c",
-         "import core.db.models.mcp_approval as m; "
+         "import domain.models.mcp as m; "
          "assert m.McpToolApproval is not None; print('ok')"],
         capture_output=True,
         text=True,

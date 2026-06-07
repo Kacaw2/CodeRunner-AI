@@ -13,7 +13,7 @@ from app.core.timezone import now_china
 from app.models.submission import Submission
 from app.models.problem import Problem
 from app.models.question import Question
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 from app.models.classroom import Classroom, Enrollment
 
 blp = Blueprint(

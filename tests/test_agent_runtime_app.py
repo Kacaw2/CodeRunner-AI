@@ -71,6 +71,25 @@ def test_health_ready_reports_checks(app_client):
     assert body["checks"]["redis"] == "unavailable"
 
 
+def test_process_runtime_bootstrap_wires_tool_runtime(monkeypatch):
+    import agent_runtime.main as runtime_main
+
+    calls = {}
+
+    def _fake_bootstrap(*, session_factory=None):
+        calls["session_factory"] = session_factory
+        return object()
+
+    monkeypatch.setattr(
+        "mcp_gateway.bootstrap.bootstrap_tool_runtime", _fake_bootstrap
+    )
+    monkeypatch.setattr("sqlalchemy.orm.configure_mappers", lambda: None)
+
+    runtime_main._bootstrap_process_runtime()
+
+    assert calls["session_factory"].__name__ == "get_session"
+
+
 def test_only_expected_routes_registered():
     app = create_app()
     paths = {route.path for route in app.routes if hasattr(route, "path")}

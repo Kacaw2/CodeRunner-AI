@@ -22,10 +22,13 @@ class ToolCallExecutor:
     def run(self, tool_call: dict, state: dict, default_agent: str, *, session=None) -> ToolMessage:
         from mcp_gateway.client import MCPClientIdentity, get_mcp_tool_client
         from agents.hooks import HookContext, HookEvent, get_hook_manager
+        from tools.protocol.adapters import parse_llm_tool_call
 
-        name = tool_call["name"]
-        args = tool_call.get("args", {})
-        tc_id = tool_call.get("id", "")
+        request = parse_llm_tool_call(tool_call)
+        name = request.tool_name
+        args = request.args
+        tc_id = request.tool_call_id
+        tool_call = {"name": name, "args": args, "id": tc_id}
 
         agent_name = session.agent_name if session is not None else state.get("agent_type", default_agent)
         hooks = get_hook_manager()

@@ -5,7 +5,7 @@ import time
 from flask import Blueprint, request, jsonify, Response, stream_with_context, current_app
 from app.auth.decorators import require_auth, require_teacher, get_current_user_or_401
 from app.core.extensions import db, redis_client
-from app.models.ai_conversation import AIConversation, AIMessage
+from domain.models.chat import AIConversation, AIMessage
 from domain.repositories.chat import SyncChatRepository
 from core.definitions import get_definition
 from core.exceptions import AIError, RateLimitError, ConfigError
@@ -601,9 +601,7 @@ def chat_async():
         db.session.flush()
         db.session.commit()
 
-        # Route through the 3-state dispatcher. In the default embedded mode
-        # this calls workers.chat.submit_chat_task exactly as before; shadow and
-        # remote modes are opt-in via Settings.AGENT_RUNTIME_MODE.
+        # Persist first, then send one signed command to the remote runtime.
         from app.services.agent_runtime_dispatcher import dispatch_chat_task
         dispatch_chat_task(task.id, current_app._get_current_object())
 
@@ -637,9 +635,7 @@ def chat_task_stream(task_id):
     last_event = request.args.get("last_event", 0, type=int)
 
     def generate():
-        from workers.chat import (
-            get_task_events, get_task_event_count, get_task_status_from_redis,
-        )
+        from workers.redis_buffer import ct_get_events, ct_get_status
 
         cursor = last_event
         done = False
@@ -647,7 +643,7 @@ def chat_task_stream(task_id):
         max_idle = 300  # 5 minutes max wait
 
         while not done and idle_count < max_idle:
-            events = get_task_events(task_id, start=cursor)
+            events = ct_get_events(task_id, start=cursor)
 
             if events:
                 idle_count = 0
@@ -660,12 +656,12 @@ def chat_task_stream(task_id):
                         break
             else:
                 # Check if task is already finished (DB fallback)
-                redis_info = get_task_status_from_redis(task_id)
+                redis_info = ct_get_status(task_id)
                 redis_status = redis_info.get("status")
 
                 if redis_status in ("completed", "failed"):
                     # Drain any remaining events
-                    remaining = get_task_events(task_id, start=cursor)
+                    remaining = ct_get_events(task_id, start=cursor)
                     for evt in remaining:
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
                         cursor += 1

@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import inspect
 
-from app.models.user import User, UserRole
+from domain.models.user import User, UserRole
 
 
-def test_legacy_mcp_modules_reexport_domain_mappings():
-    from core.db.models.mcp_api_key import McpApiKey as LegacyApiKey
-    from core.db.models.mcp_approval import McpToolApproval as LegacyApproval
-    from core.db.models.mcp_audit_log import McpAuditLog as LegacyAuditLog
+def test_mcp_mappings_use_the_shared_domain_metadata():
+    from domain.base import DomainBase
     from domain.models.mcp import McpApiKey, McpAuditLog, McpToolApproval
 
-    assert LegacyApiKey is McpApiKey
-    assert LegacyApproval is McpToolApproval
-    assert LegacyAuditLog is McpAuditLog
+    assert McpApiKey.metadata is DomainBase.metadata
+    assert McpToolApproval.metadata is DomainBase.metadata
+    assert McpAuditLog.metadata is DomainBase.metadata
 
 
 def test_mcp_domain_models_do_not_import_flask_extensions():

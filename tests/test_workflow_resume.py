@@ -9,7 +9,7 @@ startup; this resume is an explicit, opt-in continuation.
 
 def _seed_partial_run(db_session, user_id, run_id):
     """A 3-step run where step 0 completed, steps 1-2 never ran (failed/orphaned)."""
-    from app.models.workflow import WorkflowRun, WorkflowStep
+    from domain.models.workflow import WorkflowRun, WorkflowStep
 
     plan = {
         "goal": "partial",
@@ -53,7 +53,7 @@ def test_resume_continues_after_last_completed_step(app, db_session, teacher_use
     with app.app_context():
         from graph.engine import WorkflowEngine
         from graph.node_registry import register_step_handler
-        from app.models.workflow import WorkflowRun, WorkflowStep
+        from domain.models.workflow import WorkflowRun, WorkflowStep
 
         ran: list[int] = []
 
@@ -80,16 +80,22 @@ def test_resume_continues_after_last_completed_step(app, db_session, teacher_use
         run = db_session.get(WorkflowRun, "resume-run")
         assert run.status == "completed"
 
-        steps = (WorkflowStep.query
-                 .filter_by(workflow_run_id="resume-run")
-                 .order_by(WorkflowStep.step_index).all())
+        from sqlalchemy import select
+
+        steps = list(
+            db_session.execute(
+                select(WorkflowStep)
+                .where(WorkflowStep.workflow_run_id == "resume-run")
+                .order_by(WorkflowStep.step_index)
+            ).scalars()
+        )
         assert [s.status for s in steps] == ["completed", "completed", "completed"]
 
 
 def test_resume_rejects_finished_run(app, db_session, teacher_user):
     with app.app_context():
         from graph.engine import WorkflowEngine
-        from app.models.workflow import WorkflowRun
+        from domain.models.workflow import WorkflowRun
 
         db_session.add(WorkflowRun(
             id="done-run", user_id=teacher_user.id, goal="g",
@@ -105,7 +111,7 @@ def test_resume_rejects_finished_run(app, db_session, teacher_user):
 def test_resume_rejects_waiting_approval_run(app, db_session, teacher_user):
     with app.app_context():
         from graph.engine import WorkflowEngine
-        from app.models.workflow import WorkflowRun
+        from domain.models.workflow import WorkflowRun
 
         db_session.add(WorkflowRun(
             id="gated-run", user_id=teacher_user.id, goal="g",
@@ -124,7 +130,7 @@ def test_resume_re_gates_downstream_approval_step(app, db_session, teacher_user)
     with app.app_context():
         from graph.engine import WorkflowEngine
         from graph.node_registry import register_step_handler
-        from app.models.workflow import WorkflowRun, WorkflowStep
+        from domain.models.workflow import WorkflowRun, WorkflowStep
 
         register_step_handler("resume_done", lambda _s, _c: {"success": True})
 

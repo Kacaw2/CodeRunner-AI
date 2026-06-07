@@ -240,7 +240,7 @@ def get_teacher_questions():
         """Get creator information for a question"""
         creator = None
         if question.created_by:
-            from app.models.user import User
+            from domain.models.user import User
             creator_user = db.session.execute(
                 select(User).where(User.id == question.created_by)
             ).scalar_one_or_none()

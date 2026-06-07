@@ -1,7 +1,8 @@
 # app/services/profile_service.py
 """User Profile Service"""
 from flask_smorest import abort
-from app.models.user import User
+from domain.models.user import User
+from domain.repositories.users import SyncUserRepository
 from app.core.extensions import db
 from app.auth.utils import hash_password, verify_password
 
@@ -29,7 +30,7 @@ class ProfileService:
             abort(400, message="New email is the same as current email")
         
         # Check if email already exists
-        existing_user = User.query.filter_by(email=new_email).first()
+        existing_user = SyncUserRepository(db.session).get_by_email(new_email)
         if existing_user and existing_user.id != user.id:
             abort(400, message="Email already registered")
         
@@ -65,7 +66,9 @@ class ProfileService:
             abort(400, message="New username is the same as current username")
         
         # Check if username already exists
-        existing_user = User.query.filter_by(username=new_username).first()
+        existing_user = SyncUserRepository(db.session).get_by_username(
+            new_username
+        )
         if existing_user and existing_user.id != user.id:
             abort(400, message="Username already exists")
         

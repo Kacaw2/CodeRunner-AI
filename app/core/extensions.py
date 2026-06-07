@@ -50,8 +50,8 @@ def init_extensions(app):
     
     @login_manager.user_loader
     def load_user(user_id):
-        from app.models.user import User
-        return User.query.get(int(user_id))
+        from domain.models.user import User
+        return db.session.get(User, int(user_id))
     
     # Import all models within app context to ensure they are registered
     # This is required for Flask-Migrate to detect model changes
@@ -64,14 +64,17 @@ def init_extensions(app):
             Question, TestCase,
             Submission, TestResult
         )
-        from app.models.ai_conversation import AIConversation, AIMessage  # noqa: F401
+        from domain.models.chat import (  # noqa: F401
+            AIConversation,
+            AIMessage,
+            ChatTask,
+        )
         from app.models.agent_task import AgentTask  # noqa: F401
         from app.models.agent_trace import AgentRun, AgentRunStep  # noqa: F401
         from app.models.ai_audit_log import AIAuditLog  # noqa: F401
         from app.models.student_profile import StudentProfile, TeacherPreference  # noqa: F401
         from domain.models.observability import EvalRun  # noqa: F401
-        from app.models.chat_task import ChatTask  # noqa: F401
-        from app.models.workflow import WorkflowRun, WorkflowStep  # noqa: F401
+        from domain.models.workflow import WorkflowRun, WorkflowStep  # noqa: F401
         from domain.models.mcp import (  # noqa: F401
             McpApiKey,
             McpAuditLog,

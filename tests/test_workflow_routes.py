@@ -3,10 +3,10 @@
 from unittest.mock import patch
 
 from app.core.extensions import db
-from app.models.workflow import WorkflowRun
+from domain.models.workflow import WorkflowRun
 
 
-def test_create_workflow_persists_run_and_submits_worker(
+def test_create_workflow_persists_run_and_dispatches_runtime(
     client, db_session, mock_auth_teacher
 ):
     payload = {
@@ -26,7 +26,9 @@ def test_create_workflow_persists_run_and_submits_worker(
         "topic": "binary search",
     }
 
-    with patch("workers.workflow.submit_workflow") as submit_workflow:
+    with patch(
+        "app.services.agent_runtime_dispatcher._dispatch_remote_workflow"
+    ) as dispatch_remote:
         response = client.post("/api/v1/ai/workflows", json=payload)
 
     assert response.status_code == 202
@@ -37,7 +39,7 @@ def test_create_workflow_persists_run_and_submits_worker(
     assert run.goal == payload["goal"]
     assert run.total_steps == 1
     assert run.plan_json["steps"][0]["instruction"] == "Draft the problem"
-    assert submit_workflow.call_count == 1
+    dispatch_remote.assert_called_once_with(run.id)
 
 
 def test_create_workflow_uses_runtime_dispatcher(
@@ -87,7 +89,7 @@ def test_list_workflows_returns_current_user_runs(client, db_session, mock_auth_
 
 
 def test_get_workflow_returns_run_and_steps(client, db_session, mock_auth_teacher):
-    from app.models.workflow import WorkflowStep
+    from domain.models.workflow import WorkflowStep
 
     run = WorkflowRun(
         id="workflow-with-step",

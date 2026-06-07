@@ -5,14 +5,14 @@ from flask_smorest import Blueprint, abort
 from app.auth import require_teacher, require_auth
 from app.core.extensions import db
 from app.models.classroom import Classroom, Enrollment
-from app.models.user import User
+from domain.models.user import User
 from app.schemas.classroom_schema import (
     ClassroomCreateSchema, 
     ClassroomUpdateSchema, 
     ClassroomSchema,
     ClassroomListSchema
 )
-from sqlalchemy import func
+from sqlalchemy import func, select
 import random
 import string
 
@@ -224,7 +224,7 @@ def get_classroom_students(classroom_id):
     
     items = []
     for enrollment in enrollments:
-        student = User.query.get(enrollment.student_id)
+        student = db.session.get(User, enrollment.student_id)
         if student:
             # Count submissions for this student
             from app.models.submission import Submission
@@ -256,7 +256,7 @@ def add_student_to_classroom(classroom_id, student_id):
     if classroom.teacher_id != current_user.id:
         abort(403, message="You can only manage your own classrooms")
     
-    student = User.query.get(student_id)
+    student = db.session.get(User, student_id)
     if not student:
         abort(404, message="Student not found")
     
@@ -321,7 +321,7 @@ def get_all_students():
     Get students in this teacher's classrooms (for adding students to classroom)
     Includes information about which of this teacher's classrooms students are in
     """
-    from app.models.user import UserRole
+    from domain.models.user import UserRole
 
     current_user = g.current_user
 
@@ -342,10 +342,14 @@ def get_all_students():
     if not enrolled_student_ids:
         return {'items': [], 'total': 0}
 
-    students = User.query.filter(
-        User.id.in_(enrolled_student_ids),
-        User.role == UserRole.STUDENT
-    ).all()
+    students = list(
+        db.session.execute(
+            select(User).where(
+                User.id.in_(enrolled_student_ids),
+                User.role == UserRole.STUDENT,
+            )
+        ).scalars()
+    )
 
     items = []
     for student in students:
@@ -446,7 +450,7 @@ def get_my_enrollments():
     for enrollment in enrollments:
         classroom = Classroom.query.get(enrollment.classroom_id)
         if classroom:
-            teacher = User.query.get(classroom.teacher_id)
+            teacher = db.session.get(User, classroom.teacher_id)
             
             items.append({
                 'id': enrollment.id,

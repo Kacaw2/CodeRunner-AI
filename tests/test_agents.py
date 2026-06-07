@@ -454,7 +454,7 @@ class TestGeneratorAgent:
             from langchain_core.messages import HumanMessage
             from agents.generator.agent import GeneratorAgent
             from core.observability.tracing import TraceCollector
-            from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+            from domain.models.observability import AgentTraceRun, AgentTraceSpan
             from core.db.session import db_session as core_db_session
 
             class Chunk:
@@ -834,10 +834,13 @@ class TestCrashRecovery:
     def test_recovers_orphaned_tasks(self, db_session, app):
         with app.app_context():
             from app.models.agent_task import AgentTask
-            from app.models.user import User, UserRole
+            from domain.models.user import User, UserRole
+            from domain.repositories.users import SyncUserRepository
             from graph.recovery import recover_orphaned_tasks
 
-            user = User.query.filter_by(username="recovery_test_user").first()
+            user = SyncUserRepository(db_session).get_by_username(
+                "recovery_test_user"
+            )
             if not user:
                 user = User(username="recovery_test_user", password="x", email="recov@test.com", role=UserRole.TEACHER)
                 db_session.add(user)
@@ -865,10 +868,13 @@ class TestCrashRecovery:
     def test_fails_exhausted_tasks(self, db_session, app):
         with app.app_context():
             from app.models.agent_task import AgentTask
-            from app.models.user import User, UserRole
+            from domain.models.user import User, UserRole
+            from domain.repositories.users import SyncUserRepository
             from graph.recovery import recover_orphaned_tasks
 
-            user = User.query.filter_by(username="recovery_test_user2").first()
+            user = SyncUserRepository(db_session).get_by_username(
+                "recovery_test_user2"
+            )
             if not user:
                 user = User(username="recovery_test_user2", password="x", email="recov2@test.com", role=UserRole.TEACHER)
                 db_session.add(user)
@@ -896,8 +902,8 @@ class TestCrashRecovery:
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():
-            from app.models.ai_conversation import AIConversation
-            from app.models.user import User, UserRole
+            from domain.models.chat import AIConversation
+            from domain.models.user import User, UserRole
             from memory.service import MemoryService
 
             user = User(username="mem_replay_user", password="x",

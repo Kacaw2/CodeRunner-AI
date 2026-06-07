@@ -12,7 +12,7 @@ so worker processes never trigger Flask mapper configuration (the historical
 
 def test_trace_collector_saves_without_flask_mapper(app, _setup_db):
     from core.observability.tracing import TraceCollector
-    from core.db.models.agent_trace import AgentTraceRun, AgentTraceSpan
+    from domain.models.observability import AgentTraceRun, AgentTraceSpan
     from core.db.session import db_session
 
     trace = TraceCollector(

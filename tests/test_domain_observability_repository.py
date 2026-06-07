@@ -5,15 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 
 
-def test_legacy_modules_reexport_domain_observability_mappings():
-    from app.models.eval_run import EvalRun as FlaskEvalRun
-    from core.db.models.agent_trace import AgentTraceRun as CoreAgentTraceRun
-    from core.db.models.agent_trace import EvalCaseRun as CoreEvalCaseRun
+def test_observability_mappings_use_the_shared_domain_metadata():
+    from domain.base import DomainBase
     from domain.models.observability import AgentTraceRun, EvalCaseRun, EvalRun
 
-    assert FlaskEvalRun is EvalRun
-    assert CoreAgentTraceRun is AgentTraceRun
-    assert CoreEvalCaseRun is EvalCaseRun
+    assert AgentTraceRun.metadata is DomainBase.metadata
+    assert EvalCaseRun.metadata is DomainBase.metadata
+    assert EvalRun.metadata is DomainBase.metadata
 
 
 def test_trace_store_delegates_to_an_injected_repository():
