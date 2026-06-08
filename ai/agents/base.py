@@ -10,6 +10,7 @@ from ai.agents.executor import ToolCallExecutor
 from ai.agents.json_utils import extract_first_json_object
 from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
 from ai.llm.tiers import ModelTier
+from core.definitions import MemoryPolicy
 from core.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,7 @@ class BaseAgent(ABC):
     name: str = ""
     description = _DefinitionAttr("description", "")
     default_model_tier = _DefinitionAttr("default_model_tier", ModelTier.BALANCED)
+    memory_policy = _DefinitionAttr("memory_policy", MemoryPolicy())
 
     @property
     def mcp_tool_names(self) -> list[str]:
