@@ -18,6 +18,8 @@ class AnalyticsAgent(BaseAgent):
             state.get("user_id", 0),
             state.get("user_role", "student"),
             conversation_id=context.get("conversation_id"),
+            agent_name=self.name,
+            target_student_id=context.get("target_student_id"),
         )
         if memory_ctx:
             parts.append(f"\n## User Profile Context\n{memory_ctx}")

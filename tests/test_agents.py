@@ -377,6 +377,21 @@ class TestReviewerAgent:
 
             assert "overall_score" in result["final_response"]
 
+    def test_reviewer_does_not_request_memory(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.get_memory_context"
+        ) as get_memory:
+            from ai.agents.reviewer.agent import ReviewerAgent
+
+            ReviewerAgent()._build_system_context({
+                "user_id": 1,
+                "user_role": "student",
+                "messages": [],
+                "context": {"code": "print('ok')", "language": "python"},
+            })
+
+            get_memory.assert_not_called()
+
 
 class TestGeneratorAgent:
     def test_generator_build_context_requests_generator_policy(self, app):
@@ -662,6 +677,132 @@ class TestAnalyticsAgent:
                        for e in events)
             mock_runtime.call_sync.assert_called()
             assert state["final_response"].startswith('{"summary"')
+
+    def test_analytics_passes_target_student_to_memory_policy(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.get_memory_context",
+            return_value="Student Background: target profile",
+        ) as get_memory:
+            from ai.agents.analytics.agent import AnalyticsAgent
+
+            state = {
+                "user_id": 20,
+                "user_role": "teacher",
+                "messages": [],
+                "context": {
+                    "conversation_id": 30,
+                    "target_student_id": 40,
+                },
+            }
+
+            rendered = AnalyticsAgent()._build_system_context(state)
+
+            get_memory.assert_called_once_with(
+                20,
+                "teacher",
+                conversation_id=30,
+                agent_name="analytics",
+                target_student_id=40,
+            )
+            assert "Student Background: target profile" in rendered
+
+
+def test_student_analytics_cannot_read_another_student_profile(
+    db_session, app
+):
+    with app.app_context():
+        from domain.models.user import User, UserRole
+        from app.models.student_profile import StudentProfile
+        from ai.memory.service import MemoryService
+
+        actor = User(
+            username="analytics_actor",
+            password="x",
+            email="analytics-actor@test.com",
+            role=UserRole.STUDENT,
+        )
+        target = User(
+            username="analytics_target",
+            password="x",
+            email="analytics-target@test.com",
+            role=UserRole.STUDENT,
+        )
+        db_session.add_all([actor, target])
+        db_session.flush()
+        db_session.add_all([
+            StudentProfile(
+                student_id=actor.id,
+                learning_summary="Actor profile",
+            ),
+            StudentProfile(
+                student_id=target.id,
+                learning_summary="Target private profile",
+            ),
+        ])
+        db_session.commit()
+
+        rendered = MemoryService.get_memory_context(
+            actor.id,
+            "student",
+            agent_name="analytics",
+            target_student_id=target.id,
+        )
+
+        assert "Actor profile" in rendered
+        assert "Target private profile" not in rendered
+
+
+def test_teacher_analytics_target_does_not_read_target_conversation_summaries(
+    db_session, app
+):
+    with app.app_context():
+        from domain.models.chat import AIConversation
+        from domain.models.user import User, UserRole
+        from app.models.student_profile import StudentProfile
+        from ai.memory.service import MemoryService
+
+        teacher = User(
+            username="analytics_teacher",
+            password="x",
+            email="analytics-teacher@test.com",
+            role=UserRole.TEACHER,
+        )
+        target = User(
+            username="analytics_target_student",
+            password="x",
+            email="analytics-target-student@test.com",
+            role=UserRole.STUDENT,
+        )
+        db_session.add_all([teacher, target])
+        db_session.flush()
+        db_session.add(StudentProfile(
+            student_id=target.id,
+            learning_summary="Target student profile",
+        ))
+        db_session.add_all([
+            AIConversation(
+                user_id=teacher.id,
+                agent_type="analytics",
+                summary="Teacher analytics history",
+            ),
+            AIConversation(
+                user_id=target.id,
+                agent_type="analytics",
+                summary="Target private conversation",
+            ),
+        ])
+        db_session.commit()
+
+        rendered = MemoryService.get_memory_context(
+            teacher.id,
+            "teacher",
+            agent_name="analytics",
+            target_student_id=target.id,
+        )
+
+        assert "Target student profile" in rendered
+        assert "Teacher analytics history" in rendered
+        assert "Target private conversation" not in rendered
 
 
 class TestOrchestrator:
