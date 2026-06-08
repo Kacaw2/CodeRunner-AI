@@ -92,7 +92,7 @@ TUTOR_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=20,
     handoff_targets=frozenset({"reviewer", "analytics"}),
-    prompt_ref="agents.tutor.prompt.TUTOR_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.tutor.prompt.TUTOR_SYSTEM_PROMPT",
     memory_policy=TUTOR_MEMORY_POLICY,
 )
 
@@ -114,7 +114,7 @@ REVIEWER_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=10,
     handoff_targets=frozenset({"tutor", "analytics"}),
-    prompt_ref="agents.reviewer.prompt.REVIEWER_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.reviewer.prompt.REVIEWER_SYSTEM_PROMPT",
     memory_policy=REVIEWER_MEMORY_POLICY,
 )
 
@@ -137,7 +137,7 @@ GENERATOR_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=5,
     handoff_targets=frozenset({"analytics"}),
-    prompt_ref="agents.generator.prompt.GENERATOR_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.generator.prompt.GENERATOR_SYSTEM_PROMPT",
     memory_policy=GENERATOR_MEMORY_POLICY,
 )
 
@@ -164,7 +164,7 @@ ANALYTICS_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=10,
     handoff_targets=frozenset({"tutor", "reviewer"}),
-    prompt_ref="agents.analytics.prompt.ANALYTICS_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.analytics.prompt.ANALYTICS_SYSTEM_PROMPT",
     memory_policy=ANALYTICS_MEMORY_POLICY,
 )
 
