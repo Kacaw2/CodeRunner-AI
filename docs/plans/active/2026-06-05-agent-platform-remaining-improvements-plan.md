@@ -36,6 +36,10 @@
 
 执行顺序不可互换：Phase 3 消费 Phase 1-2 的结构化上下文；Phase 4 依赖 Phase 3 的审计；Phase 5 依赖 Phase 3 的稳定 snapshot hash 和 Phase 4 的 governed active memory。
 
+此外，单次 run 的**短期消息窗口压缩**是与上述长/中期 memory 链正交的 runtime 层工作，已单列为可独立执行的计划：
+
+- [短期消息压缩重做](2026-06-08-short-term-message-compaction-redesign-plan.md)：token 触发、loop 内滚动、tool-call/tool-result 配对安全，并落实本节真实需求第 43 条「为 compaction 建立 trace event」。它不依赖 Phase 1-5，可与之并行推进。
+
 **真实需求**：
 
 - 区分 user-visible conversation、agent scratch、tool residue、handoff summary、long-term memory。
@@ -147,6 +151,7 @@
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md` | 执行预算、过滤、稳定 hash 和 trace audit |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md` | 执行 governed item lifecycle、candidate、forget/suppress |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md` | 执行 snapshot、eval replay、memory drift 和 CI controls |
+| 当前 active 子计划（正交） | `docs/plans/active/2026-06-08-short-term-message-compaction-redesign-plan.md` | runtime 层短期消息窗口压缩重做：token 触发、loop 内滚动、配对安全、compaction span |
 | 已完成总路线 | `docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md` | 归档为路线基线，不再承载待办 |
 | 已完成执行方案 | Phase 1、Phase 2、Phase 3、Phase 3.5、Phase 4 执行方案 | 归档为实现记录和验收证据 |
 | 其他已完成基础设施方案 | `docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md` | 与 agent platform 分组隔离，归入数据库/schema 基础设施 |

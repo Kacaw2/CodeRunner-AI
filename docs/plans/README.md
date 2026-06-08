@@ -21,6 +21,7 @@
 - [2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md](active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) — Phase 3 详细执行计划；实现确定性预算、TTL/sensitivity 过滤、稳定 snapshot hash 和 trace 注入审计。
 - [2026-06-08-governed-memory-lifecycle-phase4-plan.md](active/2026-06-08-governed-memory-lifecycle-phase4-plan.md) — Phase 4 详细执行计划；引入 item 级 candidate/active/superseded/suppressed/expired 生命周期、兼容 backfill 与治理 API。
 - [2026-06-08-eval-memory-replay-snapshot-phase5-plan.md](active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md) — Phase 5 详细执行计划；实现版本化 memory snapshot、current/recorded/none eval replay 和 memory drift 报告。
+- [2026-06-08-short-term-message-compaction-redesign-plan.md](active/2026-06-08-short-term-message-compaction-redesign-plan.md) — runtime 层短期消息窗口压缩重做；token 触发、loop 内滚动、tool-call 配对安全、compaction trace span。与上面四份长/中期 memory 子计划正交。
 
 ## Archive
 
