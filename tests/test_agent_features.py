@@ -144,6 +144,42 @@ class TestGenerationPipeline:
         assert result["status"] == "failed"
         assert result["final_draft"] is None
 
+    def test_generation_pipeline_keeps_rendered_teacher_context(self):
+        from ai.workers.generation_pipeline import _generate_problem
+
+        state = {
+            "teacher_id": 1,
+            "language": "python",
+            "difficulty": "medium",
+            "topic": "loops",
+            "test_case_count": 3,
+            "prompt": "Create a loop problem",
+            "teacher_context": "Teacher Preferences: concise",
+            "generated_problem": None,
+            "validation_results": [],
+            "validation_passed": False,
+            "similar_problems": [],
+            "is_duplicate": False,
+            "dedup_attempts": 0,
+            "quality_review": None,
+            "generate_attempts": 0,
+            "final_draft": None,
+            "error": None,
+            "status": "generating",
+        }
+
+        with patch("ai.workers.generation_pipeline.AIConfig.get_llm") as get_llm:
+            llm = MagicMock()
+            llm.invoke.return_value.content = (
+                '{"title":"Loop","solution":"pass","test_cases":[{"input":"","expected_output":""}]}'
+            )
+            get_llm.return_value = llm
+
+            _generate_problem(state)
+
+            messages = llm.invoke.call_args.args[0]
+            assert "Teacher Preferences: concise" in messages[0].content
+
 
 # ── Task 17: Teacher preference learning ─────────────────────
 
