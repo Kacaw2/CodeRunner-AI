@@ -1,8 +1,13 @@
 # Agent Memory / Context 改进议题
 
-> 状态: Draft
+> 状态: Planned（Phase 1-5）
 > 更新日期: 2026-06-08
 > 范围: `ai/memory/`、`ai/agents/`、`core/definitions.py`、`core/observability/`、`ai/evals/`、`docs/architecture/data-state-memory.md`
+> 执行计划:
+> [Phase 1-2: MemoryContext / Policy](../plans/active/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) |
+> [Phase 3: Budget / Filter / Audit](../plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) |
+> [Phase 4: Governed Lifecycle](../plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md) |
+> [Phase 5: Eval Replay Snapshot](../plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
 ## 审核结论
 
@@ -188,6 +193,8 @@ Eval case 应能选择:
 
 ### Phase 3: Budget、过滤与审计
 
+详细执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](../plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
+
 目标: 控制上下文膨胀, 并让 memory 注入进入 trace。
 
 - 为每个 agent 设置 memory 字符/token 预算。
@@ -197,6 +204,8 @@ Eval case 应能选择:
 
 ### Phase 4: Extractor、forget 与冲突治理
 
+详细执行计划：[Governed Memory Lifecycle Phase 4 Plan](../plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md)
+
 目标: 让 memory 写入变得可控。
 
 - 后台 memory extractor 只产生 candidate, 不直接无条件覆盖长期画像。
@@ -205,6 +214,8 @@ Eval case 应能选择:
 - 验收: 冲突 memory 不静默覆盖; forget 后不会再次注入。
 
 ### Phase 5: Eval replay snapshot
+
+详细执行计划：[Eval Memory Replay Snapshot Phase 5 Plan](../plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
 目标: 把 memory 纳入质量门禁。
 
@@ -224,10 +235,11 @@ Eval case 应能选择:
 
 ## 建议下一步
 
-如果要把本 issue 升级为可执行计划, 建议只启动 Phase 1 + Phase 2:
+Phase 1-5 已分别形成 active 详细执行计划。实施时必须严格按依赖顺序推进：
 
-1. 先写 `MemoryContext` 结构和兼容渲染测试。
-2. 再把 `memory_policy` 接到 `AgentDefinition` 并让 `MemoryService` 真实消费。
-3. 同步补 `docs/architecture/data-state-memory.md` 的“目标态”小节, 避免当前态文档和改进计划混淆。
+1. Phase 1-2 先建立结构化 `MemoryContext` 和真实被消费的 agent policy。
+2. Phase 3 再加入预算、TTL/sensitivity 过滤和 trace audit。
+3. Phase 4 在审计能力稳定后引入持久化 item lifecycle、candidate extractor 和 forget/suppress。
+4. Phase 5 最后把稳定 snapshot 接入 eval dataset、replay、report 和 CI。
 
-这样能先解决最核心的“无差别字符串注入”问题, 同时不会一次性引入 extractor、forget、TTL、eval replay 等较大范围工程。
+每一阶段完成后单独归档对应计划并回写本 issue；不得为了并行推进而让 Phase 4/5 绕过前置契约。

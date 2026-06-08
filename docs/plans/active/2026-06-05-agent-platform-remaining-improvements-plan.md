@@ -27,6 +27,15 @@
 
 **为什么还没完成**：Phase 2 明确把 `context_policy` 延后；Phase 4 只做了 workflow step 间的残留裁剪，没有建立完整的 agent context/memory 分层。
 
+**当前推进状态**：已于 2026-06-08 将 Phase 1-5 拆成四份按依赖顺序执行的 active 详细计划：
+
+1. [Phase 1-2: MemoryContext / Policy](2026-06-08-agent-memory-context-governance-phase1-2-plan.md)
+2. [Phase 3: Budget / Filter / Audit](2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
+3. [Phase 4: Governed Lifecycle](2026-06-08-governed-memory-lifecycle-phase4-plan.md)
+4. [Phase 5: Eval Replay Snapshot](2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
+
+执行顺序不可互换：Phase 3 消费 Phase 1-2 的结构化上下文；Phase 4 依赖 Phase 3 的审计；Phase 5 依赖 Phase 3 的稳定 snapshot hash 和 Phase 4 的 governed active memory。
+
 **真实需求**：
 
 - 区分 user-visible conversation、agent scratch、tool residue、handoff summary、long-term memory。
@@ -133,7 +142,11 @@
 
 | 类别 | 文档 | 处理 |
 |---|---|---|
-| 当前 active | `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | 作为 agent platform 后续提升的唯一 active 入口 |
+| 当前 active 总入口 | `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | 作为 agent platform 后续提升的路线级入口 |
+| 当前 active 子计划 | `docs/plans/active/2026-06-08-agent-memory-context-governance-phase1-2-plan.md` | 执行结构化 `MemoryContext` 和 agent-specific policy |
+| 当前 active 子计划 | `docs/plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md` | 执行预算、过滤、稳定 hash 和 trace audit |
+| 当前 active 子计划 | `docs/plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md` | 执行 governed item lifecycle、candidate、forget/suppress |
+| 当前 active 子计划 | `docs/plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md` | 执行 snapshot、eval replay、memory drift 和 CI controls |
 | 已完成总路线 | `docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md` | 归档为路线基线，不再承载待办 |
 | 已完成执行方案 | Phase 1、Phase 2、Phase 3、Phase 3.5、Phase 4 执行方案 | 归档为实现记录和验收证据 |
 | 其他已完成基础设施方案 | `docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md` | 与 agent platform 分组隔离，归入数据库/schema 基础设施 |
