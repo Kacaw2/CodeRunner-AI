@@ -52,11 +52,11 @@ def test_no_runtime_module_redeclares_an_agent_class_map():
     """
     root = Path(__file__).resolve().parents[1]
     suspects = [
-        root / "agent_runtime" / "services" / "chat_runner.py",
+        root / "ai" / "agent_runtime" / "services" / "chat_runner.py",
         root / "app" / "api" / "v1" / "ai.py",
-        root / "graph" / "runner.py",
-        root / "evals" / "runner.py",
-        root / "evals" / "harness" / "agent_harness.py",
+        root / "ai" / "graph" / "runner.py",
+        root / "ai" / "evals" / "runner.py",
+        root / "ai" / "evals" / "harness" / "agent_harness.py",
     ]
     pattern = re.compile(r'["\']tutor["\']\s*:\s*TutorAgent')
     for path in suspects:

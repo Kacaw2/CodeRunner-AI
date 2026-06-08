@@ -13,6 +13,10 @@ import json
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+# app.models registers the Flask db.Model classes (Classroom, Enrollment, ...)
+# that domain.models.user's string-based relationships resolve against, so the
+# DomainBase mappers configure even when this module runs in isolation.
+import app.models  # noqa: F401
 import domain.models.chat  # noqa: F401
 import domain.models.user  # noqa: F401
 from ai.agent_runtime.services.chat_runner import AsyncChatRunner
@@ -115,7 +119,7 @@ def _stub_agent_stream(monkeypatch, tokens=("Hi", " there")):
 
     # _run_agent_stream imports get_agent_instance from ai.agents.registry locally.
     monkeypatch.setattr(
-        "agents.registry.get_agent_instance", lambda *a, **k: _StubAgent()
+        "ai.agents.registry.get_agent_instance", lambda *a, **k: _StubAgent()
     )
     monkeypatch.setattr(runner_mod, "filter_output", None, raising=False)
 
@@ -216,7 +220,7 @@ def test_runner_marks_failed_on_agent_error(session_factory, monkeypatch):
             yield  # pragma: no cover
 
     monkeypatch.setattr(
-        "agents.registry.get_agent_instance", lambda *a, **k: _BoomAgent()
+        "ai.agents.registry.get_agent_instance", lambda *a, **k: _BoomAgent()
     )
     monkeypatch.setattr("core.security.filter_output",
                         lambda text, agent, role: text)

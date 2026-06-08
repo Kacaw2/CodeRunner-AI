@@ -11,7 +11,11 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Importing the model modules registers their tables on the single DomainBase
-# metadata used to build the in-memory schema.
+# metadata used to build the in-memory schema. app.models pulls in the Flask
+# db.Model classes (Classroom, Enrollment, ...) that domain.models.user's
+# string-based relationships resolve against, so configure_mappers() succeeds
+# even when this module is run in isolation.
+import app.models  # noqa: F401
 import domain.models.chat  # noqa: F401
 import domain.models.user  # noqa: F401
 from ai.agent_runtime.dependencies import get_redis, get_session
@@ -81,7 +85,7 @@ def test_process_runtime_bootstrap_wires_tool_runtime(monkeypatch):
         return object()
 
     monkeypatch.setattr(
-        "mcp_gateway.bootstrap.bootstrap_tool_runtime", _fake_bootstrap
+        "ai.mcp_gateway.bootstrap.bootstrap_tool_runtime", _fake_bootstrap
     )
     monkeypatch.setattr("sqlalchemy.orm.configure_mappers", lambda: None)
 
