@@ -14,7 +14,7 @@
 | 报告 | 主题 | 当前状态 | 严重度 |
 |---|---|---|---|
 | [2026-06-04-dual-orm-database-issues.md](2026-06-04-dual-orm-database-issues.md) | 双层 ORM 数据模型 | 部分解决:迁移基线/create_all 已关闭,双引擎/重复映射仍是架构债 | P2 |
-| [2026-06-08-agent-memory-context-improvements.md](2026-06-08-agent-memory-context-improvements.md) | Agent memory / context 治理 | Planned:Phase 1-5 已分别形成 active 详细执行计划 | P2 |
+| [2026-06-08-agent-memory-context-improvements.md](2026-06-08-agent-memory-context-improvements.md) | Agent memory / context 治理 | Phase 1-2 完成；budget/audit/forget/replay 待后续计划 | P2 |
 | [2026-06-08-sandbox-and-harness-review.md](2026-06-08-sandbox-and-harness-review.md) | 沙箱(执行/MCP)与 Agent Harness 审查、对标 Codex/Claude Code | Open:上下文工程/并行化/prompt caching 为主要差距 | P2-P3 |
 | [2026-06-08-agent-loop-review.md](2026-06-08-agent-loop-review.md) | Agent Loop 深度审查、对标 Codex/Claude Code | Open:token 预算驱动/工具并行/静默失败(L-3 正确性 bug)为重点 | P1-P3 |
 | [2026-06-03-production-maturity-priority-assessment.md](2026-06-03-production-maturity-priority-assessment.md) | 生产成熟度优先级评估 | 已按 2026-06-05 代码事实更新 | P1-P3 |
@@ -42,7 +42,7 @@
 | 5 | 运维闭环缺失:备份恢复、日志聚合、错误告警、部署回滚、容量指引、trace/eval 排障 runbook | `compose.yaml` 已有服务但无完整运维面 | maturity #6 |
 | 6 | RAG 知识点检索仍缺通用来源追踪(`doc_id/source/url`) | `knowledge/`、`tools/knowledge_search/` | agents review #6 |
 | 7 | 无用户反馈闭环:没有面向 agent 输出质量的 rating/feedback 端点 | `app/api/v1/ai.py` 中 `feedback` 主要是 human-gate 审批语义 | agents review #8 |
-| 8 | Agent memory/context 仍缺结构化策略、注入预算、trace 审计和 replay snapshot | [memory/context 改进议题](2026-06-08-agent-memory-context-improvements.md)、`ai/memory/service.py`、`core/definitions.py` | agent platform follow-up |
+| 8 | Agent memory/context 结构化 `MemoryContext` 与 agent policy 已完成（Phase 1-2）；注入预算、trace 审计、forget/TTL 和 replay snapshot 仍待 Phase 3-5 | [memory/context 改进议题](2026-06-08-agent-memory-context-improvements.md)、`ai/memory/service.py`、`core/definitions.py` | agent platform follow-up |
 
 ### P3 — 质量与文档
 

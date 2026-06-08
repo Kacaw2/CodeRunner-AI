@@ -44,7 +44,7 @@ P1 迁移基线（早先已关闭）保持有效：
 - `app/__init__.py:_ensure_tables()` 只检查必要表并提示 `flask db upgrade head`，不再调用 `db.create_all()` 作为生产兜底。
 - `tests/test_migration_full_schema.py` 与 `tests/test_single_domain_registry.py` 守住“单 registry + 空库可 `upgrade head`”。
 
-收敛路线见 [shared-domain plan](../plans/active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md) 与已关闭的 [dual-orm-database-issues](../issues/2026-06-04-dual-orm-database-issues.md)。
+收敛路线见 [shared-domain plan](../plans/archive/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md) 与已关闭的 [dual-orm-database-issues](../issues/2026-06-04-dual-orm-database-issues.md)。
 
 ### 核心实体关系
 
@@ -300,6 +300,18 @@ MemoryService.get_memory_context()
 - 二者都会追加 recent conversation summaries。
 
 当前主要缺口不是“没有 memory 字段”，而是治理不足：所有记忆仍被扁平拼接为字符串，没有按 agent 目标、来源可信度、用户可编辑偏好、模型推断画像、强/弱上下文进行结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。
+
+### 结构化 MemoryContext 与 Agent Policy
+
+Phase 1-2 已落地结构化记忆契约与按 agent 的注入策略：
+
+- `MemoryService.build_memory_context()` 返回结构化 `MemoryContext`（`ai/memory/context.py` 中的纯数据契约，不引用 ORM 实例）。
+- `MemoryService.render_memory_context()` 是唯一字符串渲染入口。
+- `AgentDefinition.memory_policy` 决定 profile 类型、summary 范围和 target student 权限。
+- Reviewer 默认不读取长期画像或历史 summary。
+- Legacy `MemoryService.get_memory_context()` API 仍供 generation pipeline 等现有调用使用，渲染文本保持兼容。
+
+尚未实现的 budget、TTL/forget、extractor、trace audit、eval replay 继续作为后续阶段（Phase 3-5），不得描述成当前能力。
 
 ---
 

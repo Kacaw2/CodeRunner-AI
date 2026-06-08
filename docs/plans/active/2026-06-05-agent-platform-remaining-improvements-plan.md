@@ -27,14 +27,14 @@
 
 **为什么还没完成**：Phase 2 明确把 `context_policy` 延后；Phase 4 只做了 workflow step 间的残留裁剪，没有建立完整的 agent context/memory 分层。
 
-**当前推进状态**：已于 2026-06-08 将 Phase 1-5 拆成四份按依赖顺序执行的 active 详细计划：
+**当前推进状态**：已于 2026-06-08 将 Phase 1-5 拆成四份按依赖顺序执行的详细计划：
 
-1. [Phase 1-2: MemoryContext / Policy](2026-06-08-agent-memory-context-governance-phase1-2-plan.md)
+1. ✅ [Phase 1-2: MemoryContext / Policy](../archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) — **2026-06-08 已完成并归档**：结构化 `MemoryContext`、build/render 分离、兼容 legacy `get_memory_context()`，tutor/generator/analytics/reviewer 已消费 `memory_policy`，analytics target 隔离落地。
 2. [Phase 3: Budget / Filter / Audit](2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
 3. [Phase 4: Governed Lifecycle](2026-06-08-governed-memory-lifecycle-phase4-plan.md)
 4. [Phase 5: Eval Replay Snapshot](2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
-执行顺序不可互换：Phase 3 消费 Phase 1-2 的结构化上下文；Phase 4 依赖 Phase 3 的审计；Phase 5 依赖 Phase 3 的稳定 snapshot hash 和 Phase 4 的 governed active memory。
+执行顺序不可互换：Phase 3 消费 Phase 1-2 的结构化上下文；Phase 4 依赖 Phase 3 的审计；Phase 5 依赖 Phase 3 的稳定 snapshot hash 和 Phase 4 的 governed active memory。Phase 1-2 完成后，Phase 3 的后续触发条件保持不变。
 
 此外，单次 run 的**短期消息窗口压缩**是与上述长/中期 memory 链正交的 runtime 层工作，已单列为可独立执行的计划：
 
@@ -147,7 +147,7 @@
 | 类别 | 文档 | 处理 |
 |---|---|---|
 | 当前 active 总入口 | `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | 作为 agent platform 后续提升的路线级入口 |
-| 当前 active 子计划 | `docs/plans/active/2026-06-08-agent-memory-context-governance-phase1-2-plan.md` | 执行结构化 `MemoryContext` 和 agent-specific policy |
+| 已完成子计划 | `docs/plans/archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md` | Phase 1-2 已完成：结构化 `MemoryContext`、build/render 分离、agent-specific policy |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md` | 执行预算、过滤、稳定 hash 和 trace audit |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md` | 执行 governed item lifecycle、candidate、forget/suppress |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md` | 执行 snapshot、eval replay、memory drift 和 CI controls |

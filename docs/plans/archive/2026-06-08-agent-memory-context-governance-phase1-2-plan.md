@@ -1968,7 +1968,7 @@ git commit -m "docs(memory): close phase 1-2 governance plan"
 
 ### Phase 3: Budget、过滤与审计
 
-执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
+执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](../active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
 
 触发条件：
 
@@ -1984,7 +1984,7 @@ git commit -m "docs(memory): close phase 1-2 governance plan"
 
 ### Phase 4: Extractor、forget 与冲突治理
 
-执行计划：[Governed Memory Lifecycle Phase 4 Plan](2026-06-08-governed-memory-lifecycle-phase4-plan.md)
+执行计划：[Governed Memory Lifecycle Phase 4 Plan](../active/2026-06-08-governed-memory-lifecycle-phase4-plan.md)
 
 触发条件：
 
@@ -1999,7 +1999,7 @@ git commit -m "docs(memory): close phase 1-2 governance plan"
 
 ### Phase 5: Eval replay snapshot
 
-执行计划：[Eval Memory Replay Snapshot Phase 5 Plan](2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
+执行计划：[Eval Memory Replay Snapshot Phase 5 Plan](../active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
 触发条件：
 

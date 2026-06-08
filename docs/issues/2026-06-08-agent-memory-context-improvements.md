@@ -1,10 +1,10 @@
 # Agent Memory / Context 改进议题
 
-> 状态: Planned（Phase 1-5）
+> 状态: Phase 1-2 Completed
 > 更新日期: 2026-06-08
 > 范围: `ai/memory/`、`ai/agents/`、`core/definitions.py`、`core/observability/`、`ai/evals/`、`docs/architecture/data-state-memory.md`
 > 执行计划:
-> [Phase 1-2: MemoryContext / Policy](../plans/active/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) |
+> [Phase 1-2: MemoryContext / Policy](../plans/archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) |
 > [Phase 3: Budget / Filter / Audit](../plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) |
 > [Phase 4: Governed Lifecycle](../plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md) |
 > [Phase 5: Eval Replay Snapshot](../plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
@@ -243,3 +243,32 @@ Phase 1-5 已分别形成 active 详细执行计划。实施时必须严格按�
 4. Phase 5 最后把稳定 snapshot 接入 eval dataset、replay、report 和 CI。
 
 每一阶段完成后单独归档对应计划并回写本 issue；不得为了并行推进而让 Phase 4/5 绕过前置契约。
+
+## 实施结果（Phase 1-2，2026-06-08）
+
+本次只关闭“缺少结构化 `MemoryContext`”和“缺少 agent-specific memory policy”两项缺口；其余 Phase 3-5 缺口仍未实现。
+
+### 完成证据
+
+- 新增 `ai/memory/context.py`：纯数据契约 `MemorySensitivity`、`MemoryMetadata`、`MemoryItem`、`RecentSessionMemory`、`MemoryContext`，不引用 ORM 实例。
+- `MemoryService` 拆分为 `build_memory_context()`（结构化）+ `render_memory_context()`（唯一字符串渲染入口），并保留 legacy `get_memory_context()` 兼容接口。
+- `core/definitions.py` 引入被真实消费的 `MemoryPolicy` / `MemoryProfileKind`，为 tutor / generator / analytics / reviewer 声明默认策略。
+- tutor / generator / analytics 改为按 definition policy 注入；reviewer 保持无长期 memory；analytics 实现 target student 隔离（学生只读自己，教师/admin 可读目标学生 profile 但不读其 summary）。
+- `domain/statements/chat.py` 与 `domain/repositories/chat.py` 的 recent summary 查询增加可选 `agent_types` 过滤。
+- generation pipeline 仍接收字符串 teacher context，兼容性已加测试守护。
+
+### 测试命令与结果
+
+```powershell
+$env:SECRET_KEY='test-secret-key'
+$env:DEBUG='True'
+.\.venv\Scripts\python.exe -m pytest tests/test_agents.py tests/test_domain_chat_repository.py tests/test_definitions_consistency.py tests/test_model_router_and_definitions.py tests/test_agent_features.py -q
+```
+
+结果：`129 passed, 2 warnings`（仅 SQLAlchemy 1.x `Query.get()` legacy 警告，与本次改造无关）。
+
+### 仍未实现（后续阶段）
+
+- Phase 3：budget、sensitivity/TTL 过滤、trace 注入审计、稳定 snapshot hash。
+- Phase 4：item 级 candidate/active/superseded/suppressed/expired 生命周期、extractor、forget/suppress。
+- Phase 5：版本化 memory snapshot、eval replay、memory drift 报告。
