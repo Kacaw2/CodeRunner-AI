@@ -138,6 +138,7 @@ class GeneratorAgent(BaseAgent):
             state["user_id"],
             state.get("user_role", "teacher"),
             conversation_id=context.get("conversation_id"),
+            agent_name=self.name,
         )
         if memory_ctx:
             parts.append(f"\n## Teacher Preferences (from profile)\n{memory_ctx}")

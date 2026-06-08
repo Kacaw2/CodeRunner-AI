@@ -18,6 +18,7 @@ class TutorAgent(BaseAgent):
             state["user_id"],
             state.get("user_role", "student"),
             conversation_id=context.get("conversation_id"),
+            agent_name=self.name,
         )
         if memory_ctx:
             parts.append(f"\n## Student Profile (from previous sessions)\n{memory_ctx}")

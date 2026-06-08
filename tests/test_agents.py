@@ -255,6 +255,31 @@ class TestSystemContextIsolation:
 
 
 class TestTutorAgent:
+    def test_tutor_build_context_requests_tutor_policy(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.get_memory_context",
+            return_value="Student Background: prior context",
+        ) as get_memory:
+            from ai.agents.tutor.agent import TutorAgent
+
+            state = {
+                "user_id": 7,
+                "user_role": "student",
+                "messages": [],
+                "context": {"conversation_id": 9},
+            }
+
+            rendered = TutorAgent()._build_system_context(state)
+
+            get_memory.assert_called_once_with(
+                7,
+                "student",
+                conversation_id=9,
+                agent_name="tutor",
+            )
+            assert "## Student Profile (from previous sessions)" in rendered
+            assert "Student Background: prior context" in rendered
+
     @patch("ai.agents.runtime.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
         with app.app_context():
@@ -354,6 +379,34 @@ class TestReviewerAgent:
 
 
 class TestGeneratorAgent:
+    def test_generator_build_context_requests_generator_policy(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.get_memory_context",
+            return_value="Teacher Preferences: concise",
+        ) as get_memory, patch(
+            "ai.agents.generator.agent.GeneratorAgent._get_similar_problems",
+            return_value="",
+        ):
+            from ai.agents.generator.agent import GeneratorAgent
+
+            state = {
+                "user_id": 8,
+                "user_role": "teacher",
+                "messages": [],
+                "context": {"conversation_id": 10},
+            }
+
+            rendered = GeneratorAgent()._build_system_context(state)
+
+            get_memory.assert_called_once_with(
+                8,
+                "teacher",
+                conversation_id=10,
+                agent_name="generator",
+            )
+            assert "## Teacher Preferences (from profile)" in rendered
+            assert "Teacher Preferences: concise" in rendered
+
     @patch("ai.agents.config.AIConfig.validate")
     @patch("ai.agents.config.AIConfig.get_llm")
     def test_invoke_with_valid_json(self, mock_get_llm, mock_validate, app):
