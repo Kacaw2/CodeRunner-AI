@@ -1007,6 +1007,76 @@ class TestStructuredMemoryContext:
         assert MemoryContext().is_empty is True
 
 
+class TestMemoryContextBuilder:
+    def test_build_student_context_returns_source_metadata(
+        self, db_session, app
+    ):
+        with app.app_context():
+            from domain.models.user import User, UserRole
+            from app.models.student_profile import StudentProfile
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="structured_student",
+                password="x",
+                email="structured-student@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add(StudentProfile(
+                student_id=user.id,
+                learning_summary="Needs visual examples.",
+                knowledge_map={"recursion": 0.4},
+            ))
+            db_session.commit()
+
+            context = MemoryService.build_memory_context(
+                user.id,
+                "student",
+            )
+
+            items = {item.key: item for item in context.student_profile}
+            assert items["learning_summary"].value == "Needs visual examples."
+            assert items["learning_summary"].metadata.source == (
+                f"student_profile:{user.id}"
+            )
+            assert items["weak_areas"].value == ("recursion",)
+
+    def test_build_context_keeps_recent_session_identity(
+        self, db_session, app
+    ):
+        with app.app_context():
+            from domain.models.chat import AIConversation
+            from domain.models.user import User, UserRole
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="structured_session",
+                password="x",
+                email="structured-session@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            previous = AIConversation(
+                user_id=user.id,
+                agent_type="tutor",
+                summary="Worked on recursion.",
+            )
+            db_session.add(previous)
+            db_session.commit()
+
+            context = MemoryService.build_memory_context(user.id, "student")
+
+            assert context.recent_sessions[0].conversation_id == previous.id
+            assert context.recent_sessions[0].agent_type == "tutor"
+            assert context.recent_sessions[0].summary == "Worked on recursion."
+            assert context.recent_sessions[0].metadata.source == (
+                f"ai_conversation:{previous.id}"
+            )
+
+
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():
