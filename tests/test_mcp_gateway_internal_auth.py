@@ -76,7 +76,7 @@ def test_forged_identity_without_valid_token_cannot_become_agent_host(monkeypatc
     attacker_private, _ = _keypair()
     monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", real_public)
     monkeypatch.setattr(
-        "mcp_gateway.middleware.auth.verify_api_key", lambda token: None
+        "ai.mcp_gateway.middleware.auth.verify_api_key", lambda token: None
     )
 
     forged = mint_internal_token(
@@ -96,7 +96,7 @@ def test_external_token_falls_through_to_api_key_verification(monkeypatch):
     _, public_pem = _keypair()
     monkeypatch.setenv("MCP_INTERNAL_VERIFY_KEY", public_pem)
     monkeypatch.setattr(
-        "mcp_gateway.middleware.auth.verify_api_key",
+        "ai.mcp_gateway.middleware.auth.verify_api_key",
         lambda token: (
             {
                 "api_key_id": "k1",
@@ -123,7 +123,7 @@ def test_internal_path_disabled_when_verify_key_unset(monkeypatch):
 
     monkeypatch.delenv("MCP_INTERNAL_VERIFY_KEY", raising=False)
     monkeypatch.setattr(
-        "mcp_gateway.middleware.auth.verify_api_key", lambda token: None
+        "ai.mcp_gateway.middleware.auth.verify_api_key", lambda token: None
     )
 
     assert core.resolve_caller_from_bearer("anything") is None

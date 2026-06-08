@@ -24,7 +24,7 @@ def test_traces_mcp_tab_renders_current_tool_spans():
 def test_evals_workflow_uploads_full_report_artifacts():
     workflow = Path(".github/workflows/evals.yml").read_text(encoding="utf-8")
 
-    assert "python -m evals.ci --use-harness --bootstrap-schema" in workflow
+    assert "python -m ai.evals.ci --use-harness --bootstrap-schema" in workflow
     assert "eval-report.json" in workflow
     assert "eval-report.md" in workflow
     assert "eval-regressions.json" in workflow

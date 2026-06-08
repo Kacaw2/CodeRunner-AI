@@ -86,14 +86,14 @@ def test_gateway_bridge_returns_runtime_envelope(monkeypatch):
                 tool_call_id=ctx.tool_call_id,
             )
 
-    monkeypatch.setattr("mcp_gateway.middleware.core.get_caller_info", lambda: {
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.get_caller_info", lambda: {
         "api_key_id": "key-1",
         "user_id": 7,
         "role": "teacher",
         "scopes": ["search_knowledge"],
         "rate_limit_rpm": 30,
     })
-    monkeypatch.setattr("mcp_gateway.middleware.core.get_tool_runtime", lambda: FakeRuntime())
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.get_tool_runtime", lambda: FakeRuntime())
 
     payload = json.loads(call_via_runtime("coderunner.knowledge.search", {"query": "dp"}))
 
@@ -126,10 +126,10 @@ def test_gateway_registered_tool_invokes_runtime_pipeline(monkeypatch):
         "rate_limit_rpm": 30,
     })
     monkeypatch.setattr(
-        "mcp_gateway.middleware.core.check_rate_limit",
+        "ai.mcp_gateway.middleware.core.check_rate_limit",
         lambda *_, **__: True,
     )
-    monkeypatch.setattr("mcp_gateway.middleware.core.get_tool_runtime", lambda: FakeRuntime())
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.get_tool_runtime", lambda: FakeRuntime())
 
     tool = create_mcp_server()._tool_manager._tools["search_knowledge"]
     payload = json.loads(tool.fn(query="dp"))

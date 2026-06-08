@@ -18,16 +18,14 @@ def test_root_compose_routes_web_execution_to_executor_service():
 def test_root_compose_web_mounts_runtime_packages_when_using_bind_mounts():
     compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
 
+    # Runtime packages are consolidated under the shared ``ai/`` package
+    # (dc5c736); the bind mount surface is now app/core/ai plus tooling dirs.
     for package in [
+        "app",
         "core",
-        "tools",
-        "agents",
-        "graph",
-        "memory",
-        "knowledge",
-        "models",
-        "workers",
-        "mcp_gateway",
+        "ai",
+        "scripts",
+        "tests",
     ]:
         assert f"./{package}:/app/{package}:ro" in compose
 

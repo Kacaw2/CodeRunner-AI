@@ -75,7 +75,7 @@ def test_remote_is_the_configuration_and_compose_default():
 def test_worker_image_contains_the_shared_domain_package():
     dockerfile = (ROOT / "docker/Dockerfile.workers").read_text(encoding="utf-8")
     assert "COPY --chown=appuser:appuser domain/ ./domain/" in dockerfile
-    assert "COPY --chown=appuser:appuser agent_runtime/ ./agent_runtime/" in dockerfile
+    assert "COPY --chown=appuser:appuser ai/ ./ai/" in dockerfile
 
 
 def test_completed_slice_compatibility_files_are_deleted():
