@@ -57,12 +57,16 @@ def select_conversation_count_for_user(
 
 
 def select_recent_summarized_conversations(
-    user_id: int, exclude_conversation_id: int | None = None, limit: int = 3
+    user_id: int,
+    exclude_conversation_id: int | None = None,
+    limit: int = 3,
+    agent_types: tuple[str, ...] | None = None,
 ) -> Select:
     """Most recent prior conversations of a user that already have a summary.
 
     Mirrors the mid-term memory query: summary present, optionally excluding the
-    current conversation, ordered by ``updated_at`` desc and limited.
+    current conversation and restricting to specific ``agent_type`` values,
+    ordered by ``updated_at`` desc and limited.
     """
     stmt = (
         select(AIConversation)
@@ -71,6 +75,8 @@ def select_recent_summarized_conversations(
     )
     if exclude_conversation_id is not None:
         stmt = stmt.where(AIConversation.id != exclude_conversation_id)
+    if agent_types:
+        stmt = stmt.where(AIConversation.agent_type.in_(agent_types))
     return stmt.order_by(AIConversation.updated_at.desc()).limit(limit)
 
 
