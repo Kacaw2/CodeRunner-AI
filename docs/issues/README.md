@@ -16,6 +16,7 @@
 | [2026-06-04-dual-orm-database-issues.md](2026-06-04-dual-orm-database-issues.md) | 双层 ORM 数据模型 | 部分解决:迁移基线/create_all 已关闭,双引擎/重复映射仍是架构债 | P2 |
 | [2026-06-08-agent-memory-context-improvements.md](2026-06-08-agent-memory-context-improvements.md) | Agent memory / context 治理 | Planned:Phase 1-5 已分别形成 active 详细执行计划 | P2 |
 | [2026-06-08-sandbox-and-harness-review.md](2026-06-08-sandbox-and-harness-review.md) | 沙箱(执行/MCP)与 Agent Harness 审查、对标 Codex/Claude Code | Open:上下文工程/并行化/prompt caching 为主要差距 | P2-P3 |
+| [2026-06-08-agent-loop-review.md](2026-06-08-agent-loop-review.md) | Agent Loop 深度审查、对标 Codex/Claude Code | Open:token 预算驱动/工具并行/静默失败(L-3 正确性 bug)为重点 | P1-P3 |
 | [2026-06-03-production-maturity-priority-assessment.md](2026-06-03-production-maturity-priority-assessment.md) | 生产成熟度优先级评估 | 已按 2026-06-05 代码事实更新 | P1-P3 |
 | [2026-06-03-agents-module-review-report.md](2026-06-03-agents-module-review-report.md) | agents 模块审查报告 | 已按 2026-06-05 agent platform 完成状态更新 | P2-P3 |
 
