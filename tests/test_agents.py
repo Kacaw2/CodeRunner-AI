@@ -899,6 +899,75 @@ class TestCrashRecovery:
             assert recovered.status == "failed"
 
 
+class TestMemoryContextCompatibility:
+    def test_legacy_student_context_keeps_existing_labels(self, db_session, app):
+        with app.app_context():
+            from domain.models.user import User, UserRole
+            from app.models.student_profile import StudentProfile
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="memory_student",
+                password="x",
+                email="memory-student@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add(StudentProfile(
+                student_id=user.id,
+                learning_summary="Needs visual examples.",
+                error_patterns={"WA": 3},
+                knowledge_map={"recursion": 0.4, "arrays": 0.9},
+                current_hint_level={"recursion": 2},
+            ))
+            db_session.commit()
+
+            rendered = MemoryService.get_memory_context(user.id, "student")
+
+            assert "Student Background: Needs visual examples." in rendered
+            assert "Error History: {'WA': 3}" in rendered
+            assert "Weak Areas: recursion" in rendered
+            assert "Previous Hints Given: {'recursion': 2}" in rendered
+
+    def test_legacy_teacher_context_keeps_existing_labels(self, db_session, app):
+        with app.app_context():
+            from domain.models.user import User, UserRole
+            from app.models.student_profile import TeacherPreference
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="memory_teacher",
+                password="x",
+                email="memory-teacher@test.com",
+                role=UserRole.TEACHER,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add(TeacherPreference(
+                teacher_id=user.id,
+                style_notes="Prefer concise prompts.",
+                preferred_language="java",
+                preferred_difficulty="hard",
+                class_weak_areas=["loops", "recursion"],
+            ))
+            db_session.commit()
+
+            rendered = MemoryService.get_memory_context(user.id, "teacher")
+
+            assert "Teacher Preferences: Prefer concise prompts." in rendered
+            assert "Class Weak Areas: loops, recursion" in rendered
+
+    def test_legacy_context_returns_empty_when_profile_query_fails(self, app):
+        with app.app_context(), patch(
+            "app.models.student_profile.StudentProfile.query"
+        ) as query:
+            from ai.memory.service import MemoryService
+
+            query.filter_by.side_effect = RuntimeError("table unavailable")
+            assert MemoryService.get_memory_context(1, "student") == ""
+
+
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():
