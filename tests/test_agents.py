@@ -968,6 +968,45 @@ class TestMemoryContextCompatibility:
             assert MemoryService.get_memory_context(1, "student") == ""
 
 
+class TestStructuredMemoryContext:
+    def test_memory_context_exposes_structured_sections(self):
+        from ai.memory.context import (
+            MemoryContext,
+            MemoryItem,
+            MemoryMetadata,
+            RecentSessionMemory,
+        )
+
+        profile_item = MemoryItem(
+            key="learning_summary",
+            value="Needs visual examples.",
+            metadata=MemoryMetadata(
+                source="student_profile:7",
+                reason_included="tutor profile policy",
+            ),
+        )
+        session = RecentSessionMemory(
+            conversation_id=11,
+            agent_type="tutor",
+            summary="Worked on recursion.",
+            created_at=None,
+            metadata=MemoryMetadata(
+                source="ai_conversation:11",
+                reason_included="recent tutor summary policy",
+            ),
+        )
+
+        context = MemoryContext(
+            student_profile=(profile_item,),
+            recent_sessions=(session,),
+        )
+
+        assert context.student_profile[0].key == "learning_summary"
+        assert context.recent_sessions[0].conversation_id == 11
+        assert context.is_empty is False
+        assert MemoryContext().is_empty is True
+
+
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():
