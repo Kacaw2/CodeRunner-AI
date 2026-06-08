@@ -1077,6 +1077,55 @@ class TestMemoryContextBuilder:
             )
 
 
+class TestAgentMemoryPolicy:
+    def test_tutor_only_reads_tutor_summaries(self, db_session, app):
+        with app.app_context():
+            from domain.models.chat import AIConversation
+            from domain.models.user import User, UserRole
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="policy_student",
+                password="x",
+                email="policy-student@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add_all([
+                AIConversation(
+                    user_id=user.id,
+                    agent_type="tutor",
+                    summary="Tutor-only summary.",
+                ),
+                AIConversation(
+                    user_id=user.id,
+                    agent_type="generator",
+                    summary="Generator-only summary.",
+                ),
+            ])
+            db_session.commit()
+
+            rendered = MemoryService.get_memory_context(
+                user.id,
+                "student",
+                agent_name="tutor",
+            )
+
+            assert "Tutor-only summary." in rendered
+            assert "Generator-only summary." not in rendered
+
+    def test_reviewer_policy_renders_no_memory(self, db_session, app):
+        with app.app_context():
+            from ai.memory.service import MemoryService
+
+            assert MemoryService.get_memory_context(
+                1,
+                "student",
+                agent_name="reviewer",
+            ) == ""
+
+
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():

@@ -324,23 +324,55 @@ class MemoryService:
         return "\n".join(parts)
 
     @staticmethod
+    def _policy_options(agent_name: str | None) -> dict:
+        """Resolve an agent's ``MemoryPolicy`` into build_memory_context kwargs.
+
+        Returns ``{}`` for no agent name or an unknown agent so the legacy
+        role-based behavior is preserved.
+        """
+        if not agent_name:
+            return {}
+
+        from core.definitions import get_definition
+
+        definition = get_definition(agent_name)
+        if definition is None:
+            return {}
+        policy = definition.memory_policy
+        return {
+            "profile_kind": policy.profile_kind.value,
+            "include_recent_summaries": policy.include_recent_summaries,
+            "recent_summary_agent_types": tuple(
+                sorted(policy.recent_summary_agent_types)
+            ),
+            "max_recent_summaries": policy.max_recent_summaries,
+            "allow_target_student": policy.allow_target_student,
+        }
+
+    @staticmethod
     def get_memory_context(
         user_id: int,
         user_role: str,
         conversation_id: int = None,
-        **build_options,
+        *,
+        agent_name: str | None = None,
+        target_student_id: int | None = None,
     ) -> str:
         """Backward-compatible string entry point for memory injection.
 
-        Delegates to ``build_memory_context`` + ``render_memory_context`` so
-        existing callers keep the exact legacy prompt text while new callers
-        can pass structured build options.
+        With ``agent_name`` the registered ``AgentDefinition.memory_policy``
+        decides profile kind, summary scope and target-student access. Without
+        it the legacy role-based behavior is preserved. Delegates to
+        ``build_memory_context`` + ``render_memory_context`` so callers keep the
+        exact legacy prompt text.
         """
+        options = MemoryService._policy_options(agent_name)
         context = MemoryService.build_memory_context(
             user_id,
             user_role,
             conversation_id,
-            **build_options,
+            target_student_id=target_student_id,
+            **options,
         )
         return MemoryService.render_memory_context(context)
 
