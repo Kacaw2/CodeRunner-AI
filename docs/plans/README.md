@@ -20,7 +20,6 @@
 - [2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md](active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) — Phase 3 详细执行计划；实现确定性预算、TTL/sensitivity 过滤、稳定 snapshot hash 和 trace 注入审计。
 - [2026-06-08-governed-memory-lifecycle-phase4-plan.md](active/2026-06-08-governed-memory-lifecycle-phase4-plan.md) — Phase 4 详细执行计划；引入 item 级 candidate/active/superseded/suppressed/expired 生命周期、兼容 backfill 与治理 API。
 - [2026-06-08-eval-memory-replay-snapshot-phase5-plan.md](active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md) — Phase 5 详细执行计划；实现版本化 memory snapshot、current/recorded/none eval replay 和 memory drift 报告。
-- [2026-06-08-short-term-message-compaction-redesign-plan.md](active/2026-06-08-short-term-message-compaction-redesign-plan.md) — runtime 层短期消息窗口压缩重做；token 触发、loop 内滚动、tool-call 配对安全、compaction trace span。与上面四份长/中期 memory 子计划正交。
 
 ## Archive
 
@@ -33,6 +32,7 @@
 - [2026-06-04-phase3.5-toolruntime-hardening-plan.md](archive/2026-06-04-phase3.5-toolruntime-hardening-plan.md)
 - [2026-06-04-phase4-planning-task-execution-plan.md](archive/2026-06-04-phase4-planning-task-execution-plan.md)
 - [2026-06-08-agent-memory-context-governance-phase1-2-plan.md](archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) — Context/Memory Phase 1-2 已完成：结构化 `MemoryContext`、build/render 分离、兼容 legacy `get_memory_context()`，以及 tutor/generator/analytics/reviewer 被真实消费的 `memory_policy`。focused suite `129 passed`。Phase 3-5 仍在 active。
+- [2026-06-08-short-term-message-compaction-redesign-plan.md](archive/2026-06-08-short-term-message-compaction-redesign-plan.md) — 已完成：runtime 层短期消息窗口压缩重做；token 触发、loop 内滚动（run + stream 两个 loop）、tool-call 配对安全、compaction trace span。与长/中期 memory 子计划正交。full pytest `700 passed`。
 
 ### 已完成：数据库 / Schema 基础设施
 
