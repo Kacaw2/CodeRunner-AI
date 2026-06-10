@@ -1,5 +1,13 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
+
 from app.core.timezone import now_china
+
+if TYPE_CHECKING:
+    from ai.memory.governance import MemorySelection
+    from core.definitions import MemoryPolicy
 
 from langchain_core.messages import HumanMessage
 
@@ -350,6 +358,54 @@ class MemoryService:
         }
 
     @staticmethod
+    def legacy_memory_policy(user_role: str) -> "MemoryPolicy":
+        """Return a governed MemoryPolicy that reproduces legacy role-based behavior."""
+        from core.definitions import MemoryPolicy, MemoryProfileKind
+
+        kind = MemoryProfileKind.ACTOR  # build_memory_context resolves ACTOR -> role
+        return MemoryPolicy(
+            profile_kind=kind,
+            include_recent_summaries=True,
+            max_recent_summaries=3,
+            max_memory_chars=4000,
+            max_memory_tokens=1000,
+        )
+
+    @staticmethod
+    def prepare_memory_context(
+        user_id: int,
+        user_role: str,
+        conversation_id: int | None = None,
+        *,
+        agent_name: str | None = None,
+        target_student_id: int | None = None,
+    ) -> "MemorySelection":
+        """Return a governed MemorySelection (rendered text + audit decisions + hash)."""
+        from ai.memory.governance import select_memory_context
+        from core.definitions import get_definition
+
+        definition = get_definition(agent_name) if agent_name else None
+        policy = (
+            definition.memory_policy
+            if definition is not None
+            else MemoryService.legacy_memory_policy(user_role)
+        )
+        context = MemoryService.build_memory_context(
+            user_id,
+            user_role,
+            conversation_id,
+            profile_kind=policy.profile_kind.value,
+            include_recent_summaries=policy.include_recent_summaries,
+            recent_summary_agent_types=tuple(
+                sorted(policy.recent_summary_agent_types)
+            ),
+            max_recent_summaries=policy.max_recent_summaries,
+            target_student_id=target_student_id,
+            allow_target_student=policy.allow_target_student,
+        )
+        return select_memory_context(context, policy)
+
+    @staticmethod
     def get_memory_context(
         user_id: int,
         user_role: str,
@@ -360,21 +416,16 @@ class MemoryService:
     ) -> str:
         """Backward-compatible string entry point for memory injection.
 
-        With ``agent_name`` the registered ``AgentDefinition.memory_policy``
-        decides profile kind, summary scope and target-student access. Without
-        it the legacy role-based behavior is preserved. Delegates to
-        ``build_memory_context`` + ``render_memory_context`` so callers keep the
-        exact legacy prompt text.
+        Delegates to ``prepare_memory_context`` so all calls pass through
+        governance while returning the same rendered string as before.
         """
-        options = MemoryService._policy_options(agent_name)
-        context = MemoryService.build_memory_context(
+        return MemoryService.prepare_memory_context(
             user_id,
             user_role,
             conversation_id,
+            agent_name=agent_name,
             target_student_id=target_student_id,
-            **options,
-        )
-        return MemoryService.render_memory_context(context)
+        ).rendered
 
     @staticmethod
     def _llm_summarize_transcript(transcript: str) -> str | None:

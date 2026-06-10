@@ -130,3 +130,35 @@ def test_selector_keeps_high_priority_items_under_budget():
     assert len(first.snapshot_hash) == 64
     reasons = {d.key: d.reason.value for d in first.decisions}
     assert reasons["error_patterns"] in ("char_budget", "token_budget")
+
+
+def test_prepare_memory_context_returns_render_and_audit(app, db_session):
+    with app.app_context():
+        from domain.models.user import User, UserRole
+        from app.models.student_profile import StudentProfile
+        from ai.memory.service import MemoryService
+
+        user = User(
+            username="memory_prepare",
+            password="x",
+            email="memory-prepare@test.com",
+            role=UserRole.STUDENT,
+        )
+        db_session.add(user)
+        db_session.flush()
+        db_session.add(StudentProfile(
+            student_id=user.id,
+            learning_summary="Needs recursion practice.",
+        ))
+        db_session.commit()
+
+        selection = MemoryService.prepare_memory_context(
+            user.id,
+            "student",
+            agent_name="tutor",
+        )
+
+        assert "Needs recursion practice." in selection.rendered
+        assert selection.rendered_chars > 0
+        assert selection.snapshot_hash
+        assert any(d.included for d in selection.decisions)
