@@ -183,6 +183,27 @@ class SyncMemoryRepository:
             self.session.flush()
         return live
 
+    def has_items_for_subject(
+        self, subject_type: str, subject_id: str
+    ) -> bool:
+        """True if any governed item (any status) exists for the subject.
+
+        Once governance owns a subject, the read path must stop falling back to
+        the legacy profile table even when zero items are currently ``active``
+        (e.g. the only item was suppressed).
+        """
+        return (
+            self.session.execute(
+                select(MemoryItemRecord.id)
+                .where(
+                    MemoryItemRecord.subject_type == subject_type,
+                    MemoryItemRecord.subject_id == str(subject_id),
+                )
+                .limit(1)
+            ).first()
+            is not None
+        )
+
     def candidates_for_subject(
         self, subject_type: str, subject_id: str
     ) -> list[MemoryItemRecord]:

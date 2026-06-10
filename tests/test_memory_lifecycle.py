@@ -40,3 +40,29 @@ def test_backfill_is_idempotent(app, db_session, teacher_user):
 
     assert first >= 2
     assert second == 0
+
+
+def test_suppressed_memory_item_no_longer_enters_prompt(app, db_session, student_user):
+    from domain.repositories.memory import SyncMemoryRepository
+    from ai.memory.service import MemoryService
+
+    repo = SyncMemoryRepository(db_session)
+    item = repo.create_active(
+        subject_type="student",
+        subject_id=str(student_user.id),
+        memory_kind="profile",
+        memory_key="learning_summary",
+        value_json={"value": "Do not inject this"},
+        source_type="manual",
+    )
+    db_session.flush()
+    repo.suppress(item.id)
+    db_session.commit()
+
+    rendered = MemoryService.get_memory_context(
+        student_user.id,
+        "student",
+        agent_name="tutor",
+    )
+
+    assert "Do not inject this" not in rendered

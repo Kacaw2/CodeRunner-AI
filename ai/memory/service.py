@@ -87,6 +87,53 @@ class MemoryService:
         profile.updated_at = now_china()
         db.session.commit()
 
+    # Keys surfaced into the rendered prompt per section (must stay aligned
+    # with ``render_memory_context``'s label maps).
+    _STUDENT_RENDER_KEYS = (
+        "learning_summary",
+        "error_patterns",
+        "weak_areas",
+        "current_hint_level",
+    )
+    _TEACHER_RENDER_KEYS = ("style_notes", "class_weak_areas")
+
+    @staticmethod
+    def _governed_items(
+        subject_type: str,
+        subject_id: int,
+        allowed_keys: tuple[str, ...],
+        reason: str,
+    ) -> tuple[MemoryItem, ...] | None:
+        """Return governed active items for the subject, or ``None`` when the
+        subject is not governed yet (so the caller falls back to legacy).
+
+        When the subject IS governed, only ``active`` items survive; suppressed
+        or superseded items are intentionally excluded and never re-enter the
+        prompt via legacy fallback.
+        """
+        from app.core.extensions import db
+        from domain.repositories.memory import SyncMemoryRepository
+
+        repo = SyncMemoryRepository(db.session)
+        if not repo.has_items_for_subject(subject_type, str(subject_id)):
+            return None
+
+        metadata = MemoryMetadata(
+            source=f"memory_item:{subject_type}:{subject_id}",
+            reason_included=reason,
+        )
+        items: list[MemoryItem] = []
+        for record in repo.active_for_subject(subject_type, str(subject_id)):
+            if record.memory_key not in allowed_keys:
+                continue
+            value = record.value_json.get("value")
+            items.append(MemoryItem(
+                key=record.memory_key,
+                value=value,
+                metadata=metadata,
+            ))
+        return tuple(items)
+
     @staticmethod
     def _student_profile_items(
         student_id: int, reason: str
@@ -250,13 +297,31 @@ class MemoryService:
 
             try:
                 if resolved_profile_kind == "student":
-                    student_profile = MemoryService._student_profile_items(
+                    governed = MemoryService._governed_items(
+                        "student",
                         profile_subject_id,
+                        MemoryService._STUDENT_RENDER_KEYS,
                         profile_reason,
                     )
+                    student_profile = (
+                        governed
+                        if governed is not None
+                        else MemoryService._student_profile_items(
+                            profile_subject_id,
+                            profile_reason,
+                        )
+                    )
                 elif resolved_profile_kind == "teacher":
+                    governed = MemoryService._governed_items(
+                        "teacher",
+                        profile_subject_id,
+                        MemoryService._TEACHER_RENDER_KEYS,
+                        profile_reason,
+                    )
                     teacher_preference = (
-                        MemoryService._teacher_preference_items(
+                        governed
+                        if governed is not None
+                        else MemoryService._teacher_preference_items(
                             profile_subject_id,
                             profile_reason,
                         )
