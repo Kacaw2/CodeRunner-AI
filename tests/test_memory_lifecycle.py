@@ -121,3 +121,67 @@ def test_approving_teacher_candidate_updates_profile_endpoint(
 
     assert resp.status_code == 200
     assert resp.get_json()["preference"]["preferred_language"] == "java"
+
+
+def test_expired_items_are_marked_expired_on_query(app, db_session, student_user):
+    from datetime import timedelta
+
+    from core.timezone import now_china
+    from domain.models.memory import MemoryItemRecord
+    from domain.repositories.memory import SyncMemoryRepository
+
+    repo = SyncMemoryRepository(db_session)
+    item = repo.create_active(
+        subject_type="student",
+        subject_id=str(student_user.id),
+        memory_kind="profile",
+        memory_key="learning_summary",
+        value_json={"value": "Stale"},
+        source_type="manual",
+        expires_at=now_china() - timedelta(hours=1),
+    )
+    db_session.flush()
+    item_id = item.id
+
+    live = repo.active_for_subject("student", str(student_user.id))
+
+    assert live == []
+    db_session.expire_all()
+    assert db_session.get(MemoryItemRecord, item_id).status == "expired"
+
+
+def test_conflict_does_not_silently_overwrite_without_approve(app, db_session, teacher_user):
+    from domain.models.memory import MemoryItemRecord
+    from domain.repositories.memory import SyncMemoryRepository
+
+    repo = SyncMemoryRepository(db_session)
+    old = repo.create_active(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "python"},
+        source_type="manual",
+    )
+    new = repo.create_candidate(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "java"},
+        source_type="generation",
+    )
+    db_session.flush()
+    old_id, new_id = old.id, new.id
+
+    candidates = repo.candidates_for_subject("teacher", str(teacher_user.id))
+    assert [c.id for c in candidates] == [new_id]
+    db_session.expire_all()
+    assert db_session.get(MemoryItemRecord, old_id).status == "active"
+    assert db_session.get(MemoryItemRecord, new_id).status == "candidate"
+
+    repo.promote(new_id)
+
+    db_session.expire_all()
+    assert db_session.get(MemoryItemRecord, old_id).status == "superseded"
+    assert db_session.get(MemoryItemRecord, new_id).status == "active"
