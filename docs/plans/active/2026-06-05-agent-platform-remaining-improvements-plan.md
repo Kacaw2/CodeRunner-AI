@@ -30,7 +30,7 @@
 **当前推进状态**：已于 2026-06-08 将 Phase 1-5 拆成四份按依赖顺序执行的详细计划：
 
 1. ✅ [Phase 1-2: MemoryContext / Policy](../archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) — **2026-06-08 已完成并归档**：结构化 `MemoryContext`、build/render 分离、兼容 legacy `get_memory_context()`，tutor/generator/analytics/reviewer 已消费 `memory_policy`，analytics target 隔离落地。
-2. [Phase 3: Budget / Filter / Audit](2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
+2. ✅ [Phase 3: Budget / Filter / Audit](../archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) — **2026-06-08 已完成并归档**：确定性 `select_memory_context()` 选择器、char/token 预算（`0`=禁止注入）、TTL/sensitivity/空值过滤、稳定 canonical snapshot hash，以及复用现有 trace `memory_context_selected` event + `memory_injection_audit` artifact 的注入审计（不保存完整 rendered memory，无 schema migration）。
 3. [Phase 4: Governed Lifecycle](2026-06-08-governed-memory-lifecycle-phase4-plan.md)
 4. [Phase 5: Eval Replay Snapshot](2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
@@ -148,7 +148,7 @@
 |---|---|---|
 | 当前 active 总入口 | `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | 作为 agent platform 后续提升的路线级入口 |
 | 已完成子计划 | `docs/plans/archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md` | Phase 1-2 已完成：结构化 `MemoryContext`、build/render 分离、agent-specific policy |
-| 当前 active 子计划 | `docs/plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md` | 执行预算、过滤、稳定 hash 和 trace audit |
+| 已完成子计划 | `docs/plans/archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md` | Phase 3 已完成：确定性预算/过滤、稳定 snapshot hash、复用现有 trace event/artifact 的注入审计 |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md` | 执行 governed item lifecycle、candidate、forget/suppress |
 | 当前 active 子计划 | `docs/plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md` | 执行 snapshot、eval replay、memory drift 和 CI controls |
 | 已完成子计划（正交） | `docs/plans/archive/2026-06-08-short-term-message-compaction-redesign-plan.md` | runtime 层短期消息窗口压缩重做：token 触发、loop 内滚动（run + stream）、配对安全、compaction span；full pytest `700 passed` |

@@ -332,32 +332,6 @@ class MemoryService:
         return "\n".join(parts)
 
     @staticmethod
-    def _policy_options(agent_name: str | None) -> dict:
-        """Resolve an agent's ``MemoryPolicy`` into build_memory_context kwargs.
-
-        Returns ``{}`` for no agent name or an unknown agent so the legacy
-        role-based behavior is preserved.
-        """
-        if not agent_name:
-            return {}
-
-        from core.definitions import get_definition
-
-        definition = get_definition(agent_name)
-        if definition is None:
-            return {}
-        policy = definition.memory_policy
-        return {
-            "profile_kind": policy.profile_kind.value,
-            "include_recent_summaries": policy.include_recent_summaries,
-            "recent_summary_agent_types": tuple(
-                sorted(policy.recent_summary_agent_types)
-            ),
-            "max_recent_summaries": policy.max_recent_summaries,
-            "allow_target_student": policy.allow_target_student,
-        }
-
-    @staticmethod
     def legacy_memory_policy(user_role: str) -> "MemoryPolicy":
         """Return a governed MemoryPolicy that reproduces legacy role-based behavior."""
         from core.definitions import MemoryPolicy, MemoryProfileKind

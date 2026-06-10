@@ -1968,7 +1968,7 @@ git commit -m "docs(memory): close phase 1-2 governance plan"
 
 ### Phase 3: Budget、过滤与审计
 
-执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](../active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
+执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](../archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
 
 触发条件：
 

@@ -310,7 +310,7 @@ The LLM summary uses the FAST tier. If the summarizer raises or returns nothing,
 - 教师：`style_notes`、`class_weak_areas`。
 - 二者都会追加 recent conversation summaries。
 
-当前主要缺口不是“没有 memory 字段”，而是治理不足：所有记忆仍被扁平拼接为字符串，没有按 agent 目标、来源可信度、用户可编辑偏好、模型推断画像、强/弱上下文进行结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。
+Phase 1-3 之前的主要缺口是治理不足：所有记忆被扁平拼接为字符串，没有按 agent 目标、来源可信度、敏感级别、强/弱上下文结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。结构化 `MemoryContext`（Phase 1-2）与确定性预算/过滤/注入审计（Phase 3）已补上这部分；剩余缺口是 candidate lifecycle 与 forget/replay（Phase 4-5）。
 
 ### 结构化 MemoryContext 与 Agent Policy
 
@@ -322,7 +322,19 @@ Phase 1-2 已落地结构化记忆契约与按 agent 的注入策略：
 - Reviewer 默认不读取长期画像或历史 summary。
 - Legacy `MemoryService.get_memory_context()` API 仍供 generation pipeline 等现有调用使用，渲染文本保持兼容。
 
-尚未实现的 budget、TTL/forget、extractor、trace audit、eval replay 继续作为后续阶段（Phase 3-5），不得描述成当前能力。
+### Phase 3：预算、过滤与注入审计
+
+Phase 3 在结构化 `MemoryContext` 上增加了确定性的选择、预算裁剪和 trace 审计：
+
+- `ai/memory/governance.py::select_memory_context()` 是纯函数选择器：按 `priority` 降序、section 顺序、`source`、`key` 稳定排序后，依次应用 TTL（`expires_at`）、sensitivity allowlist、空值和 char/token 预算过滤，产出 `MemorySelection`（rendered 文本、每 item 的 included/filtered 决策与原因、canonical snapshot hash）。
+- `MemoryPolicy.max_memory_chars` / `max_memory_tokens` 是每 agent 预算；`0`（或任意非正值）表示**禁止注入**，不是 unlimited。预算比较使用 `>`，恰好用满预算的 item 仍被包含。reviewer 的 `0/0` 因此不注入任何记忆。
+- Token 计数是 **deterministic estimate**（`(len(text)+3)//4`），不是 provider tokenizer 的精确 token 数；预算裁剪绝不为此再调用 LLM。
+- `MemoryService.prepare_memory_context()` 是受治理的统一入口，返回 `MemorySelection`；`get_memory_context()` 现在内部走它并只返回 `.rendered`。Agent 在创建 `AgentSession` 前完成选择，结果经 `AgentSession.memory_selection` 传到 `AgentRuntime`。
+- 审计**复用现有 trace 存储**：`AgentRuntime` 取得 trace 后、首次 LLM 调用前，写入一个 `memory_context_selected` event 和一个 `memory_injection_audit` artifact（`AgentTraceEvent` / `AgentTraceArtifact`），现有 trace detail API 自动暴露，无需新 endpoint 或第二套 observability 存储。
+- 审计只保存 included/filtered 决策的元数据（source/key/reason/字符与 token 计数/priority）、计数和 snapshot hash，**不保存完整 rendered memory 或原始 value**；`_redact_secrets()` 仍是最终持久化前的兜底脱敏。
+- snapshot hash payload 覆盖 source/key/value/sensitivity/expires_at（不含 `reason_included`），同输入稳定、value 变化即变化，为 Phase 5 eval replay 预留可比对锚点。
+
+尚未实现的 extractor / candidate lifecycle、forget/suppress/superseded（Phase 4）和 eval recorded snapshot 回放（Phase 5）继续作为后续阶段，不得描述成当前能力。
 
 ---
 
@@ -384,7 +396,7 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | 业务数据 | Problem/variant/submission/quiz/classroom 主链路较完整 | 仍有历史 Question 兼容面需要持续审计 |
 | Schema 迁移 | 完整 Alembic baseline 已落地；ORM 已收敛为单一 `DomainBase` registry | 跨进程仍是 process-local engine（按设计），非进程内双池 |
 | 短期状态 | AgentSession、Redis SSE buffer、message compaction 已存在 | 专用 stream path 与统一 compaction/context policy 仍需收敛 |
-| 中长期记忆 | summary/profile/preference 可读写 | 画像字段自动填充不均衡，记忆注入缺少结构化策略和审计 |
+| 中长期记忆 | summary/profile/preference 可读写；结构化 `MemoryContext` + 确定性预算/TTL/sensitivity 过滤 + trace 注入审计已落地（Phase 1-3） | 画像字段自动填充不均衡；candidate lifecycle / forget / eval replay 仍待 Phase 4-5 |
 | Agent 状态 | AgentRuntime、trace、tool-based handoff、bounded context rebuild 已落地 | handoff/workflow/eval 的 context snapshot 尚未形成统一治理 |
 | Workflow 状态 | 持久化 step、approval audit、resume from breakpoint 已存在 | 任意 step replay、幂等和写工具去重仍未完成 |
 | RAG | ChromaDB 三 collection + Agent/MCP 消费路径存在 | 检索质量门禁和 eval replay 仍需产品化 |
@@ -402,6 +414,7 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | `domain/models/chat.py` | Conversation / Message / summary / ChatTask |
 | `app/models/student_profile.py` | StudentProfile / TeacherPreference |
 | `ai/memory/service.py` | 对话摘要、学生画像更新、memory context、消息压缩 |
+| `ai/memory/governance.py` | 确定性 memory 选择、TTL/sensitivity/预算过滤、canonical snapshot hash |
 | `ai/memory/preference.py` | 教师偏好、风格摘要、班级薄弱点 |
 | `ai/agents/session.py`、`ai/agents/runtime.py`、`ai/agents/llm_runner.py` | Agent 单次运行状态、LLM/tool loop、压缩入口 |
 | `core/definitions.py` | Agent 定义、工具白名单、handoff target、预算/限流 |

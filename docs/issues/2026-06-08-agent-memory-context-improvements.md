@@ -1,11 +1,11 @@
 # Agent Memory / Context 改进议题
 
-> 状态: Phase 1-2 Completed
+> 状态: Phase 3 Completed（Phase 4-5 active）
 > 更新日期: 2026-06-08
 > 范围: `ai/memory/`、`ai/agents/`、`core/definitions.py`、`core/observability/`、`ai/evals/`、`docs/architecture/data-state-memory.md`
 > 执行计划:
 > [Phase 1-2: MemoryContext / Policy](../plans/archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) |
-> [Phase 3: Budget / Filter / Audit](../plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) |
+> [Phase 3: Budget / Filter / Audit](../plans/archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) |
 > [Phase 4: Governed Lifecycle](../plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md) |
 > [Phase 5: Eval Replay Snapshot](../plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
@@ -193,7 +193,7 @@ Eval case 应能选择:
 
 ### Phase 3: Budget、过滤与审计
 
-详细执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](../plans/active/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
+详细执行计划：[Agent Memory Budget, Filtering, and Audit Phase 3 Plan](../plans/archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md)
 
 目标: 控制上下文膨胀, 并让 memory 注入进入 trace。
 
@@ -270,5 +270,34 @@ $env:DEBUG='True'
 ### 仍未实现（后续阶段）
 
 - Phase 3：budget、sensitivity/TTL 过滤、trace 注入审计、稳定 snapshot hash。
+- Phase 4：item 级 candidate/active/superseded/suppressed/expired 生命周期、extractor、forget/suppress。
+- Phase 5：版本化 memory snapshot、eval replay、memory drift 报告。
+
+## 实施结果（Phase 3，2026-06-08）
+
+Phase 3 Completed: budget/filter/audit 已完成；Phase 4-5 仍 active。本次关闭“记忆注入缺少确定性预算/过滤”和“缺少注入审计”两项缺口。
+
+### 完成证据
+
+- 新增 `ai/memory/governance.py`：纯函数 `select_memory_context()`，按 `priority`→section→`source`→`key` 稳定排序后应用 TTL（`expires_at`）、sensitivity allowlist、空值、char/token 预算过滤，产出 `MemorySelection`（rendered、每 item 决策与原因、canonical snapshot hash）。
+- `MemoryMetadata.priority` 与 `MemoryPolicy.max_memory_chars` / `max_memory_tokens` 落地；预算 `0`（或非正值）表示禁止注入而非 unlimited，比较使用 `>` 使恰好用满预算的 item 仍被包含。reviewer 的 `0/0` 不注入任何记忆。
+- token 计数是 deterministic estimate（`(len+3)//4`），预算裁剪不再调用 LLM。
+- `MemoryService.prepare_memory_context()` 成为受治理统一入口；`get_memory_context()` 内部走它只返回 `.rendered`；selection 经 `AgentSession.memory_selection` 传到 `AgentRuntime`。
+- 审计复用现有 trace 存储：`AgentRuntime` 在首次 LLM 调用前写入 `memory_context_selected` event 与 `memory_injection_audit` artifact（`AgentTraceEvent` / `AgentTraceArtifact`），现有 trace detail API 自动暴露，无新 endpoint、无 schema migration。
+- 审计只保存决策元数据、计数和 snapshot hash，不保存完整 rendered memory 或原始 value；`_redact_secrets()` 仍是最终脱敏兜底。
+- 移除 Phase 1-2 遗留的死代码 `MemoryService._policy_options`（已被 `prepare_memory_context` 取代）。
+
+### 测试命令与结果
+
+```powershell
+$env:SECRET_KEY='test-secret-key'
+$env:DEBUG='True'
+.\.venv\Scripts\python.exe -m pytest tests/test_memory_governance.py tests/test_memory_trace_audit.py tests/test_agents.py tests/test_agent_session.py tests/test_agent_runtime_kernel.py tests/test_trace_store_runtime_neutral.py tests/test_trace_api_complete.py tests/test_definitions_consistency.py -q
+```
+
+结果：`94 passed, 2 warnings`（仅 SQLAlchemy 1.x `Query.get()` legacy 警告，与本次改造无关）。
+
+### 仍未实现（Phase 4-5）
+
 - Phase 4：item 级 candidate/active/superseded/suppressed/expired 生命周期、extractor、forget/suppress。
 - Phase 5：版本化 memory snapshot、eval replay、memory drift 报告。
