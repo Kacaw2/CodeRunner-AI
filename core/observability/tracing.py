@@ -185,6 +185,26 @@ class TraceCollector:
             self.tool_call_count += 1
             self.steps.append(step)
 
+    def trace_compaction(self, result) -> None:
+        """Record a short-term message-window compaction as a span. No-op when
+        nothing was compacted, so cheap in-loop calls under budget add no span."""
+        if not getattr(result, "compacted", False):
+            return
+        self.steps.append({
+            "step_type": "compaction",
+            "step_index": len(self.steps),
+            "tool_name": "compaction",
+            "tool_input": {
+                "dropped_messages": result.dropped_messages,
+                "kept_messages": result.kept_messages,
+                "tokens_before": result.tokens_before,
+                "tokens_after": result.tokens_after,
+                "summarized": result.summarized,
+                "fallback_used": result.fallback_used,
+            },
+            "latency_ms": 0,
+        })
+
     def add_artifact(
         self,
         *,

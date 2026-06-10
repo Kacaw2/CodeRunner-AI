@@ -117,7 +117,9 @@ class AgentRuntime:
         llm_with_tools = llm.bind_tools(tool_schemas)
 
         messages = [SystemMessage(content=system_ctx)] + list(session.messages)
-        messages = LLMRunner.compact(messages, max_messages=20)
+        compaction = LLMRunner.compact_window(messages, max_messages=20)
+        messages = compaction.messages
+        trace.trace_compaction(compaction)
         return trace, owns_trace, llm_with_tools, messages
 
     def _apply_after_run(self, session, out_state):
@@ -191,6 +193,9 @@ class AgentRuntime:
                         tool_step["tool_output"] = tool_msg.content
                         messages.append(tool_msg)
                     _record_tool_artifact(trace, tc["name"], tool_msg.content)
+                compaction = LLMRunner.compact_window(messages, max_messages=20)
+                messages = compaction.messages
+                trace.trace_compaction(compaction)
             else:
                 limit_exceeded = bool(response and response.tool_calls)
 
@@ -312,6 +317,9 @@ class AgentRuntime:
                     _record_tool_artifact(trace, tc["name"], tool_msg.content)
                     yield {"type": "tool_result", "tool": tc["name"],
                            "summary": f"Fetched {tc['name']} result"}
+                compaction = LLMRunner.compact_window(messages, max_messages=20)
+                messages = compaction.messages
+                trace.trace_compaction(compaction)
             else:
                 limit_exceeded = True
 
