@@ -256,7 +256,10 @@ def select_memory_context(
             "key": str(c.key),
             "value": value,
             "sensitivity": m.sensitivity.value,
-            "expires_at": m.expires_at,
+            # Canonicalize to ISO 8601 so the hash is stable regardless of the
+            # datetime object's tzinfo state (this hash is the Phase 5 replay
+            # anchor); never rely on json default=str for the expiry.
+            "expires_at": m.expires_at.isoformat() if m.expires_at else None,
         })
 
     snapshot_hash = canonical_snapshot_hash({"items": snapshot_items})
