@@ -1404,3 +1404,29 @@ class TestCrossAgentCallGuardrail:
             mock_llm.invoke.assert_not_called()
             assert result["final_response"]
             assert trace.pending_status == "limit_exceeded"
+
+
+class TestCompactWindowService:
+    def test_compact_messages_returns_list_and_preserves_system(self, app):
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from ai.memory.service import MemoryService
+
+        with app.app_context():
+            msgs = [SystemMessage(content="sys")] + [
+                HumanMessage(content="x" * 400) for _ in range(40)
+            ]
+            out = MemoryService.compact_messages(msgs, max_messages=20)
+            assert isinstance(out, list)
+            assert isinstance(out[0], SystemMessage)
+
+    def test_compact_window_reports_compaction(self, app):
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from ai.memory.service import MemoryService
+
+        with app.app_context():
+            msgs = [SystemMessage(content="sys")] + [
+                HumanMessage(content="x" * 4000) for _ in range(40)
+            ]
+            result = MemoryService.compact_window(msgs, max_recent_messages=20)
+            assert result.compacted is True
+            assert result.tokens_after < result.tokens_before

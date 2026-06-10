@@ -377,49 +377,46 @@ class MemoryService:
         return MemoryService.render_memory_context(context)
 
     @staticmethod
-    def compact_messages(messages: list, max_messages: int = 20) -> list:
-        """If conversation exceeds max_messages, summarize early messages.
-
-        Uses LLM to compress early messages into a summary, falling back
-        to simple truncation if the LLM call fails.
-        """
-        if len(messages) <= max_messages:
-            return messages
-
-        system_msg = messages[0]
-        early = messages[1:-max_messages]
-        recent = messages[-max_messages:]
-
+    def _llm_summarize_transcript(transcript: str) -> str | None:
+        """FAST-tier LLM summary; returns None on failure so compact_window falls back to structured truncation."""
+        if not transcript:
+            return None
         try:
             from ai.agents.config import AIConfig
-            transcript_parts = []
-            for m in early:
-                content = getattr(m, "content", "")
-                if content:
-                    role = getattr(m, "type", "unknown")
-                    transcript_parts.append(f"[{role}] {content[:300]}")
-            if transcript_parts:
-                from ai.llm.tiers import ModelTier
-                llm = AIConfig.get_llm(tier=ModelTier.FAST)
-                prompt = (
-                    "Compress the following conversation history into a brief summary "
-                    "(max 200 words). Preserve key facts, decisions, and context.\n\n"
-                    + "\n".join(transcript_parts)
-                )
-                response = llm.invoke([HumanMessage(content=prompt)])
-                summary_text = f"Previous conversation summary:\n{response.content}"
-                return [system_msg, HumanMessage(content=summary_text)] + recent
+            from ai.llm.tiers import ModelTier
+
+            llm = AIConfig.get_llm(tier=ModelTier.FAST)
+            prompt = (
+                "Compress the following conversation history into a brief summary "
+                "(max 200 words). Preserve key facts, decisions, and context.\n\n"
+                + transcript
+            )
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return response.content or None
         except Exception as e:
             logger.warning("LLM compression failed, falling back to truncation: %s", e)
+            return None
 
-        topics = []
-        for m in early:
-            content = getattr(m, "content", "")
-            if content:
-                topics.append(content[:100])
-        summary_text = (
-            "Previous conversation summary: discussed "
-            + "; ".join(topics[:5])
-            + ("..." if len(topics) > 5 else "")
+    @staticmethod
+    def compact_window(messages: list, *, max_recent_messages: int = 20):
+        """Structurally compact a single run's message window; returns CompactionResult."""
+        from ai.memory.compaction import (
+            DEFAULT_CONTEXT_TOKEN_BUDGET,
+            DEFAULT_RECENT_TOKEN_BUDGET,
+            compact_window,
         )
-        return [system_msg, HumanMessage(content=summary_text)] + recent
+
+        return compact_window(
+            messages,
+            token_budget=DEFAULT_CONTEXT_TOKEN_BUDGET,
+            recent_token_budget=DEFAULT_RECENT_TOKEN_BUDGET,
+            max_recent_messages=max_recent_messages,
+            summarizer=MemoryService._llm_summarize_transcript,
+        )
+
+    @staticmethod
+    def compact_messages(messages: list, max_messages: int = 20) -> list:
+        """Backward-compatible list->list entry; delegates to compact_window."""
+        return MemoryService.compact_window(
+            messages, max_recent_messages=max_messages
+        ).messages
