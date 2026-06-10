@@ -171,7 +171,7 @@ workflow:{run_id}:buffer
 | `definition`、`budget` | 来自 `core/definitions.py` 的 agent 定义和预算配置 |
 | `extra_state` | handoff 等历史状态的兼容承载 |
 
-`AgentRuntime` 负责同步和流式 loop：获取 trace、绑定工具 schema、压缩消息、调用 LLM、执行工具、记录 token/latency/artifact，并在结束时 finalize trace。`LLMRunner.compact()` 调用 `MemoryService.compact_messages()`，因此通用 runtime path 已有短期消息压缩。
+`AgentRuntime` 负责同步和流式 loop：获取 trace、绑定工具 schema、压缩消息、调用 LLM、执行工具、记录 token/latency/artifact，并在结束时 finalize trace。`LLMRunner.compact_window()` 通过 `MemoryService.compact_window()` 运行 token-budget 触发的短期消息压缩；`compact()` 作为兼容 shim 保留。
 
 ### Tool-based handoff
 
@@ -240,7 +240,7 @@ Trace 当前已经能绑定 workflow step 和 MCP tool audit，但 EvalOps/repla
 当前记忆分三层注入 system prompt：
 
 ```text
-短期：MemoryService.compact_messages()
+短期：MemoryService.compact_window() / compact_messages() (compat shim)
 中期：AIConversation.summary
 长期：StudentProfile / TeacherPreference
         |
@@ -253,13 +253,24 @@ MemoryService.get_memory_context()
 
 ### 短期：消息压缩
 
-`MemoryService.compact_messages(messages, max_messages=20)`：
+Short-term message compaction is implemented in `ai/memory/compaction.py` (`compact_window`) and wired into `MemoryService.compact_window`, `LLMRunner.compact_window`, and `AgentRuntime`.
 
-- 消息数未超过阈值时原样返回。
-- 超过阈值时保留 system message + 最近 20 条消息。
-- 中间早期消息用 FAST LLM 压缩成 summary；LLM 失败时用简单截断拼接兜底。
+**Trigger — token budget, not message count.**
+Compaction fires when the estimated token total of the current window exceeds `DEFAULT_CONTEXT_TOKEN_BUDGET` (12 000). The estimate is a character heuristic (≈ 4 chars per token) — an internal budget metric, not an exact provider tokenizer count.
 
-`AgentRuntime` 通过 `LLMRunner.compact()` 在通用工具 loop 中调用该压缩逻辑。需要注意：某些专用 Agent 自定义 stream 路径若绕开通用 runtime，仍可能绕开统一压缩；这是后续 context/memory治理需要继续收敛的点。
+**When and where it runs.**
+`AgentRuntime` calls compaction at agent-loop entry (`_acquire`) and rolls it forward in-loop after each round of tool calls, for both the non-streaming `run()` loop and the streaming `stream()` loop. When the window is under budget the call is a no-op: no LLM is invoked and the message list is returned unchanged, so in-loop checks are cheap.
+
+**Pairing-safe split.**
+The kept tail is backed up so it never starts with a `ToolMessage`. This ensures every `ToolMessage` in the kept window has its parent `AIMessage(tool_calls)` present — no orphaned `tool_call_id` is sent to the provider.
+
+**Observability.**
+Each actual compaction (i.e. something was dropped) records one `compaction` trace span via `TraceCollector.trace_compaction`, capturing before/after token estimates and dropped/kept message counts. No-op compactions write no span.
+
+**Summary and fallback.**
+The LLM summary uses the FAST tier. If the summarizer raises or returns nothing, `compact_window` falls back to structured truncation. The function never raises.
+
+`MemoryService.compact_messages(list) -> list` and `LLMRunner.compact(list) -> list` are retained as backward-compatible shims for callers that have not yet migrated to the `CompactionResult`-returning API.
 
 ### 中期：对话摘要
 
