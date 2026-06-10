@@ -34,3 +34,39 @@ class TestEstimateTokens:
             tool_calls=[{"name": "run_code", "args": {"src": "x" * 40}, "id": "tc1"}],
         )
         assert message_tokens(with_calls) > message_tokens(bare)
+
+
+class TestSafeBoundary:
+    def _round(self):
+        return [
+            AIMessage(content="", tool_calls=[{"name": "t", "args": {}, "id": "tc1"}]),
+            ToolMessage(content="result", tool_call_id="tc1"),
+        ]
+
+    def test_tail_never_starts_with_tool_message(self):
+        from ai.memory.compaction import _earliest_safe_keep_index
+
+        body = [HumanMessage(content="q")] + self._round()
+        keep = _earliest_safe_keep_index(body, start_index=2)
+        assert keep == 1
+        assert isinstance(body[keep], AIMessage)
+
+    def test_clean_boundary_is_unchanged(self):
+        from ai.memory.compaction import _earliest_safe_keep_index
+
+        body = [HumanMessage(content="a"), HumanMessage(content="b"), HumanMessage(content="c")]
+        assert _earliest_safe_keep_index(body, start_index=2) == 2
+
+    def test_select_recent_respects_message_cap(self):
+        from ai.memory.compaction import _select_recent_index
+
+        body = [HumanMessage(content="m") for _ in range(10)]
+        idx = _select_recent_index(body, recent_token_budget=10_000, max_recent_messages=3)
+        assert len(body) - idx == 3
+
+    def test_select_recent_respects_token_budget(self):
+        from ai.memory.compaction import _select_recent_index
+
+        body = [HumanMessage(content="x" * 40) for _ in range(10)]  # ~10 tokens each
+        idx = _select_recent_index(body, recent_token_budget=25, max_recent_messages=100)
+        assert len(body) - idx == 2
