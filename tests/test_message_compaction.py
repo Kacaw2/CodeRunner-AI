@@ -70,3 +70,86 @@ class TestSafeBoundary:
         body = [HumanMessage(content="x" * 40) for _ in range(10)]  # ~10 tokens each
         idx = _select_recent_index(body, recent_token_budget=25, max_recent_messages=100)
         assert len(body) - idx == 2
+
+
+class TestCompactWindow:
+    def _msgs(self, n_human):
+        out = [SystemMessage(content="sys")]
+        for i in range(n_human):
+            out.append(HumanMessage(content="x" * 400))  # ~100 tokens each
+        return out
+
+    def test_under_budget_is_noop(self):
+        from ai.memory.compaction import compact_window
+
+        msgs = self._msgs(2)
+        result = compact_window(
+            msgs, token_budget=10_000, recent_token_budget=8_000,
+            max_recent_messages=20, summarizer=lambda _t: "SUMMARY",
+        )
+        assert result.compacted is False
+        assert result.messages == msgs
+        assert result.dropped_messages == 0
+
+    def test_over_budget_uses_llm_summary_and_preserves_system(self):
+        from ai.memory.compaction import compact_window
+
+        msgs = self._msgs(30)
+        result = compact_window(
+            msgs, token_budget=500, recent_token_budget=300,
+            max_recent_messages=20, summarizer=lambda _t: "LLM SUMMARY",
+        )
+        assert result.compacted is True
+        assert result.summarized is True
+        assert result.fallback_used is False
+        assert isinstance(result.messages[0], SystemMessage)
+        assert isinstance(result.messages[1], HumanMessage)
+        assert "LLM SUMMARY" in result.messages[1].content
+        assert result.tokens_after < result.tokens_before
+
+    def test_falls_back_to_structured_when_summarizer_returns_none(self):
+        from ai.memory.compaction import compact_window
+
+        msgs = self._msgs(30)
+        result = compact_window(
+            msgs, token_budget=500, recent_token_budget=300,
+            max_recent_messages=20, summarizer=lambda _t: None,
+        )
+        assert result.compacted is True
+        assert result.summarized is False
+        assert result.fallback_used is True
+        assert isinstance(result.messages[1], HumanMessage)
+
+    def test_does_not_orphan_tool_messages(self):
+        from ai.memory.compaction import compact_window
+
+        msgs = [SystemMessage(content="sys")]
+        for i in range(20):
+            msgs.append(HumanMessage(content="x" * 400))
+            msgs.append(AIMessage(content="", tool_calls=[{"name": "t", "args": {}, "id": f"tc{i}"}]))
+            msgs.append(ToolMessage(content="y" * 400, tool_call_id=f"tc{i}"))
+        result = compact_window(
+            msgs, token_budget=500, recent_token_budget=300,
+            max_recent_messages=20, summarizer=lambda _t: "S",
+        )
+        kept_tail = result.messages[2:]
+        assert not (kept_tail and isinstance(kept_tail[0], ToolMessage))
+        for j, m in enumerate(kept_tail):
+            if isinstance(m, ToolMessage):
+                assert any(
+                    isinstance(p, AIMessage) and p.tool_calls for p in kept_tail[:j]
+                )
+
+    def test_summarizer_exception_falls_back(self):
+        from ai.memory.compaction import compact_window
+
+        def boom(_t):
+            raise RuntimeError("llm down")
+
+        msgs = self._msgs(30)
+        result = compact_window(
+            msgs, token_budget=500, recent_token_budget=300,
+            max_recent_messages=20, summarizer=boom,
+        )
+        assert result.compacted is True
+        assert result.fallback_used is True
