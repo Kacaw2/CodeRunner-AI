@@ -257,9 +257,9 @@ class TestSystemContextIsolation:
 class TestTutorAgent:
     def test_tutor_build_context_requests_tutor_policy(self, app):
         with app.app_context(), patch(
-            "ai.memory.service.MemoryService.get_memory_context",
-            return_value="Student Background: prior context",
-        ) as get_memory:
+            "ai.memory.service.MemoryService.prepare_memory_context",
+        ) as prepare_memory:
+            prepare_memory.return_value.rendered = "Student Background: prior context"
             from ai.agents.tutor.agent import TutorAgent
 
             state = {
@@ -271,11 +271,12 @@ class TestTutorAgent:
 
             rendered = TutorAgent()._build_system_context(state)
 
-            get_memory.assert_called_once_with(
+            prepare_memory.assert_called_once_with(
                 7,
                 "student",
                 conversation_id=9,
                 agent_name="tutor",
+                target_student_id=None,
             )
             assert "## Student Profile (from previous sessions)" in rendered
             assert "Student Background: prior context" in rendered
@@ -396,12 +397,12 @@ class TestReviewerAgent:
 class TestGeneratorAgent:
     def test_generator_build_context_requests_generator_policy(self, app):
         with app.app_context(), patch(
-            "ai.memory.service.MemoryService.get_memory_context",
-            return_value="Teacher Preferences: concise",
-        ) as get_memory, patch(
+            "ai.memory.service.MemoryService.prepare_memory_context",
+        ) as prepare_memory, patch(
             "ai.agents.generator.agent.GeneratorAgent._get_similar_problems",
             return_value="",
         ):
+            prepare_memory.return_value.rendered = "Teacher Preferences: concise"
             from ai.agents.generator.agent import GeneratorAgent
 
             state = {
@@ -413,11 +414,12 @@ class TestGeneratorAgent:
 
             rendered = GeneratorAgent()._build_system_context(state)
 
-            get_memory.assert_called_once_with(
+            prepare_memory.assert_called_once_with(
                 8,
                 "teacher",
                 conversation_id=10,
                 agent_name="generator",
+                target_student_id=None,
             )
             assert "## Teacher Preferences (from profile)" in rendered
             assert "Teacher Preferences: concise" in rendered
@@ -680,9 +682,9 @@ class TestAnalyticsAgent:
 
     def test_analytics_passes_target_student_to_memory_policy(self, app):
         with app.app_context(), patch(
-            "ai.memory.service.MemoryService.get_memory_context",
-            return_value="Student Background: target profile",
-        ) as get_memory:
+            "ai.memory.service.MemoryService.prepare_memory_context",
+        ) as prepare_memory:
+            prepare_memory.return_value.rendered = "Student Background: target profile"
             from ai.agents.analytics.agent import AnalyticsAgent
 
             state = {
@@ -697,7 +699,7 @@ class TestAnalyticsAgent:
 
             rendered = AnalyticsAgent()._build_system_context(state)
 
-            get_memory.assert_called_once_with(
+            prepare_memory.assert_called_once_with(
                 20,
                 "teacher",
                 conversation_id=30,

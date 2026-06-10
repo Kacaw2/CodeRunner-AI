@@ -268,6 +268,25 @@ class BaseAgent(ABC):
         )
         return alert + system_ctx
 
+    def _prepare_memory_for_state(
+        self,
+        state: dict,
+        *,
+        target_student_id: int | None = None,
+    ) -> str:
+        from ai.memory.service import MemoryService
+
+        context = state.get("context") or {}
+        selection = MemoryService.prepare_memory_context(
+            state.get("user_id", 0),
+            state.get("user_role", "student"),
+            conversation_id=context.get("conversation_id"),
+            agent_name=self.name,
+            target_student_id=target_student_id,
+        )
+        state["_memory_selection"] = selection
+        return selection.rendered
+
     def _get_llm_tool_schemas(self) -> list[dict]:
         """Build LLM-compatible tool schemas from MCP registry."""
         from ai.tools.protocol import get_tool_runtime

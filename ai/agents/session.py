@@ -23,6 +23,7 @@ class AgentSession:
     definition: Any = None
     trace: Any = None
     trace_id: str | None = None
+    memory_selection: Any = None
     budget: dict = field(default_factory=dict)
     source: str = "agent"
     tool_client: Any = None
@@ -50,7 +51,8 @@ class AgentSession:
             final_response=state.get("final_response", ""),
             definition=get_definition(name),
             trace_id=extra.get("trace_id"),
-            extra_state={k: v for k, v in extra.items() if k != "trace_id"},
+            memory_selection=extra.get("_memory_selection"),
+            extra_state={k: v for k, v in extra.items() if k not in ("trace_id", "_memory_selection")},
         )
 
     def to_state(self) -> dict:

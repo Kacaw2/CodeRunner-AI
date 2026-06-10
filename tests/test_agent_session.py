@@ -38,6 +38,28 @@ def test_to_state_roundtrip_preserves_messages_and_context():
     assert rebuilt["messages"] == original["messages"]
 
 
+def test_session_carries_memory_selection_without_public_state_leak():
+    from unittest.mock import MagicMock
+    from ai.agents.session import AgentSession
+
+    selection = MagicMock()
+    state = {
+        "messages": [],
+        "agent_type": "tutor",
+        "user_id": 1,
+        "user_role": "student",
+        "context": {},
+        "tool_results": [],
+        "final_response": "",
+        "_memory_selection": selection,
+    }
+
+    session = AgentSession.from_state(state)
+
+    assert session.memory_selection is selection
+    assert "_memory_selection" not in session.to_state()
+
+
 def test_mcp_identity_uses_session_trace_id_not_context():
     from ai.agents.session import AgentSession
 
