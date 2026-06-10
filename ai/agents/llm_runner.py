@@ -51,11 +51,25 @@ class LLMRunner:
         )
 
     @staticmethod
-    def compact(messages, max_messages: int = 20):
-        """Compact message history; never raise (mirrors BaseAgent behavior)."""
+    def compact_window(messages, max_messages: int = 20):
+        """Compact message history; never raise. Returns CompactionResult."""
+        from ai.memory.compaction import CompactionResult
+
         try:
             from ai.memory.service import MemoryService
-            return MemoryService.compact_messages(messages, max_messages=max_messages)
+
+            return MemoryService.compact_window(
+                messages, max_recent_messages=max_messages
+            )
         except Exception as e:
             logger.warning("Message compaction failed: %s", e)
-            return messages
+            return CompactionResult(
+                messages=messages, compacted=False, dropped_messages=0,
+                kept_messages=len(messages), summarized=False, fallback_used=False,
+                tokens_before=0, tokens_after=0,
+            )
+
+    @staticmethod
+    def compact(messages, max_messages: int = 20):
+        """Backward-compatible list->list wrapper around compact_window."""
+        return LLMRunner.compact_window(messages, max_messages=max_messages).messages

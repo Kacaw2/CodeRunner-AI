@@ -39,3 +39,25 @@ def test_compact_never_raises_and_returns_list():
     out = LLMRunner.compact(msgs, max_messages=20)
     assert isinstance(out, list)
     assert len(out) <= 30
+
+
+def test_compact_window_returns_result(app):
+    from ai.agents.llm_runner import LLMRunner
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    with app.app_context():
+        msgs = [SystemMessage(content="sys")] + [
+            HumanMessage(content="x" * 4000) for _ in range(40)
+        ]
+        result = LLMRunner.compact_window(msgs, max_messages=20)
+        assert hasattr(result, "messages")
+        assert hasattr(result, "compacted")
+        assert isinstance(result.messages, list)
+
+
+def test_compact_window_never_raises(app):
+    from ai.agents.llm_runner import LLMRunner
+
+    with app.app_context():
+        result = LLMRunner.compact_window(["not-a-message"], max_messages=20)
+        assert isinstance(result.messages, list)
