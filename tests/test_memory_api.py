@@ -1,0 +1,59 @@
+"""Governed memory lifecycle API: listing and subject-scoped governance."""
+
+
+def test_user_can_list_own_memory_items(client, mock_auth_student, db_session, student_user):
+    from domain.repositories.memory import SyncMemoryRepository
+
+    SyncMemoryRepository(db_session).create_active(
+        subject_type="student",
+        subject_id=str(student_user.id),
+        memory_kind="profile",
+        memory_key="learning_summary",
+        value_json={"value": "Visible to owner"},
+        source_type="manual",
+    )
+    db_session.commit()
+
+    resp = client.get("/api/v1/ai/memory")
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["items"][0]["memory_key"] == "learning_summary"
+
+
+def test_user_can_suppress_own_memory_item(client, mock_auth_student, db_session, student_user):
+    from domain.repositories.memory import SyncMemoryRepository
+
+    item = SyncMemoryRepository(db_session).create_active(
+        subject_type="student",
+        subject_id=str(student_user.id),
+        memory_kind="profile",
+        memory_key="learning_summary",
+        value_json={"value": "Forget me"},
+        source_type="manual",
+    )
+    db_session.commit()
+
+    resp = client.delete(f"/api/v1/ai/memory/{item.id}")
+
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "suppressed"
+
+
+def test_teacher_can_approve_own_candidate(client, mock_auth_teacher, db_session, teacher_user):
+    from domain.repositories.memory import SyncMemoryRepository
+
+    item = SyncMemoryRepository(db_session).create_candidate(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "java"},
+        source_type="generation",
+    )
+    db_session.commit()
+
+    resp = client.post(f"/api/v1/ai/memory/{item.id}/approve")
+
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "active"
