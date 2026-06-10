@@ -106,6 +106,11 @@ def _mutate(item_id: str, action: str):
     else:
         result = repo.suppress(item_id)
 
+    if action in ("approve", "suppress"):
+        from ai.memory.lifecycle import sync_legacy_profile_from_active_items
+
+        sync_legacy_profile_from_active_items(result.subject_type, result.subject_id)
+
     db.session.commit()
     return jsonify(_serialize(result)), 200
 

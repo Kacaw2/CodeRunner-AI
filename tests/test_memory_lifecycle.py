@@ -98,3 +98,26 @@ def test_conversation_summary_extractor_creates_student_candidate(app, db_sessio
     )
 
     assert created == 1
+
+
+def test_approving_teacher_candidate_updates_profile_endpoint(
+    client, mock_auth_teacher, db_session, teacher_user
+):
+    from domain.repositories.memory import SyncMemoryRepository
+
+    repo = SyncMemoryRepository(db_session)
+    candidate = repo.create_candidate(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "java"},
+        source_type="generation",
+    )
+    db_session.commit()
+
+    client.post(f"/api/v1/ai/memory/{candidate.id}/approve")
+    resp = client.get("/api/v1/ai/profile")
+
+    assert resp.status_code == 200
+    assert resp.get_json()["preference"]["preferred_language"] == "java"
