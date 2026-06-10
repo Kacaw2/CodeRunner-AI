@@ -193,10 +193,13 @@ def select_memory_context(
         if c.rendered.strip() == "":
             reason = MemoryFilterReason.EMPTY
         else:
-            # Budget gate (only when max > 0; 0 means unlimited)
-            if policy.max_memory_chars > 0 and used_chars + chars > policy.max_memory_chars:
+            # Budget gate. A non-positive max DISABLES memory (0 means "no
+            # budget", never "unlimited"), so every non-empty candidate is
+            # rejected with the corresponding budget reason. Comparison uses
+            # ``>`` so an item that fits the budget exactly is still included.
+            if policy.max_memory_chars <= 0 or used_chars + chars > policy.max_memory_chars:
                 reason = MemoryFilterReason.CHAR_BUDGET
-            elif policy.max_memory_tokens > 0 and used_tokens + tokens > policy.max_memory_tokens:
+            elif policy.max_memory_tokens <= 0 or used_tokens + tokens > policy.max_memory_tokens:
                 reason = MemoryFilterReason.TOKEN_BUDGET
             else:
                 reason = MemoryFilterReason.INCLUDED
