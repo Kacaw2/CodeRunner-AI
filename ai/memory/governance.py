@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
 from ai.memory.context import MemoryContext, MemoryItem, MemoryMetadata, RecentSessionMemory
 from core.definitions import MemoryPolicy
+from core.hashing import canonical_json_hash
 
 
 def estimate_tokens(text: str) -> int:
@@ -15,14 +14,7 @@ def estimate_tokens(text: str) -> int:
 
 
 def canonical_snapshot_hash(payload: dict) -> str:
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_json_hash(payload)
 
 
 class MemoryFilterReason(str, Enum):
