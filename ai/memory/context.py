@@ -18,6 +18,7 @@ class MemoryMetadata:
     sensitivity: MemorySensitivity = MemorySensitivity.INTERNAL
     expires_at: datetime | None = None
     reason_included: str = ""
+    priority: int = 50
 
 
 @dataclass(frozen=True)

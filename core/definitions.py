@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from ai.llm.tiers import ModelTier
+from ai.memory.context import MemorySensitivity
 
 
 class MemoryProfileKind(str, Enum):
@@ -26,6 +27,11 @@ class MemoryPolicy:
     recent_summary_agent_types: frozenset[str] = frozenset()
     max_recent_summaries: int = 3
     allow_target_student: bool = False
+    allowed_sensitivities: frozenset[MemorySensitivity] = frozenset({
+        MemorySensitivity.INTERNAL,
+    })
+    max_memory_chars: int = 0
+    max_memory_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,8 @@ TUTOR_MEMORY_POLICY = MemoryPolicy(
     include_recent_summaries=True,
     recent_summary_agent_types=frozenset({"tutor"}),
     max_recent_summaries=3,
+    max_memory_chars=4000,
+    max_memory_tokens=1000,
 )
 
 REVIEWER_MEMORY_POLICY = MemoryPolicy()
@@ -60,6 +68,8 @@ GENERATOR_MEMORY_POLICY = MemoryPolicy(
     include_recent_summaries=True,
     recent_summary_agent_types=frozenset({"generator"}),
     max_recent_summaries=3,
+    max_memory_chars=3000,
+    max_memory_tokens=750,
 )
 
 ANALYTICS_MEMORY_POLICY = MemoryPolicy(
@@ -68,6 +78,8 @@ ANALYTICS_MEMORY_POLICY = MemoryPolicy(
     recent_summary_agent_types=frozenset({"analytics"}),
     max_recent_summaries=3,
     allow_target_student=True,
+    max_memory_chars=3000,
+    max_memory_tokens=750,
 )
 
 
