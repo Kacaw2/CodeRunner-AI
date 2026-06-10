@@ -10,7 +10,8 @@
 |---|---|---|---|
 | **短期状态** | 单次请求、当前消息窗口、可重连 SSE 缓冲 | 运行时内存 + Redis | `AgentSession.messages`、`chat_task:*:buffer`、`workflow:*:buffer` |
 | **中期记忆** | 跨当前对话可复用的自然语言摘要 | MySQL | `AIConversation.summary` |
-| **长期画像** | 学生学习档案、教师偏好、班级薄弱点 | MySQL | `StudentProfile`、`TeacherPreference` |
+| **长期记忆** | 受治理的 item 级长期记忆，prompt 注入的权威源 | MySQL | `memory_items`（active/candidate/...） |
+| **长期画像（兼容物化视图）** | 学生学习档案、教师偏好、班级薄弱点 | MySQL | `StudentProfile`、`TeacherPreference` |
 | **业务数据** | 平台权威事实 | MySQL | 用户、班级、Problem、Question variant、测例、提交、测验、草稿 |
 | **运行数据** | Agent / workflow / eval 的可观测与审计记录 | MySQL | `agent_trace_*`、`workflow_*`、`eval_*`、MCP audit/approval |
 
@@ -242,7 +243,8 @@ Trace 当前已经能绑定 workflow step 和 MCP tool audit，但 EvalOps/repla
 ```text
 短期：MemoryService.compact_window() / compact_messages() (compat shim)
 中期：AIConversation.summary
-长期：StudentProfile / TeacherPreference
+长期：memory_items (active 治理项)  ← 权威注入源
+        └ fallback: StudentProfile / TeacherPreference (仅在 subject 无任何治理项时)
         |
         v
 MemoryService.get_memory_context()
@@ -310,7 +312,7 @@ The LLM summary uses the FAST tier. If the summarizer raises or returns nothing,
 - 教师：`style_notes`、`class_weak_areas`。
 - 二者都会追加 recent conversation summaries。
 
-Phase 1-3 之前的主要缺口是治理不足：所有记忆被扁平拼接为字符串，没有按 agent 目标、来源可信度、敏感级别、强/弱上下文结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。结构化 `MemoryContext`（Phase 1-2）与确定性预算/过滤/注入审计（Phase 3）已补上这部分；剩余缺口是 candidate lifecycle 与 forget/replay（Phase 4-5）。
+Phase 1-3 之前的主要缺口是治理不足：所有记忆被扁平拼接为字符串，没有按 agent 目标、来源可信度、敏感级别、强/弱上下文结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。结构化 `MemoryContext`（Phase 1-2）与确定性预算/过滤/注入审计（Phase 3）补上了这部分；item 级 candidate lifecycle 与 forget（Phase 4）已落地，见下文；剩余缺口是 eval recorded snapshot 回放（Phase 5）。
 
 ### 结构化 MemoryContext 与 Agent Policy
 
@@ -334,7 +336,19 @@ Phase 3 在结构化 `MemoryContext` 上增加了确定性的选择、预算裁�
 - 审计只保存 included/filtered 决策的元数据（source/key/reason/字符与 token 计数/priority）、计数和 snapshot hash，**不保存完整 rendered memory 或原始 value**；`_redact_secrets()` 仍是最终持久化前的兜底脱敏。
 - snapshot hash payload 覆盖 source/key/value/sensitivity/expires_at（不含 `reason_included`），同输入稳定、value 变化即变化，为 Phase 5 eval replay 预留可比对锚点。
 
-尚未实现的 extractor / candidate lifecycle、forget/suppress/superseded（Phase 4）和 eval recorded snapshot 回放（Phase 5）继续作为后续阶段，不得描述成当前能力。
+eval recorded snapshot 回放（Phase 5）继续作为后续阶段，不得描述成当前能力。
+
+### Phase 4：item 级治理生命周期（memory_items）
+
+Phase 4 把长期记忆从不可删除的聚合 profile 字段升级为 item 级治理对象：
+
+- `domain/models/memory.py::MemoryItemRecord`（表 `memory_items`）以 `status` 表示生命周期：`candidate → active`，以及 `rejected / superseded / suppressed / expired`。`domain/repositories/memory.py::SyncMemoryRepository` 持有全部状态转换与按 canonical value-hash 去重。
+- **`memory_items` 的 active item 是 prompt 注入的治理源。** `MemoryService` 优先读取 active 治理项；只有当某 subject **完全没有任何治理项**（任意 status）时才回退到 legacy profile，因此被 suppress/superseded 的 item 不会再被 legacy fallback 重新注入。
+- **`StudentProfile` / `TeacherPreference` 已降级为兼容物化视图**，不再是唯一 prompt source。`ai/memory/lifecycle.py::sync_legacy_profile_from_active_items()` 在 approve/suppress 后把当前 active item 写回 legacy 列（被治理的 key 才会写/清，未治理列不动），保证旧 profile API 仍可用。
+- **Extractor 只产生 candidate，永不直接写 active。** `ai/memory/extractor.py` 的确定性 extractor 仅读取已结构化字段（生成请求参数、生成题元数据、已持久化的会话摘要），不调用 LLM、不解析自由文本、不读向量库；每个抽取值都是 `candidate`，必须经人工 approve 才进入 prompt。`promote()` 是唯一会 supersede 已有 active item 的路径。
+- **forget = suppress，不是物理删除。** `DELETE /api/v1/ai/memory/<id>` 只把 status 置为 `suppressed`，审计行保留。
+- 治理 API（`app/api/v1/ai_memory.py`）按 subject 严格鉴权：student 只能操作自己的 `student` item，teacher 只能操作自己的 `teacher` item，admin 全部。**course/classroom scope 当前直接拒绝（403 `memory_forbidden`）未实现的权限路径，不静默放行。**
+- TTL 通过 `expires_at` 在 `active_for_subject()` 查询时惰性标记 `expired` 并排除，不进入注入。
 
 ---
 
@@ -396,7 +410,7 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | 业务数据 | Problem/variant/submission/quiz/classroom 主链路较完整 | 仍有历史 Question 兼容面需要持续审计 |
 | Schema 迁移 | 完整 Alembic baseline 已落地；ORM 已收敛为单一 `DomainBase` registry | 跨进程仍是 process-local engine（按设计），非进程内双池 |
 | 短期状态 | AgentSession、Redis SSE buffer、message compaction 已存在 | 专用 stream path 与统一 compaction/context policy 仍需收敛 |
-| 中长期记忆 | summary/profile/preference 可读写；结构化 `MemoryContext` + 确定性预算/TTL/sensitivity 过滤 + trace 注入审计已落地（Phase 1-3） | 画像字段自动填充不均衡；candidate lifecycle / forget / eval replay 仍待 Phase 4-5 |
+| 中长期记忆 | summary/profile/preference 可读写；结构化 `MemoryContext` + 确定性预算/TTL/sensitivity 过滤 + trace 注入审计（Phase 1-3）；item 级 `memory_items` candidate/active/suppress 治理生命周期 + legacy profile 物化视图（Phase 4）已落地 | 画像字段自动填充不均衡；eval recorded snapshot 回放仍待 Phase 5 |
 | Agent 状态 | AgentRuntime、trace、tool-based handoff、bounded context rebuild 已落地 | handoff/workflow/eval 的 context snapshot 尚未形成统一治理 |
 | Workflow 状态 | 持久化 step、approval audit、resume from breakpoint 已存在 | 任意 step replay、幂等和写工具去重仍未完成 |
 | RAG | ChromaDB 三 collection + Agent/MCP 消费路径存在 | 检索质量门禁和 eval replay 仍需产品化 |
@@ -412,7 +426,12 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | `app/models/problem.py`、`app/models/question.py` | Problem 父题与 Question 语言 variant（未迁移业务模型，仍在 `app/models`） |
 | `app/models/submission.py` | Submission / TestResult |
 | `domain/models/chat.py` | Conversation / Message / summary / ChatTask |
-| `app/models/student_profile.py` | StudentProfile / TeacherPreference |
+| `app/models/student_profile.py` | StudentProfile / TeacherPreference（兼容物化视图） |
+| `domain/models/memory.py` | `MemoryItemRecord`（`memory_items` 治理项与生命周期 status） |
+| `domain/repositories/memory.py` | 治理项 candidate/active/supersede/suppress/expire 仓储与 value-hash 去重 |
+| `ai/memory/lifecycle.py` | legacy profile backfill 与 active item → legacy 物化视图回写 |
+| `ai/memory/extractor.py` | 确定性 candidate extractor（只产生 candidate，不写 active） |
+| `app/api/v1/ai_memory.py` | 治理 API（list / approve / reject / suppress），subject 级鉴权 |
 | `ai/memory/service.py` | 对话摘要、学生画像更新、memory context、消息压缩 |
 | `ai/memory/governance.py` | 确定性 memory 选择、TTL/sensitivity/预算过滤、canonical snapshot hash |
 | `ai/memory/preference.py` | 教师偏好、风格摘要、班级薄弱点 |

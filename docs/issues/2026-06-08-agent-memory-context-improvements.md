@@ -1,12 +1,12 @@
 # Agent Memory / Context 改进议题
 
-> 状态: Phase 3 Completed（Phase 4-5 active）
-> 更新日期: 2026-06-08
+> 状态: Phase 4 Completed（Phase 5 active）
+> 更新日期: 2026-06-10
 > 范围: `ai/memory/`、`ai/agents/`、`core/definitions.py`、`core/observability/`、`ai/evals/`、`docs/architecture/data-state-memory.md`
 > 执行计划:
 > [Phase 1-2: MemoryContext / Policy](../plans/archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) |
 > [Phase 3: Budget / Filter / Audit](../plans/archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) |
-> [Phase 4: Governed Lifecycle](../plans/active/2026-06-08-governed-memory-lifecycle-phase4-plan.md) |
+> [Phase 4: Governed Lifecycle](../plans/archive/2026-06-08-governed-memory-lifecycle-phase4-plan.md) |
 > [Phase 5: Eval Replay Snapshot](../plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
 
 ## 审核结论
@@ -300,4 +300,31 @@ $env:DEBUG='True'
 ### 仍未实现（Phase 4-5）
 
 - Phase 4：item 级 candidate/active/superseded/suppressed/expired 生命周期、extractor、forget/suppress。
+- Phase 5：版本化 memory snapshot、eval replay、memory drift 报告。
+
+## 实施结果（Phase 4，2026-06-10）
+
+Phase 4 Completed: item 级治理生命周期、candidate extractor、forget/suppress 与 legacy profile 物化视图已完成；Phase 5 仍 active。本次关闭“缺少 forget / TTL / 冲突治理”缺口的写入侧治理部分。
+
+### 完成证据
+
+- 新增 `domain/models/memory.py::MemoryItemRecord`（表 `memory_items`），`status` 表示 `candidate / active / rejected / superseded / suppressed / expired`；migration `e3f4a5b6c7d8_add_memory_items` 与 metadata 双覆盖，schema gate 测试守护。
+- 新增 `domain/repositories/memory.py::SyncMemoryRepository`，持有全部状态转换与 canonical value-hash 去重；`promote()` 是唯一会 supersede 已有 active item 的路径，duplicate value 被 reject 而非创建第二条 active；`active_for_subject()` 查询时惰性标记并排除 `expired`。
+- 新增 `ai/memory/extractor.py`：确定性 candidate extractor，仅读已结构化字段（生成参数、生成题元数据、已持久化会话摘要），不调 LLM、不读向量库，只产生 candidate。
+- `MemoryService` 读路径优先 active 治理项；仅当 subject 完全无任何治理项时才回退 legacy profile，suppressed/superseded item 不会被 fallback 重新注入。
+- 新增 `app/api/v1/ai_memory.py` 治理 API（list / approve / reject / suppress=DELETE），subject 级严格鉴权（student/teacher 仅限本人 subject，admin 全部），未实现的 course/classroom scope 直接 403 `memory_forbidden` 不静默放行；forget = suppress 仅置状态，审计行保留。
+- `ai/memory/lifecycle.py::sync_legacy_profile_from_active_items()` 在 approve/suppress 后把 active item 物化回 `StudentProfile` / `TeacherPreference`，旧 profile API 保持兼容。
+
+### 测试命令与结果
+
+```powershell
+$env:SECRET_KEY='test-secret-key'
+$env:DEBUG='True'
+.\.venv\Scripts\python.exe -m pytest tests/test_domain_memory_repository.py tests/test_memory_lifecycle.py tests/test_memory_api.py tests/test_agents.py tests/test_api_ai.py tests/test_migration_full_schema.py tests/test_trace_schema_contract.py -q
+```
+
+结果：`115 passed`（另有 SQLAlchemy 1.x `Query.get()` 与 Flask-Migrate `get_engine` legacy 警告，与本次改造无关）。
+
+### 仍未实现（Phase 5）
+
 - Phase 5：版本化 memory snapshot、eval replay、memory drift 报告。
