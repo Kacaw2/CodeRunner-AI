@@ -24,6 +24,20 @@ def learn_from_generation(teacher_id: int, request_params: dict, generated_quest
     from app.models.student_profile import TeacherPreference
 
     try:
+        # Governed path: produce candidates (never auto-active). The legacy
+        # TeacherPreference update below remains as a compatibility
+        # materialized view.
+        try:
+            from ai.memory.extractor import extract_from_teacher_generation
+
+            extract_from_teacher_generation(
+                teacher_id=teacher_id,
+                request_params=request_params,
+                generated_question=generated_question,
+            )
+        except Exception as exc:
+            logger.debug("Governed memory candidate extraction skipped: %s", exc)
+
         pref = TeacherPreference.query.filter_by(teacher_id=teacher_id).first()
         if not pref:
             pref = TeacherPreference(teacher_id=teacher_id)

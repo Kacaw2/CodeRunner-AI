@@ -66,3 +66,35 @@ def test_suppressed_memory_item_no_longer_enters_prompt(app, db_session, student
     )
 
     assert "Do not inject this" not in rendered
+
+
+def test_teacher_generation_extractor_creates_candidates(app, db_session, teacher_user):
+    from ai.memory.extractor import extract_from_teacher_generation
+    from domain.repositories.memory import SyncMemoryRepository
+
+    created = extract_from_teacher_generation(
+        teacher_id=teacher_user.id,
+        request_params={"language": "java", "difficulty": "hard", "topic": "graphs"},
+        generated_question={"programming_language": "java", "difficulty": "hard"},
+    )
+
+    assert created >= 3
+    rows = SyncMemoryRepository(db_session).candidates_for_subject(
+        "teacher",
+        str(teacher_user.id),
+    )
+    keys = {row.memory_key for row in rows}
+    assert {"preferred_language", "preferred_difficulty", "preferred_topics"} <= keys
+
+
+def test_conversation_summary_extractor_creates_student_candidate(app, db_session, student_user):
+    from ai.memory.extractor import extract_from_conversation_summary
+
+    created = extract_from_conversation_summary(
+        user_id=student_user.id,
+        user_role="student",
+        conversation_id=55,
+        summary="Student struggled with recursion base cases.",
+    )
+
+    assert created == 1
