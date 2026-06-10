@@ -45,3 +45,33 @@ def test_trace_collector_persists_memory_event(app, db_session):
         )
         assert row.event_type == "memory_context_selected"
         assert row.payload_json["filtered_count"] == 1
+
+
+def test_runtime_records_memory_selection_on_trace():
+    from unittest.mock import MagicMock
+    from ai.agents.runtime import _record_memory_selection
+
+    trace = MagicMock()
+    decision = MagicMock(
+        source="profile:1",
+        key="learning_summary",
+        included=True,
+        reason=MagicMock(value="included"),
+        rendered_chars=32,
+        estimated_tokens=8,
+        priority=80,
+    )
+    selection = MagicMock(
+        decisions=(decision,),
+        rendered_chars=32,
+        estimated_tokens=8,
+        snapshot_hash="a" * 64,
+    )
+
+    _record_memory_selection(trace, selection)
+
+    trace.add_event.assert_called_once()
+    trace.add_artifact.assert_called_once()
+    payload = trace.add_event.call_args.kwargs["payload_json"]
+    assert payload["included_count"] == 1
+    assert payload["snapshot_hash"] == "a" * 64

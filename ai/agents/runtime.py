@@ -62,6 +62,45 @@ def _record_tool_artifact(trace, tool_name: str, content) -> None:
     )
 
 
+def _record_memory_selection(trace, selection) -> None:
+    """Record the memory-injection decision on the trace as a discrete event and
+    an audit artifact. Stores only per-item metadata (source/key/reason/budget),
+    never the rendered memory text or raw values, so credentials cannot leak."""
+    if selection is None:
+        return
+    decisions = [
+        {
+            "source": d.source,
+            "key": d.key,
+            "included": d.included,
+            "reason": d.reason.value,
+            "rendered_chars": d.rendered_chars,
+            "estimated_tokens": d.estimated_tokens,
+            "priority": d.priority,
+        }
+        for d in selection.decisions
+    ]
+    included_count = sum(1 for d in selection.decisions if d.included)
+    payload = {
+        "included_count": included_count,
+        "filtered_count": len(decisions) - included_count,
+        "rendered_chars": selection.rendered_chars,
+        "estimated_tokens": selection.estimated_tokens,
+        "snapshot_hash": selection.snapshot_hash,
+        "decisions": decisions,
+    }
+    trace.add_event(
+        event_type="memory_context_selected",
+        payload_json=payload,
+    )
+    trace.add_artifact(
+        artifact_type="memory_injection_audit",
+        name="Memory injection audit",
+        payload_json=payload,
+        mime_type="application/json",
+    )
+
+
 def _hydrate_legacy_tool_args(tool_call: dict, session) -> dict:
     """Fill arguments that legacy text tags omitted but page context provides."""
     if tool_call.get("name") != "coderunner.problem.get_detail":
@@ -107,6 +146,10 @@ class AgentRuntime:
         )
         session.trace = trace
         session.trace_id = trace.run_id  # available to tool calls BEFORE the loop
+
+        # Audit the memory injection (event + artifact) right after we have a
+        # trace, before any LLM call. No-op when the agent built no selection.
+        _record_memory_selection(trace, session.memory_selection)
 
         runtime = get_tool_runtime()
         descriptors = runtime.list_tools(names=tool_names)

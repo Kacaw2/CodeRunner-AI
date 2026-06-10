@@ -300,6 +300,86 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
         assert "Two Sum" in tool_span.output_preview
 
 
+def test_runtime_persists_memory_audit_event_and_artifact(
+    monkeypatch, app, db_session, teacher_user,
+):
+    """A run carrying a memory selection writes both a memory_context_selected
+    event and a memory_injection_audit artifact to the trace."""
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
+    from ai.memory.context import MemoryContext, MemoryItem, MemoryMetadata
+    from ai.memory.governance import select_memory_context
+    from core.definitions import MemoryPolicy, MemoryProfileKind
+
+    monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
+                        staticmethod(lambda tier=None: _mock_llm_no_tools()))
+
+    context = MemoryContext(student_profile=(
+        MemoryItem(
+            key="learning_summary",
+            value="Needs recursion practice.",
+            metadata=MemoryMetadata(
+                source="profile:1",
+                reason_included="test",
+                priority=80,
+            ),
+        ),
+    ))
+    selection = select_memory_context(
+        context,
+        MemoryPolicy(
+            profile_kind=MemoryProfileKind.STUDENT,
+            max_memory_chars=4000,
+            max_memory_tokens=1000,
+        ),
+    )
+
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    try:
+        state = {
+            "messages": [HumanMessage(content="help")],
+            "agent_type": "tutor",
+            "user_id": teacher_user.id,
+            "user_role": "student",
+            "context": {"conversation_id": 7777},
+            "tool_results": [],
+            "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        session.memory_selection = selection
+        result = AgentRuntime().run(session, tool_names=[], system_ctx="SYS")
+    finally:
+        reset_tool_runtime()
+
+    from domain.models.observability import AgentTraceEvent, AgentTraceArtifact
+    from core.db.session import db_session as core_db_session
+
+    with core_db_session() as session_db:
+        events = (
+            session_db.query(AgentTraceEvent)
+            .filter_by(
+                trace_id=result["trace_id"],
+                event_type="memory_context_selected",
+            )
+            .all()
+        )
+        artifacts = (
+            session_db.query(AgentTraceArtifact)
+            .filter_by(
+                trace_id=result["trace_id"],
+                artifact_type="memory_injection_audit",
+            )
+            .all()
+        )
+        assert len(events) == 1
+        assert len(artifacts) == 1
+        assert events[0].payload_json["included_count"] == 1
+
+
 def test_runtime_context_restores_question_id_from_conversation():
     from ai.agent_runtime.services.chat_runner import (
         _chat_context_from_conversation,
