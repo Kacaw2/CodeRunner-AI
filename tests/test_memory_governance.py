@@ -128,3 +128,5 @@ def test_selector_keeps_high_priority_items_under_budget():
     assert "Error History" not in first.rendered
     assert first.snapshot_hash == second.snapshot_hash
     assert len(first.snapshot_hash) == 64
+    reasons = {d.key: d.reason.value for d in first.decisions}
+    assert reasons["error_patterns"] in ("char_budget", "token_budget")

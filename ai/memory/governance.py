@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
-from ai.memory.context import MemoryContext, MemoryItem, RecentSessionMemory
+from ai.memory.context import MemoryContext, MemoryItem, MemoryMetadata, RecentSessionMemory
+from core.definitions import MemoryPolicy
 
 
 def estimate_tokens(text: str) -> int:
@@ -54,38 +55,51 @@ class MemorySelection:
     snapshot_hash: str
 
 
-# Section order constants
-_SECTION_STUDENT = 0
-_SECTION_TEACHER = 1
-_SECTION_RECENT = 2
+class _Section(str, Enum):
+    STUDENT_PROFILE = "student_profile"
+    TEACHER_PREFERENCE = "teacher_preference"
+    RECENT_SESSIONS = "recent_sessions"
+
+
+# Section order constants — must stay in sync with _Section values
+_SECTION_ORDER: dict[_Section, int] = {
+    _Section.STUDENT_PROFILE: 0,
+    _Section.TEACHER_PREFERENCE: 1,
+    _Section.RECENT_SESSIONS: 2,
+}
 
 
 @dataclass
 class _Candidate:
-    section: str  # "student_profile" | "teacher_preference" | "recent_sessions"
+    section: _Section
     section_order: int
     key: str
-    metadata: object  # MemoryMetadata
-    source_obj: object  # MemoryItem or RecentSessionMemory
+    metadata: MemoryMetadata
+    source_obj: MemoryItem | RecentSessionMemory
     rendered: str
+
+
+def _render_context(ctx: MemoryContext) -> str:
+    """Render a MemoryContext via MemoryService (lazy import to avoid circular deps)."""
+    from ai.memory.service import MemoryService
+
+    return MemoryService.render_memory_context(ctx)
 
 
 def _render_single_candidate(candidate: _Candidate) -> str:
     """Render a single candidate by building a one-item MemoryContext."""
-    from ai.memory.service import MemoryService
-
-    if candidate.section == "student_profile":
+    if candidate.section is _Section.STUDENT_PROFILE:
         ctx = MemoryContext(student_profile=(candidate.source_obj,))
-    elif candidate.section == "teacher_preference":
+    elif candidate.section is _Section.TEACHER_PREFERENCE:
         ctx = MemoryContext(teacher_preference=(candidate.source_obj,))
     else:
         ctx = MemoryContext(recent_sessions=(candidate.source_obj,))
-    return MemoryService.render_memory_context(ctx)
+    return _render_context(ctx)
 
 
 def select_memory_context(
     context: MemoryContext,
-    policy,
+    policy: MemoryPolicy,
     *,
     now: datetime | None = None,
 ) -> MemorySelection:
@@ -96,8 +110,8 @@ def select_memory_context(
 
     for item in context.student_profile:
         candidates.append(_Candidate(
-            section="student_profile",
-            section_order=_SECTION_STUDENT,
+            section=_Section.STUDENT_PROFILE,
+            section_order=_SECTION_ORDER[_Section.STUDENT_PROFILE],
             key=item.key,
             metadata=item.metadata,
             source_obj=item,
@@ -106,8 +120,8 @@ def select_memory_context(
 
     for item in context.teacher_preference:
         candidates.append(_Candidate(
-            section="teacher_preference",
-            section_order=_SECTION_TEACHER,
+            section=_Section.TEACHER_PREFERENCE,
+            section_order=_SECTION_ORDER[_Section.TEACHER_PREFERENCE],
             key=item.key,
             metadata=item.metadata,
             source_obj=item,
@@ -117,8 +131,8 @@ def select_memory_context(
     for session in context.recent_sessions:
         key = f"session:{session.conversation_id}"
         candidates.append(_Candidate(
-            section="recent_sessions",
-            section_order=_SECTION_RECENT,
+            section=_Section.RECENT_SESSIONS,
+            section_order=_SECTION_ORDER[_Section.RECENT_SESSIONS],
             key=key,
             metadata=session.metadata,
             source_obj=session,
@@ -211,9 +225,9 @@ def select_memory_context(
     recent_items: list[RecentSessionMemory] = []
 
     for c in included:
-        if c.section == "student_profile":
+        if c.section is _Section.STUDENT_PROFILE:
             student_items.append(c.source_obj)
-        elif c.section == "teacher_preference":
+        elif c.section is _Section.TEACHER_PREFERENCE:
             teacher_items.append(c.source_obj)
         else:
             recent_items.append(c.source_obj)
@@ -224,17 +238,20 @@ def select_memory_context(
         recent_sessions=tuple(recent_items),
     )
 
-    from ai.memory.service import MemoryService
-    rendered = MemoryService.render_memory_context(rebuilt)
+    rendered = _render_context(rebuilt)
 
     # Build snapshot payload from included items only (exclude reason_included)
     snapshot_items = []
     for c in included:
         m = c.metadata
+        if isinstance(c.source_obj, MemoryItem):
+            value = c.source_obj.value
+        else:
+            value = c.source_obj.summary
         snapshot_items.append({
             "source": m.source,
             "key": str(c.key),
-            "value": c.source_obj.value if hasattr(c.source_obj, "value") else getattr(c.source_obj, "summary", None),
+            "value": value,
             "sensitivity": m.sensitivity.value,
             "expires_at": m.expires_at,
         })
@@ -249,3 +266,5 @@ def select_memory_context(
         estimated_tokens=estimate_tokens(rendered),
         snapshot_hash=snapshot_hash,
     )
+
+
