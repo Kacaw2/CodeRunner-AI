@@ -17,7 +17,7 @@ def test_workflow_tool_call_grants_agent_scopes(monkeypatch):
             return SimpleNamespace(ok=True, data={"status": "ok"})
 
     monkeypatch.setattr(
-        "tools.protocol.get_tool_runtime", lambda: FakeRuntime()
+        "ai.tools.protocol.get_tool_runtime", lambda: FakeRuntime()
     )
 
     result = _handle_tool_call(

@@ -100,11 +100,12 @@ class SyncChatRepository:
         *,
         exclude_conversation_id: Optional[int] = None,
         limit: int = 3,
+        agent_types: tuple[str, ...] | None = None,
     ) -> list[AIConversation]:
         return list(
             self.session.execute(
                 select_recent_summarized_conversations(
-                    user_id, exclude_conversation_id, limit
+                    user_id, exclude_conversation_id, limit, agent_types
                 )
             ).scalars()
         )

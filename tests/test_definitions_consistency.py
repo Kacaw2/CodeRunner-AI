@@ -68,3 +68,34 @@ def test_output_schema_names_resolve():
             continue
         assert defn.output_schema_name, f"{name} is json_schema but names no schema"
         assert hasattr(schema_mod, defn.output_schema_name), defn.output_schema_name
+
+
+def test_every_definition_declares_consumable_memory_policy():
+    from core.definitions import MemoryProfileKind
+
+    for name, defn in AGENT_DEFINITIONS.items():
+        policy = defn.memory_policy
+        assert isinstance(policy.max_recent_summaries, int), name
+        assert policy.max_recent_summaries >= 0, name
+        assert isinstance(policy.recent_summary_agent_types, frozenset), name
+        if policy.profile_kind is MemoryProfileKind.NONE:
+            assert policy.allow_target_student is False, name
+
+
+def test_default_memory_policies_match_agent_boundaries():
+    from core.definitions import MemoryProfileKind
+
+    assert AGENT_DEFINITIONS["tutor"].memory_policy.profile_kind is (
+        MemoryProfileKind.STUDENT
+    )
+    assert AGENT_DEFINITIONS["generator"].memory_policy.profile_kind is (
+        MemoryProfileKind.TEACHER
+    )
+    assert AGENT_DEFINITIONS["analytics"].memory_policy.profile_kind is (
+        MemoryProfileKind.ACTOR
+    )
+    assert AGENT_DEFINITIONS["analytics"].memory_policy.allow_target_student is True
+    assert AGENT_DEFINITIONS["reviewer"].memory_policy.profile_kind is (
+        MemoryProfileKind.NONE
+    )
+    assert AGENT_DEFINITIONS["reviewer"].memory_policy.include_recent_summaries is False

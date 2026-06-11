@@ -10,7 +10,8 @@
 |---|---|---|---|
 | **短期状态** | 单次请求、当前消息窗口、可重连 SSE 缓冲 | 运行时内存 + Redis | `AgentSession.messages`、`chat_task:*:buffer`、`workflow:*:buffer` |
 | **中期记忆** | 跨当前对话可复用的自然语言摘要 | MySQL | `AIConversation.summary` |
-| **长期画像** | 学生学习档案、教师偏好、班级薄弱点 | MySQL | `StudentProfile`、`TeacherPreference` |
+| **长期记忆** | 受治理的 item 级长期记忆，prompt 注入的权威源 | MySQL | `memory_items`（active/candidate/...） |
+| **长期画像（兼容物化视图）** | 学生学习档案、教师偏好、班级薄弱点 | MySQL | `StudentProfile`、`TeacherPreference` |
 | **业务数据** | 平台权威事实 | MySQL | 用户、班级、Problem、Question variant、测例、提交、测验、草稿 |
 | **运行数据** | Agent / workflow / eval 的可观测与审计记录 | MySQL | `agent_trace_*`、`workflow_*`、`eval_*`、MCP audit/approval |
 
@@ -44,7 +45,7 @@ P1 迁移基线（早先已关闭）保持有效：
 - `app/__init__.py:_ensure_tables()` 只检查必要表并提示 `flask db upgrade head`，不再调用 `db.create_all()` 作为生产兜底。
 - `tests/test_migration_full_schema.py` 与 `tests/test_single_domain_registry.py` 守住“单 registry + 空库可 `upgrade head`”。
 
-收敛路线见 [shared-domain plan](../plans/active/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md) 与已关闭的 [dual-orm-database-issues](../issues/2026-06-04-dual-orm-database-issues.md)。
+收敛路线见 [shared-domain plan](../plans/archive/2026-06-06-shared-sqlalchemy-domain-fastapi-agent-runtime-plan.md) 与已关闭的 [dual-orm-database-issues](../issues/2026-06-04-dual-orm-database-issues.md)。
 
 ### 核心实体关系
 
@@ -171,7 +172,7 @@ workflow:{run_id}:buffer
 | `definition`、`budget` | 来自 `core/definitions.py` 的 agent 定义和预算配置 |
 | `extra_state` | handoff 等历史状态的兼容承载 |
 
-`AgentRuntime` 负责同步和流式 loop：获取 trace、绑定工具 schema、压缩消息、调用 LLM、执行工具、记录 token/latency/artifact，并在结束时 finalize trace。`LLMRunner.compact()` 调用 `MemoryService.compact_messages()`，因此通用 runtime path 已有短期消息压缩。
+`AgentRuntime` 负责同步和流式 loop：获取 trace、绑定工具 schema、压缩消息、调用 LLM、执行工具、记录 token/latency/artifact，并在结束时 finalize trace。`LLMRunner.compact_window()` 通过 `MemoryService.compact_window()` 运行 token-budget 触发的短期消息压缩；`compact()` 作为兼容 shim 保留。
 
 ### Tool-based handoff
 
@@ -240,9 +241,10 @@ Trace 当前已经能绑定 workflow step 和 MCP tool audit，但 EvalOps/repla
 当前记忆分三层注入 system prompt：
 
 ```text
-短期：MemoryService.compact_messages()
+短期：MemoryService.compact_window() / compact_messages() (compat shim)
 中期：AIConversation.summary
-长期：StudentProfile / TeacherPreference
+长期：memory_items (active 治理项)  ← 权威注入源
+        └ fallback: StudentProfile / TeacherPreference (仅在 subject 无任何治理项时)
         |
         v
 MemoryService.get_memory_context()
@@ -253,13 +255,24 @@ MemoryService.get_memory_context()
 
 ### 短期：消息压缩
 
-`MemoryService.compact_messages(messages, max_messages=20)`：
+Short-term message compaction is implemented in `ai/memory/compaction.py` (`compact_window`) and wired into `MemoryService.compact_window`, `LLMRunner.compact_window`, and `AgentRuntime`.
 
-- 消息数未超过阈值时原样返回。
-- 超过阈值时保留 system message + 最近 20 条消息。
-- 中间早期消息用 FAST LLM 压缩成 summary；LLM 失败时用简单截断拼接兜底。
+**Trigger — token budget, not message count.**
+Compaction fires when the estimated token total of the current window exceeds `DEFAULT_CONTEXT_TOKEN_BUDGET` (12 000). The estimate is a character heuristic (≈ 4 chars per token) — an internal budget metric, not an exact provider tokenizer count.
 
-`AgentRuntime` 通过 `LLMRunner.compact()` 在通用工具 loop 中调用该压缩逻辑。需要注意：某些专用 Agent 自定义 stream 路径若绕开通用 runtime，仍可能绕开统一压缩；这是后续 context/memory治理需要继续收敛的点。
+**When and where it runs.**
+`AgentRuntime` calls compaction at agent-loop entry (`_acquire`) and rolls it forward in-loop after each round of tool calls, for both the non-streaming `run()` loop and the streaming `stream()` loop. When the window is under budget the call is a no-op: no LLM is invoked and the message list is returned unchanged, so in-loop checks are cheap.
+
+**Pairing-safe split.**
+The kept tail is backed up so it never starts with a `ToolMessage`. This ensures every `ToolMessage` in the kept window has its parent `AIMessage(tool_calls)` present — no orphaned `tool_call_id` is sent to the provider.
+
+**Observability.**
+Each actual compaction (i.e. something was dropped) records one `compaction` trace span via `TraceCollector.trace_compaction`, capturing before/after token estimates and dropped/kept message counts. No-op compactions write no span.
+
+**Summary and fallback.**
+The LLM summary uses the FAST tier. If the summarizer raises or returns nothing, `compact_window` falls back to structured truncation. The function never raises.
+
+`MemoryService.compact_messages(list) -> list` and `LLMRunner.compact(list) -> list` are retained as backward-compatible shims for callers that have not yet migrated to the `CompactionResult`-returning API.
 
 ### 中期：对话摘要
 
@@ -299,7 +312,43 @@ MemoryService.get_memory_context()
 - 教师：`style_notes`、`class_weak_areas`。
 - 二者都会追加 recent conversation summaries。
 
-当前主要缺口不是“没有 memory 字段”，而是治理不足：所有记忆仍被扁平拼接为字符串，没有按 agent 目标、来源可信度、用户可编辑偏好、模型推断画像、强/弱上下文进行结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。
+Phase 1-3 之前的主要缺口是治理不足：所有记忆被扁平拼接为字符串，没有按 agent 目标、来源可信度、敏感级别、强/弱上下文结构化区分，也缺少“本次运行注入了哪些记忆”的审计记录。结构化 `MemoryContext`（Phase 1-2）与确定性预算/过滤/注入审计（Phase 3）补上了这部分；item 级 candidate lifecycle 与 forget（Phase 4）已落地，见下文；剩余缺口是 eval recorded snapshot 回放（Phase 5）。
+
+### 结构化 MemoryContext 与 Agent Policy
+
+Phase 1-2 已落地结构化记忆契约与按 agent 的注入策略：
+
+- `MemoryService.build_memory_context()` 返回结构化 `MemoryContext`（`ai/memory/context.py` 中的纯数据契约，不引用 ORM 实例）。
+- `MemoryService.render_memory_context()` 是唯一字符串渲染入口。
+- `AgentDefinition.memory_policy` 决定 profile 类型、summary 范围和 target student 权限。
+- Reviewer 默认不读取长期画像或历史 summary。
+- Legacy `MemoryService.get_memory_context()` API 仍供 generation pipeline 等现有调用使用，渲染文本保持兼容。
+
+### Phase 3：预算、过滤与注入审计
+
+Phase 3 在结构化 `MemoryContext` 上增加了确定性的选择、预算裁剪和 trace 审计：
+
+- `ai/memory/governance.py::select_memory_context()` 是纯函数选择器：按 `priority` 降序、section 顺序、`source`、`key` 稳定排序后，依次应用 TTL（`expires_at`）、sensitivity allowlist、空值和 char/token 预算过滤，产出 `MemorySelection`（rendered 文本、每 item 的 included/filtered 决策与原因、canonical snapshot hash）。
+- `MemoryPolicy.max_memory_chars` / `max_memory_tokens` 是每 agent 预算；`0`（或任意非正值）表示**禁止注入**，不是 unlimited。预算比较使用 `>`，恰好用满预算的 item 仍被包含。reviewer 的 `0/0` 因此不注入任何记忆。
+- Token 计数是 **deterministic estimate**（`(len(text)+3)//4`），不是 provider tokenizer 的精确 token 数；预算裁剪绝不为此再调用 LLM。
+- `MemoryService.prepare_memory_context()` 是受治理的统一入口，返回 `MemorySelection`；`get_memory_context()` 现在内部走它并只返回 `.rendered`。Agent 在创建 `AgentSession` 前完成选择，结果经 `AgentSession.memory_selection` 传到 `AgentRuntime`。
+- 审计**复用现有 trace 存储**：`AgentRuntime` 取得 trace 后、首次 LLM 调用前，写入一个 `memory_context_selected` event 和一个 `memory_injection_audit` artifact（`AgentTraceEvent` / `AgentTraceArtifact`），现有 trace detail API 自动暴露，无需新 endpoint 或第二套 observability 存储。
+- 审计只保存 included/filtered 决策的元数据（source/key/reason/字符与 token 计数/priority）、计数和 snapshot hash，**不保存完整 rendered memory 或原始 value**；`_redact_secrets()` 仍是最终持久化前的兜底脱敏。
+- snapshot hash payload 覆盖 source/key/value/sensitivity/expires_at（不含 `reason_included`），同输入稳定、value 变化即变化，为 Phase 5 eval replay 预留可比对锚点。
+
+eval recorded snapshot 回放（Phase 5）继续作为后续阶段，不得描述成当前能力。
+
+### Phase 4：item 级治理生命周期（memory_items）
+
+Phase 4 把长期记忆从不可删除的聚合 profile 字段升级为 item 级治理对象：
+
+- `domain/models/memory.py::MemoryItemRecord`（表 `memory_items`）以 `status` 表示生命周期：`candidate → active`，以及 `rejected / superseded / suppressed / expired`。`domain/repositories/memory.py::SyncMemoryRepository` 持有全部状态转换与按 canonical value-hash 去重。
+- **`memory_items` 的 active item 是 prompt 注入的治理源。** `MemoryService` 优先读取 active 治理项；只有当某 subject **完全没有任何治理项**（任意 status）时才回退到 legacy profile，因此被 suppress/superseded 的 item 不会再被 legacy fallback 重新注入。
+- **`StudentProfile` / `TeacherPreference` 已降级为兼容物化视图**，不再是唯一 prompt source。`ai/memory/lifecycle.py::sync_legacy_profile_from_active_items()` 在 approve/suppress 后把当前 active item 写回 legacy 列（被治理的 key 才会写/清，未治理列不动），保证旧 profile API 仍可用。
+- **Extractor 只产生 candidate，永不直接写 active。** `ai/memory/extractor.py` 的确定性 extractor 仅读取已结构化字段（生成请求参数、生成题元数据、已持久化的会话摘要），不调用 LLM、不解析自由文本、不读向量库；每个抽取值都是 `candidate`，必须经人工 approve 才进入 prompt。`promote()` 是唯一会 supersede 已有 active item 的路径。
+- **forget = suppress，不是物理删除。** `DELETE /api/v1/ai/memory/<id>` 只把 status 置为 `suppressed`，审计行保留。
+- 治理 API（`app/api/v1/ai_memory.py`）按 subject 严格鉴权：student 只能操作自己的 `student` item，teacher 只能操作自己的 `teacher` item，admin 全部。**course/classroom scope 当前直接拒绝（403 `memory_forbidden`）未实现的权限路径，不静默放行。**
+- TTL 通过 `expires_at` 在 `active_for_subject()` 查询时惰性标记 `expired` 并排除，不进入注入。
 
 ---
 
@@ -361,7 +410,7 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | 业务数据 | Problem/variant/submission/quiz/classroom 主链路较完整 | 仍有历史 Question 兼容面需要持续审计 |
 | Schema 迁移 | 完整 Alembic baseline 已落地；ORM 已收敛为单一 `DomainBase` registry | 跨进程仍是 process-local engine（按设计），非进程内双池 |
 | 短期状态 | AgentSession、Redis SSE buffer、message compaction 已存在 | 专用 stream path 与统一 compaction/context policy 仍需收敛 |
-| 中长期记忆 | summary/profile/preference 可读写 | 画像字段自动填充不均衡，记忆注入缺少结构化策略和审计 |
+| 中长期记忆 | summary/profile/preference 可读写；结构化 `MemoryContext` + 确定性预算/TTL/sensitivity 过滤 + trace 注入审计（Phase 1-3）；item 级 `memory_items` candidate/active/suppress 治理生命周期 + legacy profile 物化视图（Phase 4）已落地 | 画像字段自动填充不均衡；eval recorded snapshot 回放仍待 Phase 5 |
 | Agent 状态 | AgentRuntime、trace、tool-based handoff、bounded context rebuild 已落地 | handoff/workflow/eval 的 context snapshot 尚未形成统一治理 |
 | Workflow 状态 | 持久化 step、approval audit、resume from breakpoint 已存在 | 任意 step replay、幂等和写工具去重仍未完成 |
 | RAG | ChromaDB 三 collection + Agent/MCP 消费路径存在 | 检索质量门禁和 eval replay 仍需产品化 |
@@ -377,8 +426,14 @@ RAG 搜索失败时通常返回空结果或 degraded health，而不是阻断主
 | `app/models/problem.py`、`app/models/question.py` | Problem 父题与 Question 语言 variant（未迁移业务模型，仍在 `app/models`） |
 | `app/models/submission.py` | Submission / TestResult |
 | `domain/models/chat.py` | Conversation / Message / summary / ChatTask |
-| `app/models/student_profile.py` | StudentProfile / TeacherPreference |
+| `app/models/student_profile.py` | StudentProfile / TeacherPreference（兼容物化视图） |
+| `domain/models/memory.py` | `MemoryItemRecord`（`memory_items` 治理项与生命周期 status） |
+| `domain/repositories/memory.py` | 治理项 candidate/active/supersede/suppress/expire 仓储与 value-hash 去重 |
+| `ai/memory/lifecycle.py` | legacy profile backfill 与 active item → legacy 物化视图回写 |
+| `ai/memory/extractor.py` | 确定性 candidate extractor（只产生 candidate，不写 active） |
+| `app/api/v1/ai_memory.py` | 治理 API（list / approve / reject / suppress），subject 级鉴权 |
 | `ai/memory/service.py` | 对话摘要、学生画像更新、memory context、消息压缩 |
+| `ai/memory/governance.py` | 确定性 memory 选择、TTL/sensitivity/预算过滤、canonical snapshot hash |
 | `ai/memory/preference.py` | 教师偏好、风格摘要、班级薄弱点 |
 | `ai/agents/session.py`、`ai/agents/runtime.py`、`ai/agents/llm_runner.py` | Agent 单次运行状态、LLM/tool loop、压缩入口 |
 | `core/definitions.py` | Agent 定义、工具白名单、handoff target、预算/限流 |

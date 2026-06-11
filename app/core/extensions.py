@@ -80,6 +80,7 @@ def init_extensions(app):
             McpAuditLog,
             McpToolApproval,
         )
+        from domain.models.memory import MemoryItemRecord  # noqa: F401
 
     # Initialize Redis
     global redis_client

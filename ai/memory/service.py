@@ -1,7 +1,22 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
+
 from app.core.timezone import now_china
 
+if TYPE_CHECKING:
+    from ai.memory.governance import MemorySelection
+    from core.definitions import MemoryPolicy
+
 from langchain_core.messages import HumanMessage
+
+from ai.memory.context import (
+    MemoryContext,
+    MemoryItem,
+    MemoryMetadata,
+    RecentSessionMemory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,125 +87,426 @@ class MemoryService:
         profile.updated_at = now_china()
         db.session.commit()
 
-    @staticmethod
-    def _recent_conversation_summaries(
-        user_id: int, exclude_conversation_id: int = None, limit: int = 3
-    ) -> list[str]:
-        """Return summaries of the user's most recent prior conversations.
+    # Keys surfaced into the rendered prompt per section (must stay aligned
+    # with ``render_memory_context``'s label maps).
+    _STUDENT_RENDER_KEYS = (
+        "learning_summary",
+        "error_patterns",
+        "weak_areas",
+        "current_hint_level",
+    )
+    _TEACHER_RENDER_KEYS = ("style_notes", "class_weak_areas")
 
-        These are the mid-term memory produced by generate_conversation_summary
-        and persisted to AIConversation.summary. The current conversation is
-        excluded so the agent does not echo its own in-progress session back.
+    @staticmethod
+    def _governed_items(
+        subject_type: str,
+        subject_id: int,
+        allowed_keys: tuple[str, ...],
+        reason: str,
+    ) -> tuple[MemoryItem, ...] | None:
+        """Return governed active items for the subject, or ``None`` when the
+        subject is not governed yet (so the caller falls back to legacy).
+
+        When the subject IS governed, only ``active`` items survive; suppressed
+        or superseded items are intentionally excluded and never re-enter the
+        prompt via legacy fallback.
         """
+        from app.core.extensions import db
+        from domain.repositories.memory import SyncMemoryRepository
+
+        repo = SyncMemoryRepository(db.session)
+        if not repo.has_items_for_subject(subject_type, str(subject_id)):
+            return None
+
+        metadata = MemoryMetadata(
+            source=f"memory_item:{subject_type}:{subject_id}",
+            reason_included=reason,
+        )
+        items: list[MemoryItem] = []
+        for record in repo.active_for_subject(subject_type, str(subject_id)):
+            if record.memory_key not in allowed_keys:
+                continue
+            value = record.value_json.get("value")
+            items.append(MemoryItem(
+                key=record.memory_key,
+                value=value,
+                metadata=metadata,
+            ))
+        return tuple(items)
+
+    @staticmethod
+    def _student_profile_items(
+        student_id: int, reason: str
+    ) -> tuple[MemoryItem, ...]:
+        from app.models.student_profile import StudentProfile
+
+        profile = StudentProfile.query.filter_by(student_id=student_id).first()
+        if profile is None:
+            return ()
+
+        metadata = MemoryMetadata(
+            source=f"student_profile:{student_id}",
+            reason_included=reason,
+        )
+        items: list[MemoryItem] = []
+        if profile.learning_summary:
+            items.append(MemoryItem(
+                key="learning_summary",
+                value=profile.learning_summary,
+                metadata=metadata,
+            ))
+        if profile.error_patterns:
+            items.append(MemoryItem(
+                key="error_patterns",
+                value=dict(profile.error_patterns),
+                metadata=metadata,
+            ))
+        if profile.knowledge_map:
+            weak_areas = tuple(
+                key
+                for key, score in profile.knowledge_map.items()
+                if score < 0.5
+            )
+            if weak_areas:
+                items.append(MemoryItem(
+                    key="weak_areas",
+                    value=weak_areas,
+                    metadata=metadata,
+                ))
+        if profile.current_hint_level:
+            items.append(MemoryItem(
+                key="current_hint_level",
+                value=dict(profile.current_hint_level),
+                metadata=metadata,
+            ))
+        return tuple(items)
+
+    @staticmethod
+    def _teacher_preference_items(
+        teacher_id: int, reason: str
+    ) -> tuple[MemoryItem, ...]:
+        from app.models.student_profile import TeacherPreference
+
+        preference = TeacherPreference.query.filter_by(
+            teacher_id=teacher_id
+        ).first()
+        if preference is None:
+            return ()
+
+        metadata = MemoryMetadata(
+            source=f"teacher_preference:{teacher_id}",
+            reason_included=reason,
+        )
+        items: list[MemoryItem] = []
+        if preference.style_notes:
+            items.append(MemoryItem(
+                key="style_notes",
+                value=preference.style_notes,
+                metadata=metadata,
+            ))
+        if preference.class_weak_areas:
+            items.append(MemoryItem(
+                key="class_weak_areas",
+                value=tuple(preference.class_weak_areas),
+                metadata=metadata,
+            ))
+        return tuple(items)
+
+    @staticmethod
+    def _recent_sessions(
+        user_id: int,
+        *,
+        exclude_conversation_id: int | None,
+        limit: int,
+        agent_types: tuple[str, ...] | None,
+        reason: str,
+    ) -> tuple[RecentSessionMemory, ...]:
         from app.core.extensions import db
         from domain.repositories.chat import SyncChatRepository
 
-        repo = SyncChatRepository(db.session)
-        rows = repo.get_recent_summarized_conversations(
-            user_id, exclude_conversation_id=exclude_conversation_id, limit=limit
+        rows = SyncChatRepository(db.session).get_recent_summarized_conversations(
+            user_id,
+            exclude_conversation_id=exclude_conversation_id,
+            limit=limit,
+            agent_types=agent_types,
         )
-        return [c.summary.strip() for c in rows if c.summary and c.summary.strip()]
+        return tuple(
+            RecentSessionMemory(
+                conversation_id=row.id,
+                agent_type=row.agent_type,
+                summary=row.summary.strip(),
+                created_at=row.created_at,
+                metadata=MemoryMetadata(
+                    source=f"ai_conversation:{row.id}",
+                    reason_included=reason,
+                ),
+            )
+            for row in rows
+            if row.summary and row.summary.strip()
+        )
+
+    @staticmethod
+    def build_memory_context(
+        user_id: int,
+        user_role: str,
+        conversation_id: int | None = None,
+        *,
+        profile_kind: str | None = None,
+        include_recent_summaries: bool = True,
+        recent_summary_agent_types: tuple[str, ...] | None = None,
+        max_recent_summaries: int = 3,
+        target_student_id: int | None = None,
+        allow_target_student: bool = False,
+    ) -> MemoryContext:
+        """Build a structured ``MemoryContext`` for the given actor and policy.
+
+        With ``profile_kind=None`` this reproduces the legacy role-based
+        behavior. ``target_student_id`` only takes effect when
+        ``allow_target_student`` is set and the actor is a teacher/admin; it
+        redirects the profile subject but never the recent-summary owner.
+        """
+        try:
+            resolved_profile_kind = profile_kind
+            if resolved_profile_kind is None:
+                if user_role == "student":
+                    resolved_profile_kind = "student"
+                elif user_role == "teacher":
+                    resolved_profile_kind = "teacher"
+                else:
+                    resolved_profile_kind = "none"
+            elif resolved_profile_kind == "actor":
+                resolved_profile_kind = (
+                    user_role if user_role in {"student", "teacher"} else "none"
+                )
+
+            student_profile: tuple[MemoryItem, ...] = ()
+            teacher_preference: tuple[MemoryItem, ...] = ()
+
+            can_use_target = (
+                allow_target_student
+                and target_student_id is not None
+                and user_role in {"teacher", "admin"}
+            )
+            if can_use_target:
+                resolved_profile_kind = "student"
+                profile_subject_id = target_student_id
+                profile_reason = "target student allowed by agent memory policy"
+            else:
+                profile_subject_id = user_id
+                profile_reason = "actor profile allowed by memory policy"
+
+            try:
+                if resolved_profile_kind == "student":
+                    governed = MemoryService._governed_items(
+                        "student",
+                        profile_subject_id,
+                        MemoryService._STUDENT_RENDER_KEYS,
+                        profile_reason,
+                    )
+                    student_profile = (
+                        governed
+                        if governed is not None
+                        else MemoryService._student_profile_items(
+                            profile_subject_id,
+                            profile_reason,
+                        )
+                    )
+                elif resolved_profile_kind == "teacher":
+                    governed = MemoryService._governed_items(
+                        "teacher",
+                        profile_subject_id,
+                        MemoryService._TEACHER_RENDER_KEYS,
+                        profile_reason,
+                    )
+                    teacher_preference = (
+                        governed
+                        if governed is not None
+                        else MemoryService._teacher_preference_items(
+                            profile_subject_id,
+                            profile_reason,
+                        )
+                    )
+            except Exception as exc:
+                logger.debug("Memory profile unavailable: %s", exc)
+
+            recent_sessions: tuple[RecentSessionMemory, ...] = ()
+            if include_recent_summaries and max_recent_summaries > 0:
+                try:
+                    recent_sessions = MemoryService._recent_sessions(
+                        user_id,
+                        exclude_conversation_id=conversation_id,
+                        limit=max_recent_summaries,
+                        agent_types=recent_summary_agent_types,
+                        reason="recent summaries allowed by memory policy",
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Recent conversation summaries unavailable: %s",
+                        exc,
+                    )
+
+            return MemoryContext(
+                student_profile=student_profile,
+                teacher_preference=teacher_preference,
+                recent_sessions=recent_sessions,
+            )
+        except Exception as exc:
+            logger.debug(
+                "Memory context unavailable (table may not exist yet): %s",
+                exc,
+            )
+            return MemoryContext()
+
+    @staticmethod
+    def render_memory_context(context: MemoryContext) -> str:
+        """Render a ``MemoryContext`` to the legacy prompt string.
+
+        Only legacy labels and ordering are emitted; metadata, source keys and
+        internal IDs are never exposed in the rendered text.
+        """
+        parts: list[str] = []
+
+        student_labels = {
+            "learning_summary": "Student Background",
+            "error_patterns": "Error History",
+            "weak_areas": "Weak Areas",
+            "current_hint_level": "Previous Hints Given",
+        }
+        for item in context.student_profile:
+            value = item.value
+            if item.key == "weak_areas":
+                value = ", ".join(value)
+            parts.append(f"{student_labels[item.key]}: {value}")
+
+        teacher_labels = {
+            "style_notes": "Teacher Preferences",
+            "class_weak_areas": "Class Weak Areas",
+        }
+        for item in context.teacher_preference:
+            value = item.value
+            if item.key == "class_weak_areas":
+                value = ", ".join(value)
+            parts.append(f"{teacher_labels[item.key]}: {value}")
+
+        if context.recent_sessions:
+            summaries = "\n".join(
+                f"- {session.summary}" for session in context.recent_sessions
+            )
+            parts.append(f"Recent Sessions:\n{summaries}")
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def legacy_memory_policy(user_role: str) -> "MemoryPolicy":
+        """Return a governed MemoryPolicy that reproduces legacy role-based behavior."""
+        from core.definitions import MemoryPolicy, MemoryProfileKind
+
+        kind = MemoryProfileKind.ACTOR  # build_memory_context resolves ACTOR -> role
+        return MemoryPolicy(
+            profile_kind=kind,
+            include_recent_summaries=True,
+            max_recent_summaries=3,
+            max_memory_chars=4000,
+            max_memory_tokens=1000,
+        )
+
+    @staticmethod
+    def prepare_memory_context(
+        user_id: int,
+        user_role: str,
+        conversation_id: int | None = None,
+        *,
+        agent_name: str | None = None,
+        target_student_id: int | None = None,
+    ) -> "MemorySelection":
+        """Return a governed MemorySelection (rendered text + audit decisions + hash)."""
+        from ai.memory.governance import select_memory_context
+        from core.definitions import get_definition
+
+        definition = get_definition(agent_name) if agent_name else None
+        policy = (
+            definition.memory_policy
+            if definition is not None
+            else MemoryService.legacy_memory_policy(user_role)
+        )
+        context = MemoryService.build_memory_context(
+            user_id,
+            user_role,
+            conversation_id,
+            profile_kind=policy.profile_kind.value,
+            include_recent_summaries=policy.include_recent_summaries,
+            recent_summary_agent_types=tuple(
+                sorted(policy.recent_summary_agent_types)
+            ),
+            max_recent_summaries=policy.max_recent_summaries,
+            target_student_id=target_student_id,
+            allow_target_student=policy.allow_target_student,
+        )
+        return select_memory_context(context, policy)
 
     @staticmethod
     def get_memory_context(
-        user_id: int, user_role: str, conversation_id: int = None
+        user_id: int,
+        user_role: str,
+        conversation_id: int = None,
+        *,
+        agent_name: str | None = None,
+        target_student_id: int | None = None,
     ) -> str:
-        """Build memory context string to inject into system prompt.
+        """Backward-compatible string entry point for memory injection.
 
-        Combines the static profile (learning summary, error patterns, weak
-        areas) with mid-term memory: summaries of the user's recent prior
-        conversations. Returns empty string if nothing is available or the
-        profile tables are not yet migrated, ensuring graceful degradation.
+        Delegates to ``prepare_memory_context`` so all calls pass through
+        governance while returning the same rendered string as before.
         """
+        return MemoryService.prepare_memory_context(
+            user_id,
+            user_role,
+            conversation_id,
+            agent_name=agent_name,
+            target_student_id=target_student_id,
+        ).rendered
+
+    @staticmethod
+    def _llm_summarize_transcript(transcript: str) -> str | None:
+        """FAST-tier LLM summary; returns None on failure so compact_window falls back to structured truncation."""
+        if not transcript:
+            return None
         try:
-            parts = []
+            from ai.agents.config import AIConfig
+            from ai.llm.tiers import ModelTier
 
-            if user_role == "student":
-                from app.models.student_profile import StudentProfile
-
-                profile = StudentProfile.query.filter_by(student_id=user_id).first()
-                if profile:
-                    if profile.learning_summary:
-                        parts.append(f"Student Background: {profile.learning_summary}")
-                    if profile.error_patterns:
-                        parts.append(f"Error History: {profile.error_patterns}")
-                    if profile.knowledge_map:
-                        weak = [k for k, v in profile.knowledge_map.items() if v < 0.5]
-                        if weak:
-                            parts.append(f"Weak Areas: {', '.join(weak)}")
-                    if profile.current_hint_level:
-                        parts.append(f"Previous Hints Given: {profile.current_hint_level}")
-
-            elif user_role == "teacher":
-                from app.models.student_profile import TeacherPreference
-
-                pref = TeacherPreference.query.filter_by(teacher_id=user_id).first()
-                if pref:
-                    if pref.style_notes:
-                        parts.append(f"Teacher Preferences: {pref.style_notes}")
-                    if pref.class_weak_areas:
-                        parts.append(f"Class Weak Areas: {', '.join(pref.class_weak_areas)}")
-
-            try:
-                summaries = MemoryService._recent_conversation_summaries(
-                    user_id, exclude_conversation_id=conversation_id
-                )
-                if summaries:
-                    joined = "\n".join(f"- {s}" for s in summaries)
-                    parts.append(f"Recent Sessions:\n{joined}")
-            except Exception as e:
-                logger.debug("Recent conversation summaries unavailable: %s", e)
-
-            return "\n".join(parts)
-
+            llm = AIConfig.get_llm(tier=ModelTier.FAST)
+            prompt = (
+                "Compress the following conversation history into a brief summary "
+                "(max 200 words). Preserve key facts, decisions, and context.\n\n"
+                + transcript
+            )
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return response.content or None
         except Exception as e:
-            logger.debug("Memory context unavailable (table may not exist yet): %s", e)
-            return ""
+            logger.warning("LLM compression failed, falling back to truncation: %s", e)
+            return None
+
+    @staticmethod
+    def compact_window(messages: list, *, max_recent_messages: int = 20):
+        """Structurally compact a single run's message window; returns CompactionResult."""
+        from ai.memory.compaction import (
+            DEFAULT_CONTEXT_TOKEN_BUDGET,
+            DEFAULT_RECENT_TOKEN_BUDGET,
+            compact_window,
+        )
+
+        return compact_window(
+            messages,
+            token_budget=DEFAULT_CONTEXT_TOKEN_BUDGET,
+            recent_token_budget=DEFAULT_RECENT_TOKEN_BUDGET,
+            max_recent_messages=max_recent_messages,
+            summarizer=MemoryService._llm_summarize_transcript,
+        )
 
     @staticmethod
     def compact_messages(messages: list, max_messages: int = 20) -> list:
-        """If conversation exceeds max_messages, summarize early messages.
-
-        Uses LLM to compress early messages into a summary, falling back
-        to simple truncation if the LLM call fails.
-        """
-        if len(messages) <= max_messages:
-            return messages
-
-        system_msg = messages[0]
-        early = messages[1:-max_messages]
-        recent = messages[-max_messages:]
-
-        try:
-            from ai.agents.config import AIConfig
-            transcript_parts = []
-            for m in early:
-                content = getattr(m, "content", "")
-                if content:
-                    role = getattr(m, "type", "unknown")
-                    transcript_parts.append(f"[{role}] {content[:300]}")
-            if transcript_parts:
-                from ai.llm.tiers import ModelTier
-                llm = AIConfig.get_llm(tier=ModelTier.FAST)
-                prompt = (
-                    "Compress the following conversation history into a brief summary "
-                    "(max 200 words). Preserve key facts, decisions, and context.\n\n"
-                    + "\n".join(transcript_parts)
-                )
-                response = llm.invoke([HumanMessage(content=prompt)])
-                summary_text = f"Previous conversation summary:\n{response.content}"
-                return [system_msg, HumanMessage(content=summary_text)] + recent
-        except Exception as e:
-            logger.warning("LLM compression failed, falling back to truncation: %s", e)
-
-        topics = []
-        for m in early:
-            content = getattr(m, "content", "")
-            if content:
-                topics.append(content[:100])
-        summary_text = (
-            "Previous conversation summary: discussed "
-            + "; ".join(topics[:5])
-            + ("..." if len(topics) > 5 else "")
-        )
-        return [system_msg, HumanMessage(content=summary_text)] + recent
+        """Backward-compatible list->list entry; delegates to compact_window."""
+        return MemoryService.compact_window(
+            messages, max_recent_messages=max_messages
+        ).messages

@@ -292,3 +292,20 @@ class TestDefinitionsConsistentWithAgents:
         for name, defn in AGENT_DEFINITIONS.items():
             cls = agent_classes[name]
             assert defn.name == cls.name
+
+    def test_memory_policies_match(self):
+        from core.definitions import AGENT_DEFINITIONS
+        from ai.agents.tutor.agent import TutorAgent
+        from ai.agents.reviewer.agent import ReviewerAgent
+        from ai.agents.generator.agent import GeneratorAgent
+        from ai.agents.analytics.agent import AnalyticsAgent
+
+        agent_classes = {
+            "tutor": TutorAgent,
+            "reviewer": ReviewerAgent,
+            "generator": GeneratorAgent,
+            "analytics": AnalyticsAgent,
+        }
+
+        for name, defn in AGENT_DEFINITIONS.items():
+            assert agent_classes[name].memory_policy == defn.memory_policy

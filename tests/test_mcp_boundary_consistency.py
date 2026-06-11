@@ -20,7 +20,7 @@ def _runtime_and_no_rate_limit(app, monkeypatch):
     with app.app_context():
         bootstrap_tool_runtime()
         monkeypatch.setattr(
-            "mcp_gateway.middleware.core.check_rate_limit", lambda *_: True
+            "ai.mcp_gateway.middleware.core.check_rate_limit", lambda *_: True
         )
         yield
 

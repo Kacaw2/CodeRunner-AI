@@ -255,6 +255,32 @@ class TestSystemContextIsolation:
 
 
 class TestTutorAgent:
+    def test_tutor_build_context_requests_tutor_policy(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.prepare_memory_context",
+        ) as prepare_memory:
+            prepare_memory.return_value.rendered = "Student Background: prior context"
+            from ai.agents.tutor.agent import TutorAgent
+
+            state = {
+                "user_id": 7,
+                "user_role": "student",
+                "messages": [],
+                "context": {"conversation_id": 9},
+            }
+
+            rendered = TutorAgent()._build_system_context(state)
+
+            prepare_memory.assert_called_once_with(
+                7,
+                "student",
+                conversation_id=9,
+                agent_name="tutor",
+                target_student_id=None,
+            )
+            assert "## Student Profile (from previous sessions)" in rendered
+            assert "Student Background: prior context" in rendered
+
     @patch("ai.agents.runtime.AIConfig")
     def test_invoke_returns_response(self, mock_config, app):
         with app.app_context():
@@ -352,8 +378,52 @@ class TestReviewerAgent:
 
             assert "overall_score" in result["final_response"]
 
+    def test_reviewer_does_not_request_memory(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.get_memory_context"
+        ) as get_memory:
+            from ai.agents.reviewer.agent import ReviewerAgent
+
+            ReviewerAgent()._build_system_context({
+                "user_id": 1,
+                "user_role": "student",
+                "messages": [],
+                "context": {"code": "print('ok')", "language": "python"},
+            })
+
+            get_memory.assert_not_called()
+
 
 class TestGeneratorAgent:
+    def test_generator_build_context_requests_generator_policy(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.prepare_memory_context",
+        ) as prepare_memory, patch(
+            "ai.agents.generator.agent.GeneratorAgent._get_similar_problems",
+            return_value="",
+        ):
+            prepare_memory.return_value.rendered = "Teacher Preferences: concise"
+            from ai.agents.generator.agent import GeneratorAgent
+
+            state = {
+                "user_id": 8,
+                "user_role": "teacher",
+                "messages": [],
+                "context": {"conversation_id": 10},
+            }
+
+            rendered = GeneratorAgent()._build_system_context(state)
+
+            prepare_memory.assert_called_once_with(
+                8,
+                "teacher",
+                conversation_id=10,
+                agent_name="generator",
+                target_student_id=None,
+            )
+            assert "## Teacher Preferences (from profile)" in rendered
+            assert "Teacher Preferences: concise" in rendered
+
     @patch("ai.agents.config.AIConfig.validate")
     @patch("ai.agents.config.AIConfig.get_llm")
     def test_invoke_with_valid_json(self, mock_get_llm, mock_validate, app):
@@ -609,6 +679,132 @@ class TestAnalyticsAgent:
                        for e in events)
             mock_runtime.call_sync.assert_called()
             assert state["final_response"].startswith('{"summary"')
+
+    def test_analytics_passes_target_student_to_memory_policy(self, app):
+        with app.app_context(), patch(
+            "ai.memory.service.MemoryService.prepare_memory_context",
+        ) as prepare_memory:
+            prepare_memory.return_value.rendered = "Student Background: target profile"
+            from ai.agents.analytics.agent import AnalyticsAgent
+
+            state = {
+                "user_id": 20,
+                "user_role": "teacher",
+                "messages": [],
+                "context": {
+                    "conversation_id": 30,
+                    "target_student_id": 40,
+                },
+            }
+
+            rendered = AnalyticsAgent()._build_system_context(state)
+
+            prepare_memory.assert_called_once_with(
+                20,
+                "teacher",
+                conversation_id=30,
+                agent_name="analytics",
+                target_student_id=40,
+            )
+            assert "Student Background: target profile" in rendered
+
+
+def test_student_analytics_cannot_read_another_student_profile(
+    db_session, app
+):
+    with app.app_context():
+        from domain.models.user import User, UserRole
+        from app.models.student_profile import StudentProfile
+        from ai.memory.service import MemoryService
+
+        actor = User(
+            username="analytics_actor",
+            password="x",
+            email="analytics-actor@test.com",
+            role=UserRole.STUDENT,
+        )
+        target = User(
+            username="analytics_target",
+            password="x",
+            email="analytics-target@test.com",
+            role=UserRole.STUDENT,
+        )
+        db_session.add_all([actor, target])
+        db_session.flush()
+        db_session.add_all([
+            StudentProfile(
+                student_id=actor.id,
+                learning_summary="Actor profile",
+            ),
+            StudentProfile(
+                student_id=target.id,
+                learning_summary="Target private profile",
+            ),
+        ])
+        db_session.commit()
+
+        rendered = MemoryService.get_memory_context(
+            actor.id,
+            "student",
+            agent_name="analytics",
+            target_student_id=target.id,
+        )
+
+        assert "Actor profile" in rendered
+        assert "Target private profile" not in rendered
+
+
+def test_teacher_analytics_target_does_not_read_target_conversation_summaries(
+    db_session, app
+):
+    with app.app_context():
+        from domain.models.chat import AIConversation
+        from domain.models.user import User, UserRole
+        from app.models.student_profile import StudentProfile
+        from ai.memory.service import MemoryService
+
+        teacher = User(
+            username="analytics_teacher",
+            password="x",
+            email="analytics-teacher@test.com",
+            role=UserRole.TEACHER,
+        )
+        target = User(
+            username="analytics_target_student",
+            password="x",
+            email="analytics-target-student@test.com",
+            role=UserRole.STUDENT,
+        )
+        db_session.add_all([teacher, target])
+        db_session.flush()
+        db_session.add(StudentProfile(
+            student_id=target.id,
+            learning_summary="Target student profile",
+        ))
+        db_session.add_all([
+            AIConversation(
+                user_id=teacher.id,
+                agent_type="analytics",
+                summary="Teacher analytics history",
+            ),
+            AIConversation(
+                user_id=target.id,
+                agent_type="analytics",
+                summary="Target private conversation",
+            ),
+        ])
+        db_session.commit()
+
+        rendered = MemoryService.get_memory_context(
+            teacher.id,
+            "teacher",
+            agent_name="analytics",
+            target_student_id=target.id,
+        )
+
+        assert "Target student profile" in rendered
+        assert "Teacher analytics history" in rendered
+        assert "Target private conversation" not in rendered
 
 
 class TestOrchestrator:
@@ -899,6 +1095,233 @@ class TestCrashRecovery:
             assert recovered.status == "failed"
 
 
+class TestMemoryContextCompatibility:
+    def test_legacy_student_context_keeps_existing_labels(self, db_session, app):
+        with app.app_context():
+            from domain.models.user import User, UserRole
+            from app.models.student_profile import StudentProfile
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="memory_student",
+                password="x",
+                email="memory-student@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add(StudentProfile(
+                student_id=user.id,
+                learning_summary="Needs visual examples.",
+                error_patterns={"WA": 3},
+                knowledge_map={"recursion": 0.4, "arrays": 0.9},
+                current_hint_level={"recursion": 2},
+            ))
+            db_session.commit()
+
+            rendered = MemoryService.get_memory_context(user.id, "student")
+
+            assert "Student Background: Needs visual examples." in rendered
+            assert "Error History: {'WA': 3}" in rendered
+            assert "Weak Areas: recursion" in rendered
+            assert "Previous Hints Given: {'recursion': 2}" in rendered
+
+    def test_legacy_teacher_context_keeps_existing_labels(self, db_session, app):
+        with app.app_context():
+            from domain.models.user import User, UserRole
+            from app.models.student_profile import TeacherPreference
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="memory_teacher",
+                password="x",
+                email="memory-teacher@test.com",
+                role=UserRole.TEACHER,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add(TeacherPreference(
+                teacher_id=user.id,
+                style_notes="Prefer concise prompts.",
+                preferred_language="java",
+                preferred_difficulty="hard",
+                class_weak_areas=["loops", "recursion"],
+            ))
+            db_session.commit()
+
+            rendered = MemoryService.get_memory_context(user.id, "teacher")
+
+            assert "Teacher Preferences: Prefer concise prompts." in rendered
+            assert "Class Weak Areas: loops, recursion" in rendered
+
+    def test_legacy_context_returns_empty_when_profile_query_fails(self, app):
+        with app.app_context(), patch(
+            "app.models.student_profile.StudentProfile.query"
+        ) as query:
+            from ai.memory.service import MemoryService
+
+            query.filter_by.side_effect = RuntimeError("table unavailable")
+            assert MemoryService.get_memory_context(1, "student") == ""
+
+
+class TestStructuredMemoryContext:
+    def test_memory_context_exposes_structured_sections(self):
+        from ai.memory.context import (
+            MemoryContext,
+            MemoryItem,
+            MemoryMetadata,
+            RecentSessionMemory,
+        )
+
+        profile_item = MemoryItem(
+            key="learning_summary",
+            value="Needs visual examples.",
+            metadata=MemoryMetadata(
+                source="student_profile:7",
+                reason_included="tutor profile policy",
+            ),
+        )
+        session = RecentSessionMemory(
+            conversation_id=11,
+            agent_type="tutor",
+            summary="Worked on recursion.",
+            created_at=None,
+            metadata=MemoryMetadata(
+                source="ai_conversation:11",
+                reason_included="recent tutor summary policy",
+            ),
+        )
+
+        context = MemoryContext(
+            student_profile=(profile_item,),
+            recent_sessions=(session,),
+        )
+
+        assert context.student_profile[0].key == "learning_summary"
+        assert context.recent_sessions[0].conversation_id == 11
+        assert context.is_empty is False
+        assert MemoryContext().is_empty is True
+
+
+class TestMemoryContextBuilder:
+    def test_build_student_context_returns_source_metadata(
+        self, db_session, app
+    ):
+        with app.app_context():
+            from domain.models.user import User, UserRole
+            from app.models.student_profile import StudentProfile
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="structured_student",
+                password="x",
+                email="structured-student@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add(StudentProfile(
+                student_id=user.id,
+                learning_summary="Needs visual examples.",
+                knowledge_map={"recursion": 0.4},
+            ))
+            db_session.commit()
+
+            context = MemoryService.build_memory_context(
+                user.id,
+                "student",
+            )
+
+            items = {item.key: item for item in context.student_profile}
+            assert items["learning_summary"].value == "Needs visual examples."
+            assert items["learning_summary"].metadata.source == (
+                f"student_profile:{user.id}"
+            )
+            assert items["weak_areas"].value == ("recursion",)
+
+    def test_build_context_keeps_recent_session_identity(
+        self, db_session, app
+    ):
+        with app.app_context():
+            from domain.models.chat import AIConversation
+            from domain.models.user import User, UserRole
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="structured_session",
+                password="x",
+                email="structured-session@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            previous = AIConversation(
+                user_id=user.id,
+                agent_type="tutor",
+                summary="Worked on recursion.",
+            )
+            db_session.add(previous)
+            db_session.commit()
+
+            context = MemoryService.build_memory_context(user.id, "student")
+
+            assert context.recent_sessions[0].conversation_id == previous.id
+            assert context.recent_sessions[0].agent_type == "tutor"
+            assert context.recent_sessions[0].summary == "Worked on recursion."
+            assert context.recent_sessions[0].metadata.source == (
+                f"ai_conversation:{previous.id}"
+            )
+
+
+class TestAgentMemoryPolicy:
+    def test_tutor_only_reads_tutor_summaries(self, db_session, app):
+        with app.app_context():
+            from domain.models.chat import AIConversation
+            from domain.models.user import User, UserRole
+            from ai.memory.service import MemoryService
+
+            user = User(
+                username="policy_student",
+                password="x",
+                email="policy-student@test.com",
+                role=UserRole.STUDENT,
+            )
+            db_session.add(user)
+            db_session.flush()
+            db_session.add_all([
+                AIConversation(
+                    user_id=user.id,
+                    agent_type="tutor",
+                    summary="Tutor-only summary.",
+                ),
+                AIConversation(
+                    user_id=user.id,
+                    agent_type="generator",
+                    summary="Generator-only summary.",
+                ),
+            ])
+            db_session.commit()
+
+            rendered = MemoryService.get_memory_context(
+                user.id,
+                "student",
+                agent_name="tutor",
+            )
+
+            assert "Tutor-only summary." in rendered
+            assert "Generator-only summary." not in rendered
+
+    def test_reviewer_policy_renders_no_memory(self, db_session, app):
+        with app.app_context():
+            from ai.memory.service import MemoryService
+
+            assert MemoryService.get_memory_context(
+                1,
+                "student",
+                agent_name="reviewer",
+            ) == ""
+
+
 class TestMemorySummaryReplay:
     def test_get_memory_context_replays_recent_summaries(self, db_session, app):
         with app.app_context():
@@ -983,3 +1406,29 @@ class TestCrossAgentCallGuardrail:
             mock_llm.invoke.assert_not_called()
             assert result["final_response"]
             assert trace.pending_status == "limit_exceeded"
+
+
+class TestCompactWindowService:
+    def test_compact_messages_returns_list_and_preserves_system(self, app):
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from ai.memory.service import MemoryService
+
+        with app.app_context():
+            msgs = [SystemMessage(content="sys")] + [
+                HumanMessage(content="x" * 400) for _ in range(40)
+            ]
+            out = MemoryService.compact_messages(msgs, max_messages=20)
+            assert isinstance(out, list)
+            assert isinstance(out[0], SystemMessage)
+
+    def test_compact_window_reports_compaction(self, app):
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from ai.memory.service import MemoryService
+
+        with app.app_context():
+            msgs = [SystemMessage(content="sys")] + [
+                HumanMessage(content="x" * 4000) for _ in range(40)
+            ]
+            result = MemoryService.compact_window(msgs, max_recent_messages=20)
+            assert result.compacted is True
+            assert result.tokens_after < result.tokens_before

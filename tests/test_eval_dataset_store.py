@@ -9,7 +9,7 @@ loads them into typed ``EvalCase`` objects and supports selectors like
 def test_dataset_store_loads_all_case_types():
     from ai.evals.datasets.store import DatasetStore
 
-    store = DatasetStore(root="evals/datasets")
+    store = DatasetStore(root="ai/evals/datasets")
     cases = store.load_cases(selector="all")
     case_types = {case.case_type for case in cases}
 
@@ -21,7 +21,7 @@ def test_dataset_store_loads_all_case_types():
 def test_selector_filters_by_type_and_suite():
     from ai.evals.datasets.store import DatasetStore
 
-    store = DatasetStore(root="evals/datasets")
+    store = DatasetStore(root="ai/evals/datasets")
 
     golden = store.load_cases(selector="golden")
     assert golden
@@ -36,7 +36,7 @@ def test_selector_filters_by_type_and_suite():
 def test_cases_carry_graders_and_budget():
     from ai.evals.datasets.store import DatasetStore
 
-    store = DatasetStore(root="evals/datasets")
+    store = DatasetStore(root="ai/evals/datasets")
     cases = store.load_cases(selector="golden:tutor")
 
     case = next(c for c in cases if c.graders)

@@ -97,6 +97,7 @@ def test_generated_tools_module_is_not_stale():
 
     path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
+        "ai",
         "mcp_gateway",
         "generated_tools.py",
     )

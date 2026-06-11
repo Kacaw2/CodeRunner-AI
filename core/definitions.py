@@ -7,8 +7,31 @@ MCP namespace convention (coderunner.*) instead of LangChain function names.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 from ai.llm.tiers import ModelTier
+from ai.memory.context import MemorySensitivity
+
+
+class MemoryProfileKind(str, Enum):
+    NONE = "none"
+    ACTOR = "actor"
+    STUDENT = "student"
+    TEACHER = "teacher"
+
+
+@dataclass(frozen=True)
+class MemoryPolicy:
+    profile_kind: MemoryProfileKind = MemoryProfileKind.NONE
+    include_recent_summaries: bool = False
+    recent_summary_agent_types: frozenset[str] = frozenset()
+    max_recent_summaries: int = 3
+    allow_target_student: bool = False
+    allowed_sensitivities: frozenset[MemorySensitivity] = frozenset({
+        MemorySensitivity.INTERNAL,
+    })
+    max_memory_chars: int = 0
+    max_memory_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -26,6 +49,38 @@ class AgentDefinition:
     rate_limit: int = 20                  # requests/minute (was AGENT_RATE_LIMITS)
     handoff_targets: frozenset[str] = frozenset()
     prompt_ref: str | None = None         # dotted path to the base system prompt
+    memory_policy: MemoryPolicy = field(default_factory=MemoryPolicy)
+
+
+TUTOR_MEMORY_POLICY = MemoryPolicy(
+    profile_kind=MemoryProfileKind.STUDENT,
+    include_recent_summaries=True,
+    recent_summary_agent_types=frozenset({"tutor"}),
+    max_recent_summaries=3,
+    max_memory_chars=4000,
+    max_memory_tokens=1000,
+)
+
+REVIEWER_MEMORY_POLICY = MemoryPolicy()
+
+GENERATOR_MEMORY_POLICY = MemoryPolicy(
+    profile_kind=MemoryProfileKind.TEACHER,
+    include_recent_summaries=True,
+    recent_summary_agent_types=frozenset({"generator"}),
+    max_recent_summaries=3,
+    max_memory_chars=3000,
+    max_memory_tokens=750,
+)
+
+ANALYTICS_MEMORY_POLICY = MemoryPolicy(
+    profile_kind=MemoryProfileKind.ACTOR,
+    include_recent_summaries=True,
+    recent_summary_agent_types=frozenset({"analytics"}),
+    max_recent_summaries=3,
+    allow_target_student=True,
+    max_memory_chars=3000,
+    max_memory_tokens=750,
+)
 
 
 TUTOR_DEFINITION = AgentDefinition(
@@ -49,7 +104,8 @@ TUTOR_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=20,
     handoff_targets=frozenset({"reviewer", "analytics"}),
-    prompt_ref="agents.tutor.prompt.TUTOR_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.tutor.prompt.TUTOR_SYSTEM_PROMPT",
+    memory_policy=TUTOR_MEMORY_POLICY,
 )
 
 REVIEWER_DEFINITION = AgentDefinition(
@@ -70,7 +126,8 @@ REVIEWER_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=10,
     handoff_targets=frozenset({"tutor", "analytics"}),
-    prompt_ref="agents.reviewer.prompt.REVIEWER_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.reviewer.prompt.REVIEWER_SYSTEM_PROMPT",
+    memory_policy=REVIEWER_MEMORY_POLICY,
 )
 
 GENERATOR_DEFINITION = AgentDefinition(
@@ -92,7 +149,8 @@ GENERATOR_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=5,
     handoff_targets=frozenset({"analytics"}),
-    prompt_ref="agents.generator.prompt.GENERATOR_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.generator.prompt.GENERATOR_SYSTEM_PROMPT",
+    memory_policy=GENERATOR_MEMORY_POLICY,
 )
 
 ANALYTICS_DEFINITION = AgentDefinition(
@@ -118,7 +176,8 @@ ANALYTICS_DEFINITION = AgentDefinition(
     max_tool_iterations=5,
     rate_limit=10,
     handoff_targets=frozenset({"tutor", "reviewer"}),
-    prompt_ref="agents.analytics.prompt.ANALYTICS_SYSTEM_PROMPT",
+    prompt_ref="ai.agents.analytics.prompt.ANALYTICS_SYSTEM_PROMPT",
+    memory_policy=ANALYTICS_MEMORY_POLICY,
 )
 
 # ── Registry ────────────────────────────────────────────────────────

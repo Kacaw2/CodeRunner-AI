@@ -10,6 +10,7 @@ from ai.agents.executor import ToolCallExecutor
 from ai.agents.json_utils import extract_first_json_object
 from core.exceptions import AgentExecutionLimitError, LLMError, ToolError, retry_on_llm_error
 from ai.llm.tiers import ModelTier
+from core.definitions import MemoryPolicy
 from core.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,7 @@ class BaseAgent(ABC):
     name: str = ""
     description = _DefinitionAttr("description", "")
     default_model_tier = _DefinitionAttr("default_model_tier", ModelTier.BALANCED)
+    memory_policy = _DefinitionAttr("memory_policy", MemoryPolicy())
 
     @property
     def mcp_tool_names(self) -> list[str]:
@@ -265,6 +267,25 @@ class BaseAgent(ABC):
             f"Specifically detected pattern: {pattern}\n\n"
         )
         return alert + system_ctx
+
+    def _prepare_memory_for_state(
+        self,
+        state: dict,
+        *,
+        target_student_id: int | None = None,
+    ) -> str:
+        from ai.memory.service import MemoryService
+
+        context = state.get("context") or {}
+        selection = MemoryService.prepare_memory_context(
+            state.get("user_id", 0),
+            state.get("user_role", "student"),
+            conversation_id=context.get("conversation_id"),
+            agent_name=self.name,
+            target_student_id=target_student_id,
+        )
+        state["_memory_selection"] = selection
+        return selection.rendered
 
     def _get_llm_tool_schemas(self) -> list[dict]:
         """Build LLM-compatible tool schemas from MCP registry."""

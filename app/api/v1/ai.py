@@ -172,6 +172,31 @@ def _maybe_generate_summary(conv_id: int):
                             if c:
                                 c.summary = summary
                                 db.session.commit()
+                                try:
+                                    from ai.memory.extractor import (
+                                        extract_from_conversation_summary,
+                                    )
+                                    from domain.models.user import User
+
+                                    owner = db.session.get(User, c.user_id)
+                                    role = getattr(
+                                        getattr(owner, "role", None),
+                                        "value",
+                                        "student",
+                                    )
+                                    extract_from_conversation_summary(
+                                        user_id=c.user_id,
+                                        user_role=role,
+                                        conversation_id=cid,
+                                        summary=summary,
+                                    )
+                                    db.session.commit()
+                                except Exception as ex:
+                                    logger.debug(
+                                        "Conversation summary memory "
+                                        "extraction skipped: %s",
+                                        ex,
+                                    )
                     except Exception as e:
                         logger.warning("Async summary generation failed: %s", e)
 

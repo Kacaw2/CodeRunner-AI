@@ -177,7 +177,7 @@ class TestExecutorToolHooks:
             raise AssertionError("MCP must not be reached for a blocked tool")
 
         monkeypatch.setattr(
-            "mcp_gateway.client.get_mcp_tool_client", _fake_client, raising=False,
+            "ai.mcp_gateway.client.get_mcp_tool_client", _fake_client, raising=False,
         )
 
         executor = ToolCallExecutor()
@@ -195,7 +195,7 @@ class TestExecutorToolHooks:
         fake_client = MagicMock()
         fake_client.call_tool.return_value = {"ok": True, "data": {"result": 42}}
         monkeypatch.setattr(
-            "mcp_gateway.client.get_mcp_tool_client", lambda: fake_client, raising=False,
+            "ai.mcp_gateway.client.get_mcp_tool_client", lambda: fake_client, raising=False,
         )
 
         executor = ToolCallExecutor()

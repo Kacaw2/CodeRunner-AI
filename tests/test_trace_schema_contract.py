@@ -32,3 +32,36 @@ def test_trace_tables_have_complete_columns(app, _setup_db):
     assert {"id", "trace_id", "link_type", "target_table", "target_id"} <= columns["agent_trace_links"]
     assert {"id", "eval_run_id", "case_id", "trace_id", "status", "passed", "duration_ms", "cost_cny"} <= columns["eval_case_runs"]
     assert {"id", "case_run_id", "grader_type", "grader_name", "passed", "score", "reason", "latency_ms", "cost_cny"} <= columns["eval_case_grader_results"]
+
+
+def test_memory_items_table_has_governance_columns(app, _setup_db):
+    from sqlalchemy import inspect
+    from app.core.extensions import db
+
+    with app.app_context():
+        inspector = inspect(db.engine)
+        columns = {
+            c["name"] for c in inspector.get_columns("memory_items")
+        }
+
+    assert {
+        "id",
+        "subject_type",
+        "subject_id",
+        "memory_kind",
+        "memory_key",
+        "value_json",
+        "value_hash",
+        "status",
+        "confidence",
+        "sensitivity",
+        "source_type",
+        "source_id",
+        "source_json",
+        "reason",
+        "superseded_by_id",
+        "created_by_user_id",
+        "expires_at",
+        "created_at",
+        "updated_at",
+    } <= columns

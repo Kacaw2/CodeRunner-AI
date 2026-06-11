@@ -134,6 +134,7 @@ class TraceCollector:
         self.model_name = model_name
         self.steps = []
         self.artifacts = []
+        self.events = []
         self.start_time = time.monotonic()
         self.llm_total_ms = 0
         self.tool_total_ms = 0
@@ -184,6 +185,42 @@ class TraceCollector:
             self.tool_total_ms += step["latency_ms"]
             self.tool_call_count += 1
             self.steps.append(step)
+
+    def trace_compaction(self, result) -> None:
+        """Record a short-term message-window compaction as a span. No-op when
+        nothing was compacted, so cheap in-loop calls under budget add no span."""
+        if not getattr(result, "compacted", False):
+            return
+        self.steps.append({
+            "step_type": "compaction",
+            "step_index": len(self.steps),
+            "tool_name": "compaction",
+            "tool_input": {
+                "dropped_messages": result.dropped_messages,
+                "kept_messages": result.kept_messages,
+                "tokens_before": result.tokens_before,
+                "tokens_after": result.tokens_after,
+                "summarized": result.summarized,
+                "fallback_used": result.fallback_used,
+            },
+            "latency_ms": 0,
+        })
+
+    def add_event(
+        self,
+        *,
+        event_type: str,
+        payload_json: dict | None = None,
+        span_id: str | None = None,
+    ) -> None:
+        """Record a discrete runtime event (e.g. memory_context_selected) so it
+        surfaces on the trace's timeline. Best-effort: events are observability
+        only and must never break the run."""
+        self.events.append({
+            "event_type": event_type,
+            "payload_json": payload_json,
+            "span_id": span_id,
+        })
 
     def add_artifact(
         self,
@@ -273,8 +310,11 @@ class TraceCollector:
             spans = self._build_spans(started_at)
             links = self._build_links(ended_at)
             artifacts = self._build_artifacts(ended_at)
+            events = self._build_events(ended_at)
 
-            TraceStore().save_run(run, spans=spans, links=links, artifacts=artifacts)
+            TraceStore().save_run(
+                run, spans=spans, links=links, artifacts=artifacts, events=events
+            )
             logger.info(
                 "TRACE_SAVE_OK: run_id=%s agent=%s user=%s status=%s conv=%s source=%s",
                 self.run_id, self.agent_type, self.user_id, status,
@@ -353,6 +393,27 @@ class TraceCollector:
                         else None
                     ),
                     payload_json=_redact_secrets(payload) if payload is not None else None,
+                )
+            )
+        return records
+
+    def _build_events(self, ts):
+        from uuid import uuid4 as _uuid4
+        from core.observability.trace_schema import TraceEventRecord
+
+        records = []
+        for event in self.events:
+            payload = _make_json_safe(event.get("payload_json"))
+            records.append(
+                TraceEventRecord(
+                    id=str(_uuid4()),
+                    trace_id=self.run_id,
+                    event_type=event["event_type"],
+                    created_at=ts,
+                    span_id=event.get("span_id"),
+                    payload_json=(
+                        _redact_secrets(payload) if payload is not None else None
+                    ),
                 )
             )
         return records

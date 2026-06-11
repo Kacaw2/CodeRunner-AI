@@ -195,6 +195,9 @@ def register_blueprints(app):
     from app.api.v1.ai import bp as ai_bp
     app.register_blueprint(ai_bp)
 
+    from app.api.v1.ai_memory import bp as ai_memory_bp
+    app.register_blueprint(ai_memory_bp)
+
     from app.api.v1.mcp_keys import bp as mcp_keys_bp
     app.register_blueprint(mcp_keys_bp)
 

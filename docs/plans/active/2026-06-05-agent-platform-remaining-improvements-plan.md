@@ -27,6 +27,19 @@
 
 **为什么还没完成**：Phase 2 明确把 `context_policy` 延后；Phase 4 只做了 workflow step 间的残留裁剪，没有建立完整的 agent context/memory 分层。
 
+**当前推进状态**：已于 2026-06-08 将 Phase 1-5 拆成四份按依赖顺序执行的详细计划：
+
+1. ✅ [Phase 1-2: MemoryContext / Policy](../archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) — **2026-06-08 已完成并归档**：结构化 `MemoryContext`、build/render 分离、兼容 legacy `get_memory_context()`，tutor/generator/analytics/reviewer 已消费 `memory_policy`，analytics target 隔离落地。
+2. ✅ [Phase 3: Budget / Filter / Audit](../archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) — **2026-06-08 已完成并归档**：确定性 `select_memory_context()` 选择器、char/token 预算（`0`=禁止注入）、TTL/sensitivity/空值过滤、稳定 canonical snapshot hash，以及复用现有 trace `memory_context_selected` event + `memory_injection_audit` artifact 的注入审计（不保存完整 rendered memory，无 schema migration）。
+3. ✅ [Phase 4: Governed Lifecycle](../archive/2026-06-08-governed-memory-lifecycle-phase4-plan.md) — **2026-06-10 已完成并归档**：item 级 `memory_items` candidate/active/rejected/superseded/suppressed/expired 生命周期与 `SyncMemoryRepository`、确定性 candidate extractor、治理 API（list/approve/reject/suppress + subject 级鉴权，未实现 scope 直接 403）、active item 优先注入（suppressed/superseded 不再 fallback）与 legacy profile 物化视图回写。focused suite `115 passed`。
+4. [Phase 5: Eval Replay Snapshot](2026-06-08-eval-memory-replay-snapshot-phase5-plan.md)
+
+执行顺序不可互换：Phase 3 消费 Phase 1-2 的结构化上下文；Phase 4 依赖 Phase 3 的审计；Phase 5 依赖 Phase 3 的稳定 snapshot hash 和 Phase 4 的 governed active memory。Phase 1-2 完成后，Phase 3 的后续触发条件保持不变。
+
+此外，单次 run 的**短期消息窗口压缩**是与上述长/中期 memory 链正交的 runtime 层工作，已单列为可独立执行的计划：
+
+- [短期消息压缩重做（已完成）](../archive/2026-06-08-short-term-message-compaction-redesign-plan.md)：token 触发、loop 内滚动（run + stream），tool-call/tool-result 配对安全，并落实本节真实需求第 43 条「为 compaction 建立 trace event」。已归档，full pytest `700 passed`。
+
 **真实需求**：
 
 - 区分 user-visible conversation、agent scratch、tool residue、handoff summary、long-term memory。
@@ -133,7 +146,12 @@
 
 | 类别 | 文档 | 处理 |
 |---|---|---|
-| 当前 active | `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | 作为 agent platform 后续提升的唯一 active 入口 |
+| 当前 active 总入口 | `docs/plans/active/2026-06-05-agent-platform-remaining-improvements-plan.md` | 作为 agent platform 后续提升的路线级入口 |
+| 已完成子计划 | `docs/plans/archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md` | Phase 1-2 已完成：结构化 `MemoryContext`、build/render 分离、agent-specific policy |
+| 已完成子计划 | `docs/plans/archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md` | Phase 3 已完成：确定性预算/过滤、稳定 snapshot hash、复用现有 trace event/artifact 的注入审计 |
+| 已完成子计划 | `docs/plans/archive/2026-06-08-governed-memory-lifecycle-phase4-plan.md` | Phase 4 已完成：governed item lifecycle、candidate extractor、治理 API、forget/suppress 与 legacy profile 物化视图 |
+| 当前 active 子计划 | `docs/plans/active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md` | 执行 snapshot、eval replay、memory drift 和 CI controls |
+| 已完成子计划（正交） | `docs/plans/archive/2026-06-08-short-term-message-compaction-redesign-plan.md` | runtime 层短期消息窗口压缩重做：token 触发、loop 内滚动（run + stream）、配对安全、compaction span；full pytest `700 passed` |
 | 已完成总路线 | `docs/plans/archive/2026-06-04-claude-code-inspired-architecture-upgrade-plan.md` | 归档为路线基线，不再承载待办 |
 | 已完成执行方案 | Phase 1、Phase 2、Phase 3、Phase 3.5、Phase 4 执行方案 | 归档为实现记录和验收证据 |
 | 其他已完成基础设施方案 | `docs/plans/archive/2026-06-04-dual-orm-single-schema-source-plan.md` | 与 agent platform 分组隔离，归入数据库/schema 基础设施 |

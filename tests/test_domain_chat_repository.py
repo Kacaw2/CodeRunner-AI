@@ -199,3 +199,36 @@ class TestTaskLifecycle:
 
         db_session.refresh(task)
         assert task.status == "pending"
+
+
+def test_recent_summaries_filter_agent_types_and_exclude_current(
+    repo, db_session, chat_user
+):
+    from domain.models.chat import AIConversation
+
+    tutor = AIConversation(
+        user_id=chat_user.id,
+        agent_type="tutor",
+        summary="Tutor memory",
+    )
+    generator = AIConversation(
+        user_id=chat_user.id,
+        agent_type="generator",
+        summary="Generator memory",
+    )
+    current = AIConversation(
+        user_id=chat_user.id,
+        agent_type="tutor",
+        summary="Current tutor memory",
+    )
+    db_session.add_all([tutor, generator, current])
+    db_session.commit()
+
+    rows = repo.get_recent_summarized_conversations(
+        chat_user.id,
+        exclude_conversation_id=current.id,
+        agent_types=("tutor",),
+        limit=3,
+    )
+
+    assert [row.id for row in rows] == [tutor.id]

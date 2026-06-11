@@ -17,7 +17,7 @@ def test_external_gateway_enforces_required_scopes(monkeypatch):
         "scopes": ["knowledge:read"],
         "rate_limit_rpm": 30,
     })
-    monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
 
     payload = json.loads(call_via_runtime(
         "coderunner.problem.get_detail",
@@ -40,7 +40,7 @@ def test_external_gateway_allows_call_with_matching_scope(monkeypatch):
         "scopes": ["problem:read"],
         "rate_limit_rpm": 30,
     })
-    monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
 
     payload = json.loads(call_via_runtime(
         "coderunner.problem.get_detail",

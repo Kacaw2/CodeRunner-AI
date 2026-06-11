@@ -129,16 +129,10 @@ class GeneratorAgent(BaseAgent):
     name = "generator"
 
     def _build_system_context(self, state: dict) -> str:
-        from ai.memory.service import MemoryService
-
         context = state.get("context", {})
         parts = [GENERATOR_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
-        memory_ctx = MemoryService.get_memory_context(
-            state["user_id"],
-            state.get("user_role", "teacher"),
-            conversation_id=context.get("conversation_id"),
-        )
+        memory_ctx = self._prepare_memory_for_state(state)
         if memory_ctx:
             parts.append(f"\n## Teacher Preferences (from profile)\n{memory_ctx}")
 

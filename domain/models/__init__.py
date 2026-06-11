@@ -8,6 +8,7 @@ from domain.models.user import User, UserRole
 from domain.models.chat import AIConversation, AIMessage, ChatTask
 from domain.models.mcp import McpApiKey, McpAuditLog, McpToolApproval
 from domain.models.workflow import WorkflowApproval, WorkflowRun, WorkflowStep
+from domain.models.memory import MemoryItemRecord
 from domain.models.observability import (
     AgentTraceArtifact,
     AgentTraceEvent,
@@ -31,6 +32,7 @@ __all__ = [
     "WorkflowRun",
     "WorkflowStep",
     "WorkflowApproval",
+    "MemoryItemRecord",
     "AgentTraceRun",
     "AgentTraceSpan",
     "AgentTraceEvent",

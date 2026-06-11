@@ -1,0 +1,187 @@
+"""Lifecycle integration: legacy backfill, governed read path, extractor."""
+
+
+def test_backfill_student_profile_creates_active_items(app, db_session, student_user):
+    from app.models.student_profile import StudentProfile
+    from ai.memory.lifecycle import backfill_user_memory_items
+    from domain.repositories.memory import SyncMemoryRepository
+
+    db_session.add(StudentProfile(
+        student_id=student_user.id,
+        learning_summary="Needs recursion practice",
+        error_patterns={"WA": 2},
+    ))
+    db_session.commit()
+
+    created = backfill_user_memory_items(student_user.id, "student")
+
+    assert created >= 2
+    rows = SyncMemoryRepository(db_session).active_for_subject(
+        "student",
+        str(student_user.id),
+    )
+    keys = {row.memory_key for row in rows}
+    assert {"learning_summary", "error_patterns"} <= keys
+
+
+def test_backfill_is_idempotent(app, db_session, teacher_user):
+    from app.models.student_profile import TeacherPreference
+    from ai.memory.lifecycle import backfill_user_memory_items
+
+    db_session.add(TeacherPreference(
+        teacher_id=teacher_user.id,
+        preferred_language="python",
+        style_notes="Concise prompts",
+    ))
+    db_session.commit()
+
+    first = backfill_user_memory_items(teacher_user.id, "teacher")
+    second = backfill_user_memory_items(teacher_user.id, "teacher")
+
+    assert first >= 2
+    assert second == 0
+
+
+def test_suppressed_memory_item_no_longer_enters_prompt(app, db_session, student_user):
+    from domain.repositories.memory import SyncMemoryRepository
+    from ai.memory.service import MemoryService
+
+    repo = SyncMemoryRepository(db_session)
+    item = repo.create_active(
+        subject_type="student",
+        subject_id=str(student_user.id),
+        memory_kind="profile",
+        memory_key="learning_summary",
+        value_json={"value": "Do not inject this"},
+        source_type="manual",
+    )
+    db_session.flush()
+    repo.suppress(item.id)
+    db_session.commit()
+
+    rendered = MemoryService.get_memory_context(
+        student_user.id,
+        "student",
+        agent_name="tutor",
+    )
+
+    assert "Do not inject this" not in rendered
+
+
+def test_teacher_generation_extractor_creates_candidates(app, db_session, teacher_user):
+    from ai.memory.extractor import extract_from_teacher_generation
+    from domain.repositories.memory import SyncMemoryRepository
+
+    created = extract_from_teacher_generation(
+        teacher_id=teacher_user.id,
+        request_params={"language": "java", "difficulty": "hard", "topic": "graphs"},
+        generated_question={"programming_language": "java", "difficulty": "hard"},
+    )
+
+    assert created >= 3
+    rows = SyncMemoryRepository(db_session).candidates_for_subject(
+        "teacher",
+        str(teacher_user.id),
+    )
+    keys = {row.memory_key for row in rows}
+    assert {"preferred_language", "preferred_difficulty", "preferred_topics"} <= keys
+
+
+def test_conversation_summary_extractor_creates_student_candidate(app, db_session, student_user):
+    from ai.memory.extractor import extract_from_conversation_summary
+
+    created = extract_from_conversation_summary(
+        user_id=student_user.id,
+        user_role="student",
+        conversation_id=55,
+        summary="Student struggled with recursion base cases.",
+    )
+
+    assert created == 1
+
+
+def test_approving_teacher_candidate_updates_profile_endpoint(
+    client, mock_auth_teacher, db_session, teacher_user
+):
+    from domain.repositories.memory import SyncMemoryRepository
+
+    repo = SyncMemoryRepository(db_session)
+    candidate = repo.create_candidate(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "java"},
+        source_type="generation",
+    )
+    db_session.commit()
+
+    client.post(f"/api/v1/ai/memory/{candidate.id}/approve")
+    resp = client.get("/api/v1/ai/profile")
+
+    assert resp.status_code == 200
+    assert resp.get_json()["preference"]["preferred_language"] == "java"
+
+
+def test_expired_items_are_marked_expired_on_query(app, db_session, student_user):
+    from datetime import timedelta
+
+    from core.timezone import now_china
+    from domain.models.memory import MemoryItemRecord
+    from domain.repositories.memory import SyncMemoryRepository
+
+    repo = SyncMemoryRepository(db_session)
+    item = repo.create_active(
+        subject_type="student",
+        subject_id=str(student_user.id),
+        memory_kind="profile",
+        memory_key="learning_summary",
+        value_json={"value": "Stale"},
+        source_type="manual",
+        expires_at=now_china() - timedelta(hours=1),
+    )
+    db_session.flush()
+    item_id = item.id
+
+    live = repo.active_for_subject("student", str(student_user.id))
+
+    assert live == []
+    db_session.expire_all()
+    assert db_session.get(MemoryItemRecord, item_id).status == "expired"
+
+
+def test_conflict_does_not_silently_overwrite_without_approve(app, db_session, teacher_user):
+    from domain.models.memory import MemoryItemRecord
+    from domain.repositories.memory import SyncMemoryRepository
+
+    repo = SyncMemoryRepository(db_session)
+    old = repo.create_active(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "python"},
+        source_type="manual",
+    )
+    new = repo.create_candidate(
+        subject_type="teacher",
+        subject_id=str(teacher_user.id),
+        memory_kind="preference",
+        memory_key="preferred_language",
+        value_json={"value": "java"},
+        source_type="generation",
+    )
+    db_session.flush()
+    old_id, new_id = old.id, new.id
+
+    candidates = repo.candidates_for_subject("teacher", str(teacher_user.id))
+    assert [c.id for c in candidates] == [new_id]
+    db_session.expire_all()
+    assert db_session.get(MemoryItemRecord, old_id).status == "active"
+    assert db_session.get(MemoryItemRecord, new_id).status == "candidate"
+
+    repo.promote(new_id)
+
+    db_session.expire_all()
+    assert db_session.get(MemoryItemRecord, old_id).status == "superseded"
+    assert db_session.get(MemoryItemRecord, new_id).status == "active"

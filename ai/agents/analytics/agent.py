@@ -9,16 +9,10 @@ class AnalyticsAgent(BaseAgent):
     name = "analytics"
 
     def _build_system_context(self, state: dict) -> str:
-        from ai.memory.service import MemoryService
-
         context = state.get("context", {})
         parts = [ANALYTICS_SYSTEM_PROMPT + SECURITY_PROMPT_ADDENDUM + HANDOFF_PROMPT_ADDENDUM]
 
-        memory_ctx = MemoryService.get_memory_context(
-            state.get("user_id", 0),
-            state.get("user_role", "student"),
-            conversation_id=context.get("conversation_id"),
-        )
+        memory_ctx = self._prepare_memory_for_state(state, target_student_id=context.get("target_student_id"))
         if memory_ctx:
             parts.append(f"\n## User Profile Context\n{memory_ctx}")
 

@@ -16,7 +16,7 @@ def test_external_client_role_override_still_enforced(monkeypatch):
     from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
 
     bootstrap_tool_runtime()
-    monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
     set_caller_info({
         "api_key_id": "key-1",
         "user_id": 10,
@@ -40,7 +40,7 @@ def test_external_client_unrestricted_tool_passes_with_scope(monkeypatch):
     from ai.mcp_gateway.bootstrap import bootstrap_tool_runtime
 
     bootstrap_tool_runtime()
-    monkeypatch.setattr("mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
+    monkeypatch.setattr("ai.mcp_gateway.middleware.core.check_rate_limit", lambda *_: True)
     set_caller_info({
         "api_key_id": "key-2",
         "user_id": 11,

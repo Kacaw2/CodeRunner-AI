@@ -300,6 +300,86 @@ def test_runtime_stream_executes_tool_name_xml_and_persists_tool_output(
         assert "Two Sum" in tool_span.output_preview
 
 
+def test_runtime_persists_memory_audit_event_and_artifact(
+    monkeypatch, app, db_session, teacher_user,
+):
+    """A run carrying a memory selection writes both a memory_context_selected
+    event and a memory_injection_audit artifact to the trace."""
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
+    from ai.memory.context import MemoryContext, MemoryItem, MemoryMetadata
+    from ai.memory.governance import select_memory_context
+    from core.definitions import MemoryPolicy, MemoryProfileKind
+
+    monkeypatch.setattr(runtime_mod.AIConfig, "get_llm",
+                        staticmethod(lambda tier=None: _mock_llm_no_tools()))
+
+    context = MemoryContext(student_profile=(
+        MemoryItem(
+            key="learning_summary",
+            value="Needs recursion practice.",
+            metadata=MemoryMetadata(
+                source="profile:1",
+                reason_included="test",
+                priority=80,
+            ),
+        ),
+    ))
+    selection = select_memory_context(
+        context,
+        MemoryPolicy(
+            profile_kind=MemoryProfileKind.STUDENT,
+            max_memory_chars=4000,
+            max_memory_tokens=1000,
+        ),
+    )
+
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    try:
+        state = {
+            "messages": [HumanMessage(content="help")],
+            "agent_type": "tutor",
+            "user_id": teacher_user.id,
+            "user_role": "student",
+            "context": {"conversation_id": 7777},
+            "tool_results": [],
+            "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        session.memory_selection = selection
+        result = AgentRuntime().run(session, tool_names=[], system_ctx="SYS")
+    finally:
+        reset_tool_runtime()
+
+    from domain.models.observability import AgentTraceEvent, AgentTraceArtifact
+    from core.db.session import db_session as core_db_session
+
+    with core_db_session() as session_db:
+        events = (
+            session_db.query(AgentTraceEvent)
+            .filter_by(
+                trace_id=result["trace_id"],
+                event_type="memory_context_selected",
+            )
+            .all()
+        )
+        artifacts = (
+            session_db.query(AgentTraceArtifact)
+            .filter_by(
+                trace_id=result["trace_id"],
+                artifact_type="memory_injection_audit",
+            )
+            .all()
+        )
+        assert len(events) == 1
+        assert len(artifacts) == 1
+        assert events[0].payload_json["included_count"] == 1
+
+
 def test_runtime_context_restores_question_id_from_conversation():
     from ai.agent_runtime.services.chat_runner import (
         _chat_context_from_conversation,
@@ -424,3 +504,92 @@ def test_runtime_stream_records_artifact_for_generated_problem(
         )
         assert "Two Sum" in artifact.preview_text
         assert artifact.payload_json["verified"] is True
+
+
+def test_compaction_span_recorded_when_over_budget(monkeypatch):
+    from core.observability.tracing import TraceCollector
+    from ai.memory.compaction import CompactionResult
+
+    trace = TraceCollector(agent_type="tutor", user_id=1)
+    result = CompactionResult(
+        messages=[], compacted=True, dropped_messages=5, kept_messages=3,
+        summarized=True, fallback_used=False, tokens_before=900, tokens_after=300,
+    )
+    trace.trace_compaction(result)
+
+    spans = [s for s in trace.steps if s.get("step_type") == "compaction"]
+    assert len(spans) == 1
+    assert spans[0]["tool_input"]["dropped_messages"] == 5
+    assert spans[0]["tool_input"]["tokens_after"] == 300
+
+
+def test_trace_compaction_noop_not_recorded():
+    from core.observability.tracing import TraceCollector
+    from ai.memory.compaction import CompactionResult
+
+    trace = TraceCollector(agent_type="tutor", user_id=1)
+    result = CompactionResult(
+        messages=[], compacted=False, dropped_messages=0, kept_messages=3,
+        summarized=False, fallback_used=False, tokens_before=10, tokens_after=10,
+    )
+    trace.trace_compaction(result)
+    assert not [s for s in trace.steps if s.get("step_type") == "compaction"]
+
+
+def test_inloop_compaction_records_span_and_run_completes(monkeypatch):
+    """Two-iteration run with large tool output triggers in-loop compaction span."""
+    from ai.agents.runtime import AgentRuntime
+    from ai.agents.session import AgentSession
+    import ai.agents.runtime as runtime_mod
+
+    # Iteration 1: return a tool call; iteration 2: return final text
+    call_count = {"n": 0}
+
+    class _Resp:
+        def __init__(self, tool_calls, content="", usage=None):
+            self.tool_calls = tool_calls
+            self.content = content
+            self.usage_metadata = usage or {}
+            self.response_metadata = {}
+
+    def _invoke(_llm_with_tools, _messages):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _Resp(
+                tool_calls=[{"name": "coderunner.problem.get_detail", "args": {}, "id": "tc1"}],
+                usage={"input_tokens": 10, "output_tokens": 5},
+            )
+        return _Resp(tool_calls=[], content="All done.", usage={"input_tokens": 5, "output_tokens": 3})
+
+    monkeypatch.setattr(runtime_mod.LLMRunner, "invoke", staticmethod(_invoke))
+    monkeypatch.setattr(runtime_mod.AIConfig, "get_llm", staticmethod(lambda tier=None: MagicMock()))
+
+    from ai.mcp_gateway import client as client_mod
+    from ai.tools.protocol.runtime import ToolRuntime, set_tool_runtime, reset_tool_runtime
+
+    class _FakeClient:
+        def call_tool(self, name, args, identity, tool_call_id=""):
+            # Large output to exceed DEFAULT_CONTEXT_TOKEN_BUDGET (12000 tokens ~ 48000 chars)
+            return {"ok": True, "data": {"output": "x" * 60000}}
+
+    mock_rt = MagicMock(spec=ToolRuntime)
+    mock_rt.list_tools.return_value = []
+    set_tool_runtime(mock_rt)
+    client_mod.set_mcp_tool_client(_FakeClient())
+    try:
+        state = {
+            "messages": [HumanMessage(content="explain")],
+            "agent_type": "tutor", "user_id": 7, "user_role": "student",
+            "context": {}, "tool_results": [], "final_response": "",
+        }
+        session = AgentSession.from_state(state, agent_name="tutor")
+        result = AgentRuntime().run(
+            session, tool_names=["coderunner.problem.get_detail"], system_ctx="SYS"
+        )
+    finally:
+        reset_tool_runtime()
+        client_mod.set_mcp_tool_client(None)
+
+    assert result["final_response"] == "All done."
+    compaction_spans = [s for s in session.trace.steps if s.get("step_type") == "compaction"]
+    assert len(compaction_spans) >= 1

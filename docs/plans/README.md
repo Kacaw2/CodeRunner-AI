@@ -17,6 +17,7 @@
 ### Agent Platform 后续提升
 
 - [2026-06-05-agent-platform-remaining-improvements-plan.md](active/2026-06-05-agent-platform-remaining-improvements-plan.md) — 从 Claude Code-inspired 架构升级路线中抽取的未实现真实提升项：Context/Memory、EvalOps/Replay、streaming workflow、replay/idempotency、ToolRuntime 运维级 guardrails。
+- [2026-06-08-eval-memory-replay-snapshot-phase5-plan.md](active/2026-06-08-eval-memory-replay-snapshot-phase5-plan.md) — Phase 5 详细执行计划；实现版本化 memory snapshot、current/recorded/none eval replay 和 memory drift 报告。
 
 ## Archive
 
@@ -28,6 +29,10 @@
 - [2026-06-04-phase3-unified-tool-mcp-boundary-closeout-plan.md](archive/2026-06-04-phase3-unified-tool-mcp-boundary-closeout-plan.md)
 - [2026-06-04-phase3.5-toolruntime-hardening-plan.md](archive/2026-06-04-phase3.5-toolruntime-hardening-plan.md)
 - [2026-06-04-phase4-planning-task-execution-plan.md](archive/2026-06-04-phase4-planning-task-execution-plan.md)
+- [2026-06-08-agent-memory-context-governance-phase1-2-plan.md](archive/2026-06-08-agent-memory-context-governance-phase1-2-plan.md) — Context/Memory Phase 1-2 已完成：结构化 `MemoryContext`、build/render 分离、兼容 legacy `get_memory_context()`，以及 tutor/generator/analytics/reviewer 被真实消费的 `memory_policy`。focused suite `129 passed`。Phase 3-5 仍在 active。
+- [2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md](archive/2026-06-08-agent-memory-budget-filter-audit-phase3-plan.md) — Context/Memory Phase 3 已完成：确定性预算（`0`=禁止注入）、TTL/sensitivity/空值过滤、稳定 snapshot hash，以及复用现有 trace event/artifact 的注入审计（不保存完整 rendered memory）。focused suite `94 passed`。Phase 4-5 仍在 active。
+- [2026-06-08-governed-memory-lifecycle-phase4-plan.md](archive/2026-06-08-governed-memory-lifecycle-phase4-plan.md) — Context/Memory Phase 4 已完成：item 级 `memory_items` candidate/active/rejected/superseded/suppressed/expired 生命周期与仓储、确定性 candidate extractor、治理 API（list/approve/reject/suppress + subject 级鉴权）、active item 优先注入与 legacy profile 物化视图回写。focused suite `115 passed`。仅 Phase 5 仍在 active。
+- [2026-06-08-short-term-message-compaction-redesign-plan.md](archive/2026-06-08-short-term-message-compaction-redesign-plan.md) — 已完成：runtime 层短期消息窗口压缩重做；token 触发、loop 内滚动（run + stream 两个 loop）、tool-call 配对安全、compaction trace span。与长/中期 memory 子计划正交。full pytest `700 passed`。
 
 ### 已完成：数据库 / Schema 基础设施
 
