@@ -45,13 +45,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Guard — require API key
-        run: |
-          if [ -z "${DEEPSEEK_API_KEY}" ]; then
-            echo "::error::DEEPSEEK_API_KEY secret is not set; cannot run evals."
-            exit 1
-          fi
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
